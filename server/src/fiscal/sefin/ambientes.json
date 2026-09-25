@@ -1,0 +1,16 @@
+{
+  "_fonte": "https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/apis-prod-restrita-e-producao",
+  "_nota": "A página oficial lista a documentação Swagger da Sefin em /API/SefinNacional/docs/index (produção restrita). A URL-base de chamadas deve ser confirmada no Swagger com certificado; ajuste aqui sem alterar código.",
+  "producao_restrita": {
+    "tpAmb": "2",
+    "sefin": "https://sefin.producaorestrita.nfse.gov.br/SefinNacional",
+    "adn": "https://adn.producaorestrita.nfse.gov.br",
+    "consultaPublica": "https://www.producaorestrita.nfse.gov.br/ConsultaPublica/?tpc=1&chave="
+  },
+  "producao": {
+    "tpAmb": "1",
+    "sefin": "https://sefin.nfse.gov.br/SefinNacional",
+    "adn": "https://adn.nfse.gov.br",
+    "consultaPublica": "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave="
+  }
+}
