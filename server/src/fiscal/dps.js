@@ -39,12 +39,14 @@ function enderecoXml(en) {
  * @param {object} p.prestador {tipoDocumento, documento, municipioIbge, inscricaoMunicipal, email, fone}
  * @param {object} p.nota      rascunho validado
  * @param {object} p.pacote    pacote de regras (tributação/regime)
+ * @param {object} [p.contexto] contexto das regras (parâmetros municipais já consultados)
  */
-export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic }) {
+export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic, contexto = {} }) {
   const cLocEmi = prestador.municipioIbge;
   const Id = idDps({ cLocEmi, tipoDocumento: prestador.tipoDocumento, documento: prestador.documento, serie, nDPS });
-  const reg = pacote.regTrib();
-  const trib = pacote.tributacao();
+  const ctx = { prestador, nota, ...contexto };
+  const reg = pacote.regTrib(ctx);
+  const trib = pacote.tributacao(ctx);
   const t = nota.tomador && nota.tomador.tipo && nota.tomador.tipo !== 'NENHUM' ? nota.tomador : null;
   const localPrest = nota.localPrestacaoIbge || cLocEmi;
   if (!municipio(localPrest)) throw new Error('Local da prestação inválido');
@@ -62,7 +64,8 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
   const serv = `<serv><locPrest>${el('cLocPrestacao', localPrest)}</locPrest>`
     + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', nota.cNBS)}</cServ></serv>`;
 
-  const totTrib = trib.totTrib.indTotTrib !== undefined ? el('indTotTrib', trib.totTrib.indTotTrib) : '';
+  // totTrib é um choice: indTotTrib (MEI) ou pTotTribSN (ME/EPP) — E0710/E0712/E0713.
+  const totTrib = trib.totTrib.indTotTrib !== undefined ? el('indTotTrib', trib.totTrib.indTotTrib) : el('pTotTribSN', trib.totTrib.pTotTribSN);
   const valores = `<valores><vServPrest>${el('vServ', formatarValor(nota.valor))}</vServPrest>`
     + `<trib><tribMun>${el('tribISSQN', trib.tribISSQN)}${el('tpRetISSQN', trib.tpRetISSQN)}${el('pAliq', trib.pAliq)}</tribMun>`
     + `<totTrib>${totTrib}</totTrib></trib></valores>`;

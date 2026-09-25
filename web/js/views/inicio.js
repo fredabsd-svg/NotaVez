@@ -30,7 +30,7 @@ export async function tela() {
       titulo: 'Início', aba: 'inicio',
       node: h('div', {},
         h('h2', {}, 'Bem-vindo ao NotaVez'),
-        h('p', {}, 'Primeiro, preencha seu perfil fiscal (CNPJ do MEI e município). Leva um minuto.'),
+        h('p', {}, 'Primeiro, preencha seu perfil fiscal (CNPJ, município e regime). Leva um minuto.'),
         h('a', { class: 'btn btn-primario btn-grande', href: '#/perfil' }, 'Preencher perfil')),
     };
   }

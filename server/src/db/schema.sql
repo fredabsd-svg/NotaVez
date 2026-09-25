@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS prestadores (
   inscricao_municipal TEXT,
   contato_cifrado TEXT,             -- {email, fone}
   serie_dps TEXT NOT NULL DEFAULT '1',
+  config_fiscal TEXT,               -- {regApTribSN, pTotTribSN, aliqIssSN} (ME/EPP)
   ambiente TEXT NOT NULL DEFAULT 'producao_restrita',
   criado_em TEXT NOT NULL,
   atualizado_em TEXT NOT NULL
@@ -141,4 +142,11 @@ CREATE TABLE IF NOT EXISTS auditoria (
   detalhes TEXT,
   ip TEXT,
   criado_em TEXT NOT NULL
+);
+
+-- Cache das consultas à API de Parâmetros Municipais (dados públicos do município).
+CREATE TABLE IF NOT EXISTS parametros_municipais_cache (
+  chave TEXT PRIMARY KEY,           -- ex.: convenio:3550308
+  dados TEXT NOT NULL,
+  obtido_em TEXT NOT NULL
 );

@@ -1,4 +1,4 @@
-import { h, campo, aviso, hoje, moeda, buscaComSugestoes, icone, ICONES } from '../ui.js';
+import { h, anexar, campo, aviso, hoje, moeda, buscaComSugestoes, icone, ICONES } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { salvarLocal, removerLocal, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
@@ -143,12 +143,59 @@ export async function tela({ id }) {
   const blocoQuando = h('section', { 'aria-labelledby': 'h-quando' }, h('h3', { id: 'h-quando' }, '3. Quando e quanto'),
     competencia, marcador('competencia'), valor, previa, marcador('valor'));
 
-  // ----- Tributação (MEI) -----
-  const blocoTrib = h('section', { 'aria-labelledby': 'h-trib' }, h('h3', { id: 'h-trib' }, '4. Tributação'),
-    h('div', { class: 'cartao' },
+  // ----- Tributação (depende do regime do perfil) -----
+  const blocoTrib = h('section', { 'aria-labelledby': 'h-trib' }, h('h3', { id: 'h-trib' }, '4. Tributação'));
+  const pctTexto = (v) => (v ? Number(v).toFixed(2).replace('.', ',') : '');
+  const lerPct = (v) => {
+    const n = Number(String(v).replace('%', '').replace(',', '.'));
+    return String(v).trim() && Number.isFinite(n) ? n.toFixed(2) : null;
+  };
+  if (perfil?.opSimpNac === '3') {
+    const reg = String(perfil.regApTribSN || '1');
+    const explicacao = {
+      1: 'Simples Nacional: tributos federais e ISS pagos no DAS.',
+      2: 'Simples Nacional: tributos federais no DAS; ISS fora do Simples, pela regra do município.',
+      3: 'Tributos federais e ISS fora do Simples, pela regra de cada tributo.',
+    }[reg];
+    const avisoRet = h('p', { class: 'suave', 'aria-live': 'polite' });
+    const aliq = campo({
+      rotulo: reg === '1' ? 'Alíquota do ISS no Simples (%)' : 'Alíquota do ISS do município (%)',
+      ajuda: reg === '1'
+        ? `Obrigatória quando o cliente retém o ISS (entre 1,8% e 5%).${perfil.aliqIssSN ? ` Se deixar em branco, usamos a do perfil: ${pctTexto(perfil.aliqIssSN)}%.` : ''}`
+        : 'Só vai na nota se o município onde o ISS é devido não for conveniado ao Sistema Nacional. Conferimos na revisão.',
+      valor: pctTexto(r.pAliq), atributos: { inputmode: 'decimal', placeholder: reg === '1' ? pctTexto(perfil.aliqIssSN) || '2,00' : 'Ex.: 3,00' },
+      oninput: (e) => { r.pAliq = lerPct(e.target.value); revisado('tributacao'); persistir(); },
+    });
+    const retido = h('input', {
+      type: 'checkbox', id: 'iss-retido', checked: !!r.issRetido,
+      onchange: (e) => { r.issRetido = e.target.checked; atualizarAliq(); revisado('tributacao'); persistir(); },
+    });
+    const atualizarAliq = () => {
+      aliq.hidden = reg === '1' && !r.issRetido;
+      const cpf = (meta.cliente?.tipo || r.tomador?.tipo) === 'CPF';
+      avisoRet.textContent = r.issRetido && cpf ? 'Atenção: nesta versão, só clientes com CNPJ podem reter o ISS.' : '';
+    };
+    const pTot = campo({
+      rotulo: 'Percentual aproximado de tributos (%)',
+      ajuda: perfil.pTotTribSN ? `Do perfil: ${pctTexto(perfil.pTotTribSN)}%. Mude só se a alíquota do mês for outra.` : 'Sua alíquota efetiva do Simples no mês.',
+      valor: pctTexto(r.pTotTribSN), atributos: { inputmode: 'decimal', placeholder: pctTexto(perfil.pTotTribSN) || 'Ex.: 6,00' },
+      oninput: (e) => { r.pTotTribSN = lerPct(e.target.value); revisado('tributacao'); persistir(); },
+    });
+    anexar(blocoTrib,
+      h('div', { class: 'cartao' }, h('p', { style: 'margin:0' }, h('strong', {}, 'ME/EPP: '), explicacao)),
+      h('label', { class: 'caixa', for: 'iss-retido' }, retido, h('span', {}, h('strong', {}, 'O cliente vai reter o ISS'), h('span', { class: 'ajuda' }, 'Marque se o cliente desconta o ISS e recolhe ao município.'))),
+      avisoRet, aliq, pTot, marcador('tributacao'));
+    atualizarAliq();
+  } else if (perfil?.opSimpNac === '1') {
+    anexar(blocoTrib, h('div', { class: 'cartao cartao-alerta' },
+      h('p', { style: 'margin:0' }, 'Lucro Presumido ou Real: a emissão direta ainda não está disponível. Você pode preparar este rascunho e emitir pelo Emissor Nacional.')),
+    marcador('tributacao'));
+  } else {
+    anexar(blocoTrib, h('div', { class: 'cartao' },
       h('p', { style: 'margin-top:0' }, h('strong', {}, 'MEI: '), 'o ISS e os impostos federais já são pagos no DAS mensal.'),
       h('p', { class: 'suave' }, 'A nota sai como operação tributável, sem alíquota e sem retenção de ISS, como exige a Receita para MEI.')),
     marcador('tributacao'));
+  }
 
   // ----- Local e opções (só quando necessário) -----
   const localAtual = r.localPrestacaoIbge ? await municipioPorCodigo(r.localPrestacaoIbge) : null;

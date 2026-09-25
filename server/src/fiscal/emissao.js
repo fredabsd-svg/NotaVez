@@ -8,6 +8,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { config, ambientesSefin } from '../config.js';
 import { decifrar, decifrarBuffer } from '../security/cripto.js';
 import { escolherPacote } from './regras/index.js';
+import { municipioIncidencia } from './regras/comum.js';
 import { montarDps, dataHoraBrasilia, hojeBrasilia } from './dps.js';
 import { validarXsd } from './xsd.js';
 import { assinarDps } from './assinatura.js';
@@ -36,14 +37,19 @@ export function lerNfse(xml) {
   };
 }
 
-/** Valida o rascunho sem enviar nada (usado na tela de Revisão). */
-export function validarRascunho(prestador, rascunho, hoje = hojeBrasilia()) {
+/**
+ * Valida o rascunho sem enviar nada (tela de Revisão e antes da emissão).
+ * `parametros` = convênios já consultados ({ convenioEmissor, convenioIncidencia }).
+ */
+export function validarRascunho(prestador, rascunho, hoje = hojeBrasilia(), parametros = {}) {
   const escolha = escolherPacote({ opSimpNac: prestador?.opSimpNac, competencia: rascunho.competencia });
-  if (!escolha.pacote) return { ok: false, erros: [{ campo: 'regime', mensagem: escolha.motivo, regra: 'NotaVez' }] };
-  const erros = escolha.pacote.validar({ prestador, nota: rascunho, hoje });
+  if (!escolha.pacote) return { ok: false, erros: [{ campo: 'regime', mensagem: escolha.motivo, regra: 'NotaVez' }], exigencias: null };
+  const contexto = { hoje, parametros, municipioIncidencia: municipioIncidencia(prestador, rascunho) };
+  const ctx = { prestador, nota: rascunho, ...contexto };
+  const erros = escolha.pacote.validar(ctx);
   const pendRevisao = (rascunho.revisar || []).filter(Boolean);
   for (const c of pendRevisao) erros.push({ campo: c, mensagem: 'Confira este campo (nota clonada).', regra: 'Clonagem' });
-  return { ok: erros.length === 0, erros, pacote: escolha.pacote };
+  return { ok: erros.length === 0, erros, pacote: escolha.pacote, contexto, exigencias: escolha.pacote.exigencias(ctx) };
 }
 
 function materialCertificado(certificado) {
@@ -58,9 +64,50 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     if (!clientes.has(chave)) {
       const mat = materialCertificado(certificado);
       const amb = ambientesSefin[prestador.ambiente];
-      clientes.set(chave, fabricaCliente({ baseUrl: amb.sefin, ...mat, timeoutMs: config.timeoutSefinMs }));
+      clientes.set(chave, fabricaCliente({
+        baseUrl: amb.sefin, baseParametros: amb.parametros, rotasParametros: ambientesSefin.rotasParametros, ...mat, timeoutMs: config.timeoutSefinMs,
+      }));
     }
     return clientes.get(chave);
+  }
+
+  // ---------- Parâmetros municipais (convênio), com cache de 12 h ----------
+  const VALIDADE_CONVENIO_MS = 12 * 3600_000;
+  async function convenio(prestador, certificado, ibge) {
+    if (!ibge) return { situacao: 'desconhecido', motivo: 'sem_municipio' };
+    const chave = `convenio:${prestador.ambiente}:${ibge}`;
+    const cache = repo.parametroEmCache(chave, VALIDADE_CONVENIO_MS);
+    if (cache) return { ...cache, cache: true };
+    if (!certificado) return { situacao: 'desconhecido', motivo: 'sem_certificado' };
+    const r = await clienteSefin(prestador, certificado).consultarConvenio(ibge);
+    repo.registrarChamada(null, 'parametros_convenio', { http: r.http, tipo: r.situacao, ms: r.ms, detalhe: ibge });
+    if (r.situacao !== 'desconhecido') repo.guardarParametro(chave, { situacao: r.situacao, aderenteEmissorNacional: r.aderenteEmissorNacional ?? null });
+    return r;
+  }
+
+  // Consulta só o que o pacote de regras precisa (o MEI não precisa de nada).
+  async function parametrosPara(prestador, certificado, rascunho) {
+    const escolha = escolherPacote({ opSimpNac: prestador.opSimpNac, competencia: rascunho.competencia });
+    if (!escolha.pacote) return {};
+    const precisa = escolha.pacote.precisaParametros({ prestador, nota: rascunho });
+    const p = {};
+    if (precisa.convenioEmissor) p.convenioEmissor = await convenio(prestador, certificado, prestador.municipioIbge);
+    if (precisa.convenioIncidencia) {
+      const ibge = municipioIncidencia(prestador, rascunho);
+      p.convenioIncidencia = ibge === prestador.municipioIbge && p.convenioEmissor ? p.convenioEmissor : await convenio(prestador, certificado, ibge);
+    }
+    return p;
+  }
+
+  async function validar(prestador, rascunho) {
+    const certificado = repo.certificadoAtivo(prestador.id);
+    const parametros = await parametrosPara(prestador, certificado, rascunho);
+    return validarRascunho(prestador, rascunho, hojeBrasilia(), parametros);
+  }
+
+  async function convenioEmissor(prestador) {
+    if (!prestador || prestador.opSimpNac === '2' || !prestador.municipioIbge) return null;
+    return convenio(prestador, repo.certificadoAtivo(prestador.id), prestador.municipioIbge);
   }
 
   async function comTrava(notaId, fn) {
@@ -104,10 +151,11 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
         throw new ErroApp(409, 'Esta nota está pendente de confirmação. Use "Verificar situação" — não envie de novo.');
       }
       const certificado = repo.certificadoAtivo(prestador.id);
-      const eleg = avaliarElegibilidade(prestador, certificado);
+      const parametros = await parametrosPara(prestador, certificado, nota.rascunho);
+      const eleg = avaliarElegibilidade(prestador, certificado, { convenioEmissor: parametros.convenioEmissor });
       if (!eleg.podeEmitir) throw new ErroApp(403, 'Ainda falta algo para emitir pelo NotaVez.', { pendencias: eleg.pendencias });
 
-      const v = validarRascunho(prestador, nota.rascunho);
+      const v = validarRascunho(prestador, nota.rascunho, hojeBrasilia(), parametros);
       if (!v.ok) throw new ErroApp(422, 'Corrija os campos indicados antes de emitir.', { erros: v.erros });
 
       const amb = ambientesSefin[prestador.ambiente];
@@ -115,7 +163,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const nDPS = repo.proximoNumeroDps(prestador.documento, prestador.ambiente, serie);
       const { xml, Id } = montarDps({
         tpAmb: amb.tpAmb, prestador, nota: nota.rascunho, pacote: v.pacote, serie, nDPS,
-        dhEmi: dataHoraBrasilia(), verAplic: config.versaoAplicativo,
+        dhEmi: dataHoraBrasilia(), verAplic: config.versaoAplicativo, contexto: v.contexto,
       });
       const mat = materialCertificado(certificado);
       const assinado = assinarDps(xml, mat);
@@ -197,5 +245,5 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     }
   }
 
-  return { emitir, verificar, buscarXml, verificarPendentes, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
+  return { emitir, verificar, validar, convenioEmissor, buscarXml, verificarPendentes, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
 }

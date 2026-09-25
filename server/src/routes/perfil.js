@@ -16,19 +16,33 @@ const perfilPublico = (p) => p && {
   tipoDocumento: p.tipoDocumento, documento: p.documento, documentoFormatado: formatarDocumento(p.tipoDocumento, p.documento),
   nome: p.nome, municipioIbge: p.municipioIbge, municipio: municipio(p.municipioIbge), opSimpNac: p.opSimpNac,
   inscricaoMunicipal: p.inscricaoMunicipal, email: p.email, fone: p.fone, serieDps: p.serieDps, ambiente: p.ambiente,
+  regApTribSN: p.regApTribSN || null, pTotTribSN: p.pTotTribSN || null, aliqIssSN: p.aliqIssSN || null,
+};
+
+// Elegibilidade completa (para não-MEI inclui o convênio do município, consultado com cache).
+async function elegibilidadeDe(emissao, prestador, cert) {
+  let convenioEmissor = null;
+  try { convenioEmissor = await emissao.convenioEmissor(prestador); } catch { /* segue como "não confirmado" */ }
+  return avaliarElegibilidade(prestador, cert, { convenioEmissor });
+}
+
+const pct = (v) => {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
 };
 
 const certPublico = (c) => c && { titular: c.titular, emissor: c.emissor, validoDe: c.validoDe, validoAte: c.validoAte, enviadoEm: c.criadoEm };
 
 export async function rotasPerfil(app) {
-  const { repo, db } = app.ctx;
+  const { repo, db, emissao } = app.ctx;
 
   app.get('/perfil', async (req) => {
     const cert = req.prestador ? repo.certificadoAtivo(req.prestador.id) : null;
     return {
       perfil: perfilPublico(req.prestador),
       certificado: certPublico(cert),
-      elegibilidade: avaliarElegibilidade(req.prestador, cert),
+      elegibilidade: await elegibilidadeDe(emissao, req.prestador, cert),
       producaoLiberada: config.producaoLiberada,
     };
   });
@@ -45,15 +59,27 @@ export async function rotasPerfil(app) {
     const ambiente = b.ambiente === 'producao' ? 'producao' : 'producao_restrita';
     if (ambiente === 'producao' && !config.producaoLiberada) erros.ambiente = 'A produção ainda não está liberada neste servidor.';
     if (b.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email)) erros.email = 'E-mail inválido.';
+    // ME/EPP: regime de apuração (E0166), % aproximado de tributos (totTrib/pTotTribSN) e alíquota do ISS para retenção (E0621/E0595).
+    const meEpp = String(b.opSimpNac) === '3';
+    const pTot = pct(b.pTotTribSN);
+    const aliq = pct(b.aliqIssSN);
+    if (meEpp) {
+      if (!['1', '2', '3'].includes(String(b.regApTribSN))) erros.regApTribSN = 'Escolha como sua empresa apura os tributos no Simples.';
+      if (pTot === null || Number.isNaN(pTot) || pTot <= 0 || pTot >= 100) erros.pTotTribSN = 'Informe o percentual (entre 0 e 100). Ex.: 6,00';
+      if (aliq !== null && (Number.isNaN(aliq) || aliq < 1.8 || aliq > 5)) erros.aliqIssSN = 'A alíquota do ISS para retenção deve ficar entre 1,8% e 5% (regras E0621 e E0595).';
+    }
     if (Object.keys(erros).length) throw invalido('Confira os dados do perfil.', erros);
     const id = repo.salvarPrestador(req.usuario.id, {
       tipoDocumento: doc.tipo, documento: doc.numero, nome: String(b.nome || '').trim().slice(0, 300), municipioIbge: String(b.municipioIbge),
       opSimpNac: String(b.opSimpNac), regEspTrib: '0', inscricaoMunicipal: String(b.inscricaoMunicipal || '').trim().slice(0, 15) || null,
       email: String(b.email || '').trim().slice(0, 80) || null, fone: somenteDigitos(b.fone).slice(0, 20) || null, serieDps: serie, ambiente,
+      regApTribSN: meEpp ? String(b.regApTribSN) : null,
+      pTotTribSN: meEpp ? pTot.toFixed(2) : null,
+      aliqIssSN: meEpp && aliq !== null ? aliq.toFixed(2) : null,
     });
     auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
     const p = repo.prestador(id);
-    return { perfil: perfilPublico(p), elegibilidade: avaliarElegibilidade(p, repo.certificadoAtivo(id)) };
+    return { perfil: perfilPublico(p), elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoAtivo(id)) };
   });
 
   // Envio do certificado A1: chega por HTTPS, é verificado e guardado cifrado.
@@ -73,7 +99,7 @@ export async function rotasPerfil(app) {
     repo.salvarCertificado(p.id, { pfx, senha: String(b.senha), info });
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
     const cert = repo.certificadoAtivo(p.id);
-    return { certificado: certPublico(cert), elegibilidade: avaliarElegibilidade(p, cert) };
+    return { certificado: certPublico(cert), elegibilidade: await elegibilidadeDe(emissao, p, cert) };
   });
 
   app.delete('/certificado', async (req) => {
@@ -93,7 +119,7 @@ export async function rotasPerfil(app) {
     const todas = repo.listarNotas(p.id, { limite: 500 });
     return {
       perfil: perfilPublico(p),
-      elegibilidade: avaliarElegibilidade(p, cert),
+      elegibilidade: await elegibilidadeDe(emissao, p, cert),
       ultima: ultima && resumoNota(repo, p, ultima),
       podeClonar: !!ultimaEmitida,
       rascunhos: todas.filter((n) => n.situacao === 'rascunho').length,

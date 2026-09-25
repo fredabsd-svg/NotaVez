@@ -79,6 +79,27 @@ Leiaute da DPS v1.01 (`DPS_v1.01.xsd`). O produto aplica estas regras **antes do
 | E1228 / E1229 / E1225 | Sem prefixo de namespace, UTF-8, GZip + Base64 | Garantido pelo gerador |
 | IBS/CBS | "Para optantes dos Simples Nacional, os grupos IBSCBS só serão obrigatórios a partir de 2027" (Anexo I, leiaute) | Omite os grupos até 31/12/2026; **competências de 2027 em diante ficam bloqueadas** até a atualização das regras |
 
+### 1.4.1 Regras para ME/EPP do Simples Nacional (`opSimpNac = 3`)
+
+Pacote `server/src/fiscal/regras/me-epp-2026.js`, conferido regra a regra na aba `RN DPS_NFS-e` do Anexo I:
+
+| Regra | Exigência | O que o NotaVez faz |
+|---|---|---|
+| E0166 / E0162 | `regApTribSN` obrigatório para ME/EPP: 1 = federais e ISS pelo Simples; 2 = federais pelo Simples e ISS fora; 3 = tudo fora do Simples | O perfil pergunta, em linguagem comum, como a empresa paga os tributos |
+| E0175 | Com `regApTribSN = 1`, `regEspTrib = 0` | Valor fixo |
+| E0712 | ME/EPP **não** pode usar `indTotTrib` | Envia `totTrib/pTotTribSN` (percentual aproximado do Simples, informado no perfil e ajustável por nota) |
+| E0621 / E0628 | `regApTribSN = 1` **com** ISS retido ⇒ alíquota obrigatória, **mínimo 1,8%** | A alíquota aparece só quando o cliente retém; o padrão vem do perfil |
+| E0625 / E0631 | `regApTribSN = 1` **sem** retenção ⇒ alíquota proibida | Não envia a alíquota |
+| E0635 | `regApTribSN = 2/3` e município de incidência **conveniado** ⇒ alíquota proibida (a Sefin usa a parametrização municipal) | Consulta o convênio; se ativo, não envia a alíquota |
+| E0640 | `regApTribSN = 2/3` e município de incidência **não** conveniado ⇒ alíquota obrigatória | Pede a alíquota do município |
+| E0595 | Alíquota nunca acima de 5% | Bloqueia |
+| E0204 | Retenção exige tomador identificado | Bloqueia |
+| E0667 | Retenção por tomador **pessoa física** só se o município autorizar | Nesta versão, retenção só com cliente CNPJ |
+| E0037 / E0038 / E0039 | Fora do MEI, o município emissor precisa ser conveniado, ativo e usar os emissores nacionais | Consulta o convênio (API de Parâmetros Municipais) e, se não houver, explica que a nota deve ser emitida no sistema da prefeitura |
+| E0116 / E0120 / E0119 | Inscrição municipal: obrigatória se houver cadastro complementar (CNC) no município; proibida se não houver | O perfil explica quando preencher; as mensagens de rejeição orientam |
+
+Município de incidência (para E0635/E0640): calculado pela regra do Anexo I (MUN.INCID_INFO.SERV.): estabelecimento do prestador, local da prestação ou endereço do tomador, conforme o serviço.
+
 **Regras municipais:** várias regras (E0016, E0037–E0039, E0119, E0312, E0314) valem "**exceto quando o emitente da DPS for MEI**". Por isso o MEI pode emitir pelo sistema nacional mesmo em municípios sem convênio ou sem parametrização. Para os demais prestadores essas regras valem integralmente: convênio, CNC/inscrição municipal, alíquotas, benefícios e retenções via `parametros_municipais`. É por isso que o MVP só libera emissão direta para MEI.
 
 ## 1.5 DANFSe e documentos
@@ -96,7 +117,9 @@ Leiaute da DPS v1.01 (`DPS_v1.01.xsd`). O produto aplica estas regras **antes do
 | MEI com certificado A3 (cartão ou token) | Não (MVP) | O servidor não tem acesso ao token físico | Rascunhos. Futuro: certificado em nuvem (PSC) com assinatura remota |
 | MEI só com o e-CPF do titular | Não suportado | A E0718 exige o certificado do emitente; não há garantia de aceite de e-CPF para emitente CNPJ | Recusa o envio do certificado e explica o motivo |
 | Contador ou procurador emitindo por um cliente | Não suportado | A assinatura tem de ser do emitente (E0718); a API não tem mecanismo de delegação | Futuro: vários perfis por conta, cada um com o seu certificado |
-| ME/EPP e não optantes do Simples | Não (MVP) | Dependem de regras municipais, alíquotas, retenções e IBS/CBS (obrigatório fora do Simples) | Rascunhos; arquitetura pronta (pacotes de regras por regime) |
+| **ME/EPP do Simples com e-CNPJ A1**, em município **conveniado** ao Sistema Nacional | **Sim** | Regras 1.4.1; convênio consultado na API de Parâmetros Municipais | Emite; retenção de ISS só com cliente CNPJ |
+| ME/EPP em município **não** conveniado | Não | E0037–E0039: fora do MEI, o sistema nacional só atende municípios conveniados | Rascunhos + orientação para o sistema da prefeitura |
+| Lucro Presumido / Lucro Real (não optante, `opSimpNac = 1`) | Não (ainda) | Alíquota conforme convênio (E0617/E0619), retenções federais (`tribFed`), PIS/COFINS e IBS/CBS | Rascunhos; próximo pacote de regras |
 
 ## 1.7 Impedimentos encontrados (na data de hoje)
 
@@ -105,6 +128,7 @@ Leiaute da DPS v1.01 (`DPS_v1.01.xsd`). O produto aplica estas regras **antes do
 3. **O Swagger da Sefin exige certificado.** Por isso a URL-base exata (`/SefinNacional` ou `/API/SefinNacional`) e os nomes dos campos JSON (`dpsXmlGZipB64`, `chaveAcesso`, `nfseXmlGZipB64`, `erros[{codigo, descricao, complemento}]`) foram **conferidos em bibliotecas de código aberto** que implementam a API, e não no Swagger. Tudo é ajustável em `server/src/fiscal/sefin/ambientes.json` e no cliente, sem mexer no restante do código.
 4. **URL da Consulta Pública na produção restrita:** não confirmada (a conexão foi reiniciada). A URL de produção foi confirmada (HTTP 200).
 5. **Produção restrita para contribuintes:** ver a ambiguidade do item 1.3 (4).
-6. **2027:** os grupos IBS/CBS passam a ser obrigatórios para o Simples; será preciso um novo pacote de regras.
-7. **NT 009 (leiaute 1.04):** publicada, mas ainda sem vigência segundo a página oficial; acompanhar.
-8. Informações encontradas **fora das fontes oficiais e não verificadas** (por exemplo, prazos de obrigatoriedade do Emissor Nacional para o Simples e tolerância do IBS/CBS até 31/12/2026 para não optantes) **não** foram usadas em nenhuma decisão do produto.
+6. **API de Parâmetros Municipais:** o host (`adn…/parametrizacao`) está na página oficial de APIs, mas as rotas (`/{municipio}/convenio`, `/{municipio}/{servico}/{competencia}/aliquota`) e o formato das respostas vieram de bibliotecas de código aberto: o Swagger exige certificado. Estão configuráveis em `ambientes.json`. Se a consulta falhar, o NotaVez **não supõe nada**: para ISS fora do Simples, pede para tentar de novo; nos demais casos, a Sefin valida o convênio no envio.
+7. **2027:** os grupos IBS/CBS passam a ser obrigatórios para o Simples; será preciso um novo pacote de regras.
+8. **NT 009 (leiaute 1.04):** publicada, mas ainda sem vigência segundo a página oficial; acompanhar.
+9. Informações encontradas **fora das fontes oficiais e não verificadas** (por exemplo, prazos de obrigatoriedade do Emissor Nacional para o Simples e tolerância do IBS/CBS até 31/12/2026 para não optantes) **não** foram usadas em nenhuma decisão do produto.

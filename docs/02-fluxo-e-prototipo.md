@@ -64,6 +64,18 @@ flowchart TD
 | 18 | Sem internet na revisão: emissão indisponível | ![](prototipo/18-offline-revisao.png) |
 | 19 | **Instalar na tela inicial** (Android e iPhone) | ![](prototipo/19-instalar.png) |
 
+### ME/EPP do Simples Nacional
+
+Os campos extras aparecem **só para ME/EPP**, e a alíquota do ISS aparece **só quando a regra oficial exige** (retenção pelo cliente, ou ISS fora do Simples em município não conveniado).
+
+| # | Tela | Imagem |
+|---|---|---|
+| 20 | Perfil: regime "ME/EPP — Simples Nacional", forma de apuração, % de tributos e alíquota do ISS para retenção | ![](prototipo/20-perfil-me-epp.png) |
+| 21 | Perfil pronto: convênio do município conferido com o certificado | ![](prototipo/21-perfil-me-epp-pronto.png) |
+| 22 | Nova nota: "O cliente vai reter o ISS" e alíquota com o valor do perfil | ![](prototipo/22-nova-nota-me-epp-retencao.png) |
+| 23 | Revisão: tributação resumida e ISS retido estimado | ![](prototipo/23-revisao-me-epp.png) |
+| 24 | Resultado: emitida | ![](prototipo/24-resultado-me-epp.png) |
+
 ## 2.4 Navegação
 
 - Abas fixas: **Início · Notas · Clientes · Perfil**. Serviços salvos e rascunhos ficam nos atalhos do Início.

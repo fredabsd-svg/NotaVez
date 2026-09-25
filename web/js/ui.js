@@ -18,6 +18,9 @@ export function h(tag, attrs = {}, ...filhos) {
   return el;
 }
 
+// Element.append nativo converte null em texto "null": use este para filhos opcionais.
+export const anexar = (el, ...filhos) => { el.append(...filhos.flat().filter((f) => f !== null && f !== undefined && f !== false)); return el; };
+
 export const moeda = (v) => (v === null || v === undefined || v === '' ? '—'
   : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 export const data = (iso) => {

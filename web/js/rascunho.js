@@ -6,6 +6,7 @@ import { hoje } from './ui.js';
 export const rascunhoVazio = () => ({
   clienteId: null, tomador: null, servicoId: null, cTribNac: '', cTribMun: null, cNBS: null,
   descricao: '', competencia: hoje(), valor: '', localPrestacaoIbge: null, revisar: [],
+  issRetido: false, pAliq: null, pTotTribSN: null,
 });
 
 // Carrega a versão mais recente: local (não sincronizada) ou do servidor.

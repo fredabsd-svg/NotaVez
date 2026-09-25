@@ -46,6 +46,13 @@ export function cliente(b) {
   return { tipo: doc.tipo, documento: doc.numero, nome, email: email || null, fone: fone || null, endereco: end, inscricaoMunicipal: texto(b.inscricaoMunicipal, 15) || null };
 }
 
+// Percentual informado pelo usuário ("2,5" → "2.50"); null se vazio/inválido.
+function percentualTexto(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const n = Number(String(v).trim().replace('%', '').replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 && n < 100 ? n.toFixed(2) : null;
+}
+
 const REVISAVEIS = ['competencia', 'valor', 'descricao', 'tributacao'];
 
 export function rascunho(b = {}) {
@@ -69,6 +76,10 @@ export function rascunho(b = {}) {
     competencia: /^\d{4}-\d{2}-\d{2}$/.test(b.competencia || '') ? b.competencia : '',
     valor: valorDecimal(b.valor),
     localPrestacaoIbge: somenteDigitos(b.localPrestacaoIbge).slice(0, 7) || null,
+    // Tributação (ME/EPP). Vazio = usa o valor do perfil.
+    issRetido: b.issRetido === true,
+    pAliq: percentualTexto(b.pAliq),
+    pTotTribSN: percentualTexto(b.pTotTribSN),
     revisar: Array.isArray(b.revisar) ? b.revisar.filter((x) => REVISAVEIS.includes(x)) : [],
   };
 }

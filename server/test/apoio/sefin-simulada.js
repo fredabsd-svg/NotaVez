@@ -31,6 +31,9 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     geradas: new Map(),   // idDps -> { chave, xml }
     recebidas: [],
     atrasoConsultaDps: 0,
+    // Convênios municipais simulados (ibge → aderente aos emissores nacionais).
+    conveniados: new Map([['3550308', true]]),
+    consultasParametros: 0,
   };
   let seq = 0;
   const { key, cert } = certServidor(caPem, caChavePem);
@@ -49,7 +52,31 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
 
   function regras(xml) {
     const erros = [];
-    if (/<pAliq>/.test(xml)) erros.push({ Codigo: 'E0600', Descricao: 'Não é permitido informar a alíquota para prestador de serviço optante do simples nacional do tipo MEI.' });
+    const e = (Codigo, Descricao) => erros.push({ Codigo, Descricao });
+    const op = tag(xml, 'opSimpNac');
+    const reg = tag(xml, 'regApTribSN');
+    const ret = tag(xml, 'tpRetISSQN');
+    const temAliq = /<pAliq>/.test(xml);
+    const aliq = Number(tag(xml, 'pAliq'));
+    const cLocEmi = tag(xml, 'cLocEmi');
+    const cLocIncid = tag(xml, 'cLocPrestacao');
+    // Regras do Anexo I para não-MEI / ME-EPP (subconjunto usado nos testes).
+    if (op !== '2' && !estado.conveniados.has(cLocEmi)) e('E0037', 'O código do município emissor informado na DPS é inexistente no cadastro de convênio municipal do sistema nacional.');
+    if (op === '3' && !reg) e('E0166', 'É obrigatorio o preenchimento do campo de regime de apuração dos tributos do SN para o optante do Simples Nacional ME/EPP.');
+    if (op === '3' && /<indTotTrib>/.test(xml)) e('E0712', 'Para ME/EPP indTotTrib nunca poderá ser informado.');
+    if (temAliq && aliq > 5) e('E0595', 'Não é permitido informar alíquota superior a 5%.');
+    if (ret !== '1' && !/<toma>/.test(xml)) e('E0204', 'CNPJ ou CPF do tomador não foi informado, mas existe uma indicação para retenção do ISSQN.');
+    if (op === '3' && reg === '1') {
+      if (ret !== '1' && !temAliq) e('E0621', 'É obrigatório informar alíquota quando há indicação de retenção do ISSQN.');
+      if (ret !== '1' && temAliq && aliq < 1.8) e('E0621', 'Alíquota mínima permitida é 1,8%.');
+      if (ret === '1' && temAliq) e('E0625', 'Não é permitido informar alíquota quando não há indicação de retenção do ISSQN.');
+    }
+    if (op === '3' && (reg === '2' || reg === '3')) {
+      const ativo = estado.conveniados.has(cLocIncid);
+      if (ativo && temAliq) e('E0635', 'Não é permitido informar alíquota quando o convênio do município de incidência do ISSQN está ativo.');
+      if (!ativo && !temAliq) e('E0640', 'É obrigatório informar alíquota quando o município de incidência não está Ativo.');
+    }
+    if (/<pAliq>/.test(xml) && tag(xml, 'opSimpNac') === '2') erros.push({ Codigo: 'E0600', Descricao: 'Não é permitido informar a alíquota para prestador de serviço optante do simples nacional do tipo MEI.' });
     const dCompet = tag(xml, 'dCompet');
     const dhEmi = tag(xml, 'dhEmi');
     if (dCompet && dhEmi && dCompet > dhEmi.slice(0, 10)) erros.push({ Codigo: 'E0015', Descricao: 'A data de competência informada na DPS não pode ser posterior à data de emissão (dhEmi) da DPS.' });
@@ -87,6 +114,13 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
         if (cenario === 'timeout_apos_processar') return; // processou, mas a resposta "se perdeu"
         return responder(res, 201, { ...base, chaveAcesso: chave, nfseXmlGZipB64: gzipSync(Buffer.from(nfse)).toString('base64'), alertas: [] });
       }
+      const mConv = url.pathname.match(/^\/parametrizacao\/(\d{7})\/convenio$/);
+      if (req.method === 'GET' && mConv) {
+        estado.consultasParametros += 1;
+        return estado.conveniados.has(mConv[1])
+          ? responder(res, 200, { parametrosConvenio: { tipoConvenioDeserializationSetter: 1, aderenteAmbienteNacional: 1, aderenteEmissorNacional: estado.conveniados.get(mConv[1]) ? 1 : 0, situacaoEmissaoPadraoContribuintesRFB: 1, aderenteMAN: 0 } })
+          : responder(res, 404, { mensagem: 'Nenhum registro encontrado.' });
+      }
       const mDps = caminho.match(/^\/dps\/(.+)$/);
       if (req.method === 'GET' && mDps) {
         const g = estado.geradas.get(decodeURIComponent(mDps[1]));
@@ -106,6 +140,7 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
   return {
     estado,
     baseUrl: `https://127.0.0.1:${porta}/SefinNacional`,
+    baseParametros: `https://127.0.0.1:${porta}/parametrizacao`,
     ca: caPem,
     fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(r); }),
   };
