@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>NotaVez — NFS-e do MEI</title>
+  <meta name="description" content="Emita NFS-e pelo celular: clientes, serviços salvos, rascunhos e histórico.">
+  <meta name="theme-color" content="#0b5cab">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icone.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icone-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="NotaVez">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topo">
+    <button type="button" id="voltar" class="topo-voltar" aria-label="Voltar" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+    <h1 id="titulo" class="topo-titulo">NotaVez</h1>
+    <span id="selo-ambiente" class="selo selo-teste" hidden>Testes</span>
+  </header>
+  <div id="faixa-demo" class="faixa-demo" role="note" hidden>
+    <strong>DEMONSTRAÇÃO:</strong> a Receita é simulada. Nenhuma nota fiscal real é emitida.
+  </div>
+  <div id="faixa-offline" class="faixa-offline" role="status" hidden>
+    Sem internet. Você pode preparar notas: elas ficam salvas como <strong>rascunho</strong> e <strong>ainda não foram emitidas</strong>.
+  </div>
+  <main id="conteudo" tabindex="-1"></main>
+  <nav class="abas" id="abas" aria-label="Navegação principal" hidden>
+    <a href="#/" data-aba="inicio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg><span>Início</span></a>
+    <a href="#/notas" data-aba="notas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h8"/></svg><span>Notas</span></a>
+    <a href="#/clientes" data-aba="clientes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0"/></svg><span>Clientes</span></a>
+    <a href="#/perfil" data-aba="perfil"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>Perfil</span></a>
+  </nav>
+  <div id="aviso" class="aviso" role="status" aria-live="polite"></div>
+  <noscript>O NotaVez precisa de JavaScript ativado.</noscript>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
