@@ -8,7 +8,8 @@ const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, locale: 'pt-BR', hasTouch: true, isMobile: true, bypassCSP: true });
 const p = await ctx.newPage();
 const erros = [];
-p.on('console', (m) => { if (m.type() === 'error') erros.push(m.text()); });
+// 401 esperado: o app consulta a sessão antes do login.
+p.on('console', (m) => { if (m.type() === 'error' && !/401/.test(m.text())) erros.push(m.text()); });
 p.on('pageerror', (e) => erros.push('PAGEERROR ' + e.message));
 const foto = async (n) => { await p.waitForTimeout(400); await p.evaluate(() => document.getElementById('aviso')?.replaceChildren()); const st = await p.addStyleTag({ content: '.topo,.abas,.rodape-fixo{position:static!important} body{padding-bottom:0!important}' }); await p.screenshot({ path: `${OUT}/${n}.png`, fullPage: true }); await st.evaluate((e) => e.remove()); console.log('foto', n); };
 const esperarTexto = (t) => p.getByText(t, { exact: false }).first().waitFor({ timeout: 8000 });
@@ -86,6 +87,22 @@ await foto('09-revisao');
 await p.getByRole('button', { name: 'Emitir nota' }).click();
 await esperarTexto('Emitida');
 await foto('10-resultado-emitida');
+// DANFSe (NT 008): o botão abre o PDF gerado a partir do XML oficial.
+{
+  const href = await p.getByRole('link', { name: /Ver DANFSe/ }).getAttribute('href');
+  const r = await p.request.get(BASE + href);
+  const corpo = await r.body();
+  if (r.headers()['content-type'] !== 'application/pdf' || !corpo.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('DANFSe não é um PDF');
+  (await import('node:fs')).writeFileSync(new URL('../../docs/exemplos/danfse-demonstracao.pdf', import.meta.url), corpo);
+  console.log('DANFSe', corpo.length, 'bytes');
+  // O botão abre o PDF numa nova aba (blob), sem página de erro no caminho.
+  // (No Chromium sem interface o PDF vira download; no celular, abre no leitor.)
+  const [aba] = await Promise.all([p.waitForEvent('popup'), p.getByRole('link', { name: /Ver DANFSe/ }).click()]);
+  const baixado = await aba.waitForEvent('download', { timeout: 8000 });
+  if (!baixado.url().startsWith('blob:')) throw new Error('DANFSe não abriu pelo botão');
+  console.log('DANFSe aberto pelo botão');
+  await aba.close().catch(() => {});
+}
 
 await p.goto(BASE + '/#/'); await esperarTexto('Última emissão');
 await p.getByRole('link', { name: 'Clonar última nota' }).click();

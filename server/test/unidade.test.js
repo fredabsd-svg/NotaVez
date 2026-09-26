@@ -11,6 +11,7 @@ import { assinarDps, conferirAssinatura } from '../src/fiscal/assinatura.js';
 import { lerMensagens } from '../src/fiscal/sefin/cliente.js';
 import { explicar } from '../src/fiscal/mensagens.js';
 import { gerarCertificadoTeste } from './apoio/certificado-teste.js';
+import { gerarDanfse, montarConteudo, lerXmlNfse } from '../src/fiscal/danfse/index.js';
 
 const prestador = { tipoDocumento: 'CNPJ', documento: '11222333000181', municipioIbge: '3550308', opSimpNac: '2' };
 const notaBase = {
@@ -222,4 +223,73 @@ test('IBS/CBS: opções oficiais, padrões seguros e prazos do Ato Conjunto 4/20
   assert.equal(inicioObrigatoriedade('010101'), '2026-10-01');
   assert.equal(inicioObrigatoriedade('010301'), '2026-12-01');
   assert.equal(inicioObrigatoriedade('160101'), '2026-12-01');
+});
+
+// NFS-e sintética com os casos-limite do DANFSe (NT 008).
+function nfseDanfse({ tribISSQN = '4', tpRetPisCofins = '1', dCompet = '2027-01-15', descricao = 'Serviço', infComp = null } = {}) {
+  const chave = '35503082112223330001810000000000000012701000000017';
+  return `<?xml version="1.0" encoding="UTF-8"?><NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS${chave}">`
+    + '<xLocEmi>São Paulo</xLocEmi><xLocPrestacao>Campinas</xLocPrestacao><nNFSe>17</nNFSe><cLocIncid>3509502</cLocIncid><xLocIncid>Campinas</xLocIncid>'
+    + '<xTribNac>Nacional</xTribNac><xTribMun>Descrição municipal do serviço</xTribMun><verAplic>SEFIN</verAplic><ambGer>2</ambGer><tpEmis>1</tpEmis>'
+    + '<cStat>102</cStat><dhProc>2027-01-15T09:08:07-03:00</dhProc><nDFSe>1</nDFSe>'
+    + '<emit><CNPJ>11222333000181</CNPJ><xNome>Empresa Emitente Ltda</xNome><enderNac><xLgr>Rua A</xLgr><nro>1</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><UF>SP</UF><CEP>01001000</CEP></enderNac></emit>'
+    + '<valores><vTotalRet>0.00</vTotalRet><vLiq>1000.00</vLiq></valores><xOutInf>Informação do município</xOutInf>'
+    + '<DPS versao="1.01"><infDPS Id="DPS355030821122233300018100900000000000000001"><tpAmb>1</tpAmb><dhEmi>2027-01-15T09:00:00-03:00</dhEmi>'
+    + `<verAplic>NotaVez</verAplic><serie>900</serie><nDPS>1</nDPS><dCompet>${dCompet}</dCompet><tpEmit>1</tpEmit><cLocEmi>3550308</cLocEmi>`
+    + '<prest><CNPJ>11222333000181</CNPJ><regTrib><opSimpNac>1</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>'
+    + '<toma><CPF>52998224725</CPF><xNome>Maria da Silva</xNome></toma>'
+    + '<interm><NIF>ABC123</NIF><xNome>Agência Exterior</xNome><end><endExt><cPais>US</cPais><cEndPost>10001</cEndPost><xCidade>New York</xCidade><xEstProvReg>NY</xEstProvReg></endExt><xLgr>5th Ave</xLgr><nro>1</nro><xBairro>-</xBairro></end></interm>'
+    + `<serv><locPrest><cLocPrestacao>3509502</cLocPrestacao></locPrest><cServ><cTribNac>010101</cTribNac><cTribMun>001</cTribMun><xDescServ>${descricao}</xDescServ><cNBS>115021000</cNBS></cServ>`
+    + (infComp ? `<infoCompl><xInfComp>${infComp}</xInfComp></infoCompl>` : '') + '</serv>'
+    + `<valores><vServPrest><vServ>1000.00</vServ></vServPrest><trib><tribMun><tribISSQN>${tribISSQN}</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>`
+    + `<tribFed><piscofins><CST>01</CST><vBCPisCofins>1000.00</vBCPisCofins><pAliqPis>0.65</pAliqPis><pAliqCofins>3.00</pAliqCofins><vPis>6.50</vPis><vCofins>30.00</vCofins><tpRetPisCofins>${tpRetPisCofins}</tpRetPisCofins></piscofins><vRetCSLL>10.00</vRetCSLL></tribFed>`
+    + '<totTrib><vTotTrib><vTotTribFed>100.00</vTotTribFed><vTotTribEst>0.00</vTotTribEst><vTotTribMun>20.00</vTotTribMun></vTotTrib></totTrib></trib></valores>'
+    + '<IBSCBS><finNFSe>0</finNFSe><indFinal>1</indFinal><cIndOp>030101</cIndOp><indDest>0</indDest><valores><trib><gIBSCBS><CST>000</CST><cClassTrib>000001</cClassTrib></gIBSCBS></trib></valores></IBSCBS>'
+    + '</infDPS></DPS></infNFSe></NFSe>';
+}
+
+test('DANFSe (NT 008): descrições, supressões e regras dos campos', () => {
+  const c = montarConteudo(lerXmlNfse(nfseDanfse()));
+  assert.equal(c.chave, '35503082112223330001810000000000000012701000000017', 'sem o prefixo NFS');
+  assert.equal(c.cabecalho.homologacao, false, 'produção: sem a frase de homologação');
+  assert.equal(c.cabecalho.municipio, 'Município: São Paulo / SP');
+  assert.equal(c.dados.cStat, 'NFS-e de Decisão Judicial');
+  assert.equal(c.dados.dhProc, '15/01/2027 09:08:07');
+  assert.equal(c.dados.dCompet, '15/01/2027');
+  assert.equal(c.prestador.nome, 'Empresa Emitente Ltda');
+  assert.equal(c.prestador.municipio, 'São Paulo / SP');
+  assert.equal(c.prestador.ibgeCep, '3550308 / 01.001-000');
+  assert.equal(c.tomador.doc, '529.982.247-25');
+  assert.equal(c.tomador.endereco, '-', 'campo sem informação: traço');
+  assert.equal(c.intermediario.doc, 'ABC123');
+  assert.equal(c.intermediario.municipio, 'New York / NY / US');
+  assert.equal(c.intermediario.ibgeCep, '10001');
+  assert.equal(c.destinatario, null);
+  assert.equal(c.destinatarioAviso, 'O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE DA OPERAÇÃO');
+  assert.equal(c.servico.codigo, '01.01.01 / 001');
+  assert.equal(c.servico.descricaoCodigo, 'Descrição municipal do serviço', 'xTribMun tem prioridade');
+  assert.equal(c.servico.local, 'Campinas / SP / BR');
+  assert.equal(c.issqn, null, 'não incidência: bloco suprimido (Nota 4)');
+  // tpRetPisCofins = 1: contribuições retidas = CSLL + PIS + COFINS; débito próprio zerado.
+  assert.equal(c.federal.contribuicoes, 'R$ 46,50');
+  assert.equal(c.federal.pis, 'R$ 0,00');
+  assert.equal(c.federal.mostrarPisCofins, false, 'Nota 6: só até a competência 2026');
+  assert.match(c.informacoes.texto, /^Inf\. A\. T\. Mun\.: Informação do município$/);
+  assert.equal(c.informacoes.totais, 'Totais Aproximados dos Tributos cfe. Lei nº 12.741/2012: Federais: R$ 100,00 ; Estaduais: R$ 0,00 ; Municipais: R$ 20,00');
+
+  const outro = montarConteudo(lerXmlNfse(nfseDanfse({ tribISSQN: '1', tpRetPisCofins: '2', dCompet: '2026-12-31' })));
+  assert.equal(outro.issqn.tribISSQN, 'Operação Tributável');
+  assert.equal(outro.issqn.incidencia, 'Campinas / SP / BR');
+  assert.equal(outro.federal.contribuicoes, 'R$ 10,00');
+  assert.equal(outro.federal.pis, 'R$ 6,50');
+  assert.equal(outro.federal.mostrarPisCofins, true);
+});
+
+test('DANFSe: sempre uma página, mesmo com textos no limite, e recusa XML que não é NFS-e', async () => {
+  const longa = 'Serviço prestado conforme contrato. '.repeat(40); // > 1.300 caracteres
+  const pdf = await gerarDanfse(nfseDanfse({ descricao: longa, infComp: 'Observação longa. '.repeat(110) }), { marcaDagua: 'SIMULAÇÃO' });
+  assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+  assert.equal((pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length, 1);
+  assert.equal(montarConteudo(lerXmlNfse(nfseDanfse({ descricao: longa }))).servico.descricao.length, 1297);
+  await assert.rejects(gerarDanfse('<DPS/>'), /não é uma NFS-e/);
 });

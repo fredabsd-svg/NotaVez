@@ -1,7 +1,8 @@
 import { rascunho as lerRascunho } from '../util/entrada.js';
 import { hojeBrasilia } from '../fiscal/dps.js';
 import { servicoNacional, municipio } from '../fiscal/tabelas.js';
-import { ambientesSefin } from '../config.js';
+import { ambientesSefin, config } from '../config.js';
+import { gerarDanfse } from '../fiscal/danfse/index.js';
 import { mascararDocumento, formatarDocumento } from '../util/documentos.js';
 import { ErroApp, naoEncontrado } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
@@ -50,8 +51,8 @@ export function resumoNota(repo, prestador, n, completo = false) {
     dps: n.idDps ? { id: n.idDps, serie: n.serie, numero: n.nDps, tentativas: n.tentativas, ultimoEnvioEm: n.ultimoEnvioEm } : null,
     documentos: n.situacao === 'emitida' ? {
       xml: n.temXml,
-      // DANFSe: a API de geração do ADN foi desativada em 03/08/2026 (NT 008).
-      // O documento auxiliar oficial fica disponível na Consulta Pública pela chave.
+      // DANFSe gerado aqui, a partir do XML oficial (a API do ADN foi desativada em 03/08/2026; NT 008).
+      danfse: true,
       consultaPublica: n.chaveAcesso && amb?.consultaPublica ? `${amb.consultaPublica}${n.chaveAcesso}` : null,
     } : null,
     historicoEnvio: repo.chamadas(n.id),
@@ -197,5 +198,20 @@ export async function rotasNotas(app) {
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.xml_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/xml; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="NFSe-${n.chaveAcesso}.xml"`).send(xml);
+  });
+
+  // DANFSe (NT 008) em PDF, gerado SÓ a partir do XML oficial da NFS-e.
+  app.get('/notas/:id/danfse', async (req, reply) => {
+    const p = exigirPrestador(req);
+    let n = repo.nota(p.id, req.params.id);
+    if (!n || n.situacao !== 'emitida') throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
+    if (!n.temXml) n = await emissao.buscarXml(p, n.id);
+    const xml = repo.xmlNfse(n.id);
+    if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
+    // No modo demonstração a Receita é simulada: o PDF leva a marca "SIMULAÇÃO".
+    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : null });
+    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
+    return reply.header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${n.chaveAcesso}.pdf"`).send(pdf);
   });
 }

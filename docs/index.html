@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NotaVez — NFS-e pelo celular</title>
+  <meta name="description" content="App instalável para emitir a NFS-e do Padrão Nacional pelo celular: MEI, ME/EPP, Lucro Presumido e Real. DANFSe em PDF conforme a NT 008.">
+  <meta name="theme-color" content="#0b5cab">
+  <link rel="icon" href="assets/icone.svg" type="image/svg+xml">
+  <meta property="og:title" content="NotaVez — NFS-e pelo celular">
+  <meta property="og:description" content="Emita a NFS-e do Padrão Nacional em poucos toques, com regras oficiais conferidas antes do envio.">
+  <meta property="og:image" content="assets/vitrine.png">
+  <style>
+    /* Tokens do NotaVez: os mesmos do app (web/css/app.css). */
+    :root {
+      --azul: #0b5cab; --azul-escuro: #084785; --azul-claro: #e7f0fb;
+      --verde: #1a7f37; --verde-claro: #e6f4ea;
+      --ambar: #8a5300; --ambar-claro: #fff4d6;
+      --tinta: #0f2744; --texto: #1b1f24; --texto-2: #57606a; --borda: #d0d7de;
+      --fundo: #ffffff; --fundo-2: #f6f8fa; --cartao: #ffffff;
+      --raio: 14px; --sombra: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(16,36,62,.08);
+      --e1: 4px; --e2: 8px; --e3: 16px; --e4: 24px; --e5: 40px; --e6: 64px;
+      --f-titulo: clamp(30px, 6vw, 48px); --f-h2: 30px; --f-destaque: 19px; --f-corpo: 17px; --f-codigo: 15px; --f-legenda: 14px;
+      --btn-altura: 52px; --icone: 44px; --numero: 36px;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --azul: #58a6ff; --azul-escuro: #8ec0f7; --azul-claro: #10243a;
+        --verde: #4ac26b; --verde-claro: #0f2a18; --ambar: #f0b72f; --ambar-claro: #33270b;
+        --tinta: #f0f6fc; --texto: #e6edf3; --texto-2: #9da7b3; --borda: #30363d;
+        --fundo: #0d1117; --fundo-2: #11161d; --cartao: #161b22;
+      }
+      .logo-clara { display: none; }
+      .logo-escura { display: inline; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: var(--f-corpo)/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--texto); background: var(--fundo); }
+    a { color: var(--azul); }
+    :focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; border-radius: 4px; }
+    .pular { position: absolute; left: -999px; }
+    .pular:focus { left: var(--e3); top: var(--e3); background: var(--cartao); padding: var(--e2); z-index: 9; }
+    .largura { max-width: 1120px; margin: 0 auto; padding: 0 var(--e3); }
+    .logo-escura { display: none; }
+
+    header { padding: var(--e3) 0; border-bottom: 1px solid var(--borda); }
+    header .largura { display: flex; align-items: center; justify-content: space-between; gap: var(--e3); }
+    header img { height: 36px; width: auto; display: block; }
+    header nav a { margin-left: var(--e3); font-weight: 600; text-decoration: none; display: inline-block; padding: 10px 0; min-height: 44px; }
+
+    .hero { padding: var(--e6) 0 var(--e5); text-align: center; background: linear-gradient(180deg, var(--azul-claro), var(--fundo)); }
+    .hero h1 { font-size: var(--f-titulo); line-height: 1.12; color: var(--tinta); margin: 0 auto var(--e3); max-width: 18ch; letter-spacing: -0.02em; }
+    .hero p { font-size: var(--f-destaque); color: var(--texto-2); margin: 0 auto var(--e4); max-width: 60ch; }
+    .acoes { display: flex; gap: var(--e3); justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--btn-altura); padding: 0 var(--e4); border-radius: var(--raio); font-weight: 700; text-decoration: none; border: 2px solid var(--azul); }
+    .btn-primario { background: var(--azul); color: #fff; }
+    @media (prefers-color-scheme: dark) { .btn-primario { color: #0d1117; } }
+    .btn-secundario { color: var(--azul); background: transparent; }
+    .vitrine { margin: var(--e5) auto 0; max-width: 1120px; padding: 0 var(--e3); }
+    .vitrine img { width: 100%; height: auto; border-radius: var(--raio); box-shadow: var(--sombra); display: block; }
+
+    section { padding: var(--e6) 0; }
+    section.alt { background: var(--fundo-2); }
+    h2 { font-size: var(--f-h2); line-height: 1.2; color: var(--tinta); margin: 0 0 var(--e2); letter-spacing: -0.01em; }
+    .intro { color: var(--texto-2); margin: 0 0 var(--e5); max-width: 65ch; }
+    .grade { display: grid; gap: var(--e3); grid-template-columns: 1fr; }
+    @media (min-width: 600px) { .grade { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 900px) { .grade { grid-template-columns: repeat(3, 1fr); } }
+    .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); padding: var(--e4); box-shadow: var(--sombra); }
+    .cartao h3 { margin: var(--e3) 0 var(--e2); font-size: var(--f-destaque); color: var(--tinta); }
+    .cartao p { margin: 0; color: var(--texto-2); }
+    .icone { width: var(--icone); height: var(--icone); border-radius: var(--raio); display: grid; place-items: center; background: var(--azul-claro); color: var(--azul); }
+    .icone svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .icone.verde { background: var(--verde-claro); color: var(--verde); }
+
+    ol.passos { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--e3); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); counter-reset: passo; }
+    ol.passos li { counter-increment: passo; position: relative; padding: var(--e4) var(--e4) var(--e4) 76px; background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); }
+    ol.passos li::before { content: counter(passo); position: absolute; left: var(--e4); top: var(--e4); width: var(--numero); height: var(--numero); border-radius: 50%; background: var(--azul); color: var(--fundo); font-weight: 800; display: grid; place-items: center; }
+    ol.passos strong { display: block; color: var(--tinta); }
+    ol.passos span { color: var(--texto-2); }
+
+    table { width: 100%; border-collapse: collapse; background: var(--cartao); border-radius: var(--raio); overflow: hidden; border: 1px solid var(--borda); }
+    th, td { text-align: left; padding: var(--e3); border-bottom: 1px solid var(--borda); vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: var(--azul-claro); color: var(--tinta); font-size: var(--f-legenda); text-transform: uppercase; letter-spacing: .04em; }
+    td:first-child { font-weight: 700; color: var(--tinta); white-space: nowrap; }
+    @media (max-width: 600px) { td:first-child { white-space: normal; } th, td { padding: var(--e2) var(--e3); } }
+
+    .duas { display: grid; gap: var(--e5); grid-template-columns: 1fr; align-items: center; }
+    @media (min-width: 880px) { .duas { grid-template-columns: 1.1fr .9fr; } }
+    .duas img { width: 100%; max-width: 440px; height: auto; border-radius: 6px; box-shadow: var(--sombra); display: block; margin: 0 auto; background: #fff; }
+    ul.checks { list-style: none; padding: 0; margin: 0 0 var(--e4); }
+    ul.checks li { position: relative; padding-left: 32px; margin: var(--e2) 0; }
+    ul.checks li::before { content: ""; position: absolute; left: 0; top: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--verde-claro); box-shadow: inset 0 0 0 2px var(--verde); }
+    ul.checks li::after { content: ""; position: absolute; left: 6px; top: 9px; width: 8px; height: 5px; border-left: 2px solid var(--verde); border-bottom: 2px solid var(--verde); transform: rotate(-45deg); }
+
+    .alerta { border-left: 4px solid var(--ambar); background: var(--ambar-claro); padding: var(--e3) var(--e4); border-radius: 0 var(--raio) var(--raio) 0; margin: 0 0 var(--e4); }
+    .alerta strong { color: var(--ambar); }
+    pre { background: #0d1117; color: #e6edf3; padding: var(--e4); border-radius: var(--raio); overflow-x: auto; font-size: var(--f-codigo); line-height: 1.6; margin: 0 0 var(--e3); }
+    pre .c { color: #8b949e; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    footer { padding: var(--e5) 0; border-top: 1px solid var(--borda); color: var(--texto-2); font-size: var(--f-legenda); }
+    footer .largura { display: flex; flex-wrap: wrap; gap: var(--e3); justify-content: space-between; }
+    @media (max-width: 600px) { header nav { display: none; } section { padding: var(--e5) 0; } .hero { padding-top: var(--e5); } }
+  </style>
+</head>
+<body>
+  <a class="pular" href="#principal">Pular para o conteúdo</a>
+  <header>
+    <div class="largura">
+      <a href="./" aria-label="NotaVez, início">
+        <img class="logo-clara" src="assets/logo.svg" alt="NotaVez" width="144" height="36">
+        <img class="logo-escura" src="assets/logo-escuro.svg" alt="NotaVez" width="144" height="36">
+      </a>
+      <nav aria-label="Seções">
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#danfse">DANFSe</a>
+        <a href="#experimentar">Experimentar</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="principal">
+    <div class="hero">
+      <div class="largura">
+        <h1>A nota fiscal de serviço, na sua vez, pelo celular.</h1>
+        <p>App instalável para emitir a <strong>NFS-e do Padrão Nacional</strong> em poucos toques. Feito para MEI e pequenas empresas: ME/EPP do Simples, Lucro Presumido e Lucro Real.</p>
+        <div class="acoes">
+          <a class="btn btn-primario" href="#experimentar">Experimentar a demonstração</a>
+          <a class="btn btn-secundario" href="https://github.com/fredabsd-svg/NotaVez">Ver o código no GitHub</a>
+        </div>
+      </div>
+      <div class="vitrine">
+        <img src="assets/vitrine.png" alt="Telas do NotaVez: início, nova nota, nota emitida e o DANFSe em PDF" width="1600" height="860">
+      </div>
+    </div>
+
+    <section>
+      <div class="largura">
+        <h2>Menos burocracia, nenhuma surpresa</h2>
+        <p class="intro">Tudo o que um prestador de serviço precisa para emitir a nota do mês, com as regras oficiais conferidas antes de enviar.</p>
+        <div class="grade">
+          <div class="cartao">
+            <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 8h12v12H8zM4 16V4h12"/></svg></div>
+            <h3>Clonar a última nota</h3>
+            <p>Mesmo cliente e mesmo serviço, com novos identificadores. O app pede para conferir competência, valor, descrição e tributação.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone verde" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+            <h3>Regras oficiais antes do envio</h3>
+            <p>As validações do Anexo I rodam no app e aparecem em linguagem comum, com o que fazer para corrigir.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg></div>
+            <h3>Nunca uma nota em dobro</h3>
+            <p>Se a Receita não responde, o NotaVez consulta antes de reenviar e reenvia a mesma DPS assinada.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h5"/></svg></div>
+            <h3>DANFSe e XML para o cliente</h3>
+            <p>PDF no modelo da NT 008 com QR Code, enviado junto com o XML pelo WhatsApp ou e-mail.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0120 0M5 12.9a10 10 0 0114 0M8.5 16.4a5 5 0 017 0M12 20h.01"/></svg></div>
+            <h3>Rascunho sem internet</h3>
+            <p>Prepare a nota em qualquer lugar. O app avisa com clareza que ela ainda não foi emitida.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone verde" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <h3>Dados protegidos</h3>
+            <p>Não pedimos a senha gov.br. Certificado, CPF, CNPJ e clientes ficam cifrados, e toda operação é registrada.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="alt" id="como-funciona">
+      <div class="largura">
+        <h2>Como funciona</h2>
+        <p class="intro">Três passos, uma vez só. Depois, cada nota leva menos de um minuto.</p>
+        <ol class="passos">
+          <li><strong>Crie a conta e o perfil</strong><span>CNPJ, município e regime. O app mostra exatamente o que falta para emitir.</span></li>
+          <li><strong>Envie o certificado A1</strong><span>Uma única vez, com consentimento. Ele fica cifrado no servidor, nunca no celular.</span></li>
+          <li><strong>Emita e compartilhe</strong><span>Escolha o cliente e o serviço, revise e toque em "Emitir nota". Pronto: DANFSe e XML para enviar.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <div class="largura">
+        <h2>Para quem</h2>
+        <p class="intro">Cada regime tem o seu pacote de regras, com a vigência oficial. Os campos extras só aparecem quando a regra exige.</p>
+        <table>
+          <thead><tr><th scope="col">Regime</th><th scope="col">O que o NotaVez resolve</th></tr></thead>
+          <tbody>
+            <tr><td>MEI</td><td>Tributação do MEI já preenchida. Você só escolhe cliente, serviço e valor.</td></tr>
+            <tr><td>ME/EPP do Simples</td><td>Convênio do município, ISS retido pelo cliente, ISS fora do Simples e percentual aproximado de tributos.</td></tr>
+            <tr><td>Lucro Presumido e Real</td><td>PIS/COFINS, retenções federais (NT 007) e o grupo IBS/CBS com as opções oficiais para cada serviço.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="alt" id="danfse">
+      <div class="largura duas">
+        <div>
+          <h2>DANFSe local, no modelo da NT 008</h2>
+          <p class="intro">A Receita desativou a API de DANFSe em 03/08/2026. O NotaVez gera o PDF a partir do XML oficial da NFS-e, nunca do rascunho.</p>
+          <ul class="checks">
+            <li>A4 retrato, página única, blocos e grade do Anexo I</li>
+            <li>QR Code da Consulta Pública com a chave de acesso</li>
+            <li>"NFS-e SEM VALIDADE JURÍDICA" em homologação</li>
+            <li>Descrições no lugar de códigos e supressões permitidas</li>
+            <li>Totais aproximados dos tributos (Lei 12.741/2012)</li>
+          </ul>
+          <a class="btn btn-secundario" href="exemplos/danfse-demonstracao.pdf">Abrir o exemplo em PDF</a>
+        </div>
+        <img src="prototipo/29-danfse.png" alt="Exemplo de DANFSe gerado pelo NotaVez no modo demonstração, com a marca d'água SIMULAÇÃO" width="827" height="1170" loading="lazy">
+      </div>
+    </section>
+
+    <section id="experimentar">
+      <div class="largura">
+        <h2>Experimente em 1 minuto</h2>
+        <div class="alerta" role="note">
+          <strong>Situação atual:</strong> o app funciona de ponta a ponta contra uma Receita <strong>simulada</strong>, e os 36 testes automatizados passam. Falta a primeira emissão no ambiente oficial de homologação, que depende de um certificado A1 real.
+        </div>
+        <p>Requisito: Node.js 22.13 ou mais recente.</p>
+<pre><code>git clone https://github.com/fredabsd-svg/NotaVez.git
+cd NotaVez/server
+npm install
+npm run demo   <span class="c"># http://localhost:8080 com a Receita SIMULADA</span>
+npm test       <span class="c"># 36 testes</span></code></pre>
+        <p>O terminal mostra um CNPJ e um certificado fictícios. Uma faixa vermelha fixa avisa que nenhuma nota real é emitida.</p>
+        <p><a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/01-requisitos-oficiais.md">Requisitos oficiais</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/02-fluxo-e-prototipo.md">Todas as telas</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/05-testes-homologacao.md">Testes e homologação</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/06-plano-apps-nativos.md">Plano para as lojas</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="largura">
+      <span>NotaVez · licença MIT</span>
+      <span>Não é um aplicativo oficial da Receita Federal nem do Comitê Gestor da NFS-e.</span>
+    </div>
+  </footer>
+</body>
+</html>

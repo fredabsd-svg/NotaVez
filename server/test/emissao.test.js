@@ -5,12 +5,19 @@ process.env.NOTAVEZ_TIMEOUT_SEFIN_MS = '1500';
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
 import { gerarCertificadoTeste } from './apoio/certificado-teste.js';
 import { iniciarSefinSimulada } from './apoio/sefin-simulada.js';
 
 const { criarApp } = await import('../src/app.js');
 const { criarClienteSefin } = await import('../src/fiscal/sefin/cliente.js');
 const { ambientesSefin } = await import('../src/config.js');
+const { montarConteudo, lerXmlNfse } = await import('../src/fiscal/danfse/index.js');
+
+// Conta as páginas do PDF (os dicionários de página não ficam comprimidos).
+const paginasPdf = (buf) => (buf.toString('latin1').match(/\/Type \/Page\b/g) || []).length;
+// NOTAVEZ_SALVAR_DANFSE=<pasta> grava os PDFs gerados nos testes, para conferência visual.
+const salvarPdf = (nome, buf) => { if (process.env.NOTAVEZ_SALVAR_DANFSE) writeFileSync(`${process.env.NOTAVEZ_SALVAR_DANFSE}/danfse-${nome}.pdf`, buf); };
 
 const cert = gerarCertificadoTeste({ cnpj: '11222333000181' });
 let sefin; let app;
@@ -29,7 +36,7 @@ function sessao() {
     const r = await app.inject({ method, url, payload, headers: { cookie, ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
     const sc = r.headers['set-cookie'];
     if (sc) cookie = (Array.isArray(sc) ? sc : [sc]).map((c) => c.split(';')[0]).join('; ');
-    return { status: r.statusCode, body: r.headers['content-type']?.includes('json') ? r.json() : r.body, headers: r.headers };
+    return { status: r.statusCode, body: r.headers['content-type']?.includes('json') ? r.json() : r.body, headers: r.headers, rawPayload: r.rawPayload };
   };
   return chamar;
 }
@@ -101,6 +108,24 @@ test('fluxo completo: emitir, baixar XML e clonar como novo rascunho', async () 
   const xml = await u.api('GET', `/api/notas/${nota.id}/xml`);
   assert.equal(xml.status, 200);
   assert.match(xml.body, /<NFSe/);
+
+  // DANFSe (NT 008): PDF de uma página gerado a partir do XML oficial.
+  assert.equal(e.body.nota.documentos.danfse, true);
+  const pdf = await u.api('GET', `/api/notas/${nota.id}/danfse`);
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers['content-type'], 'application/pdf');
+  assert.match(pdf.headers['content-disposition'], /^inline; filename="DANFSe-\d{50}\.pdf"$/);
+  assert.equal(paginasPdf(pdf.rawPayload), 1);
+  salvarPdf('mei', pdf.rawPayload);
+  const dan = montarConteudo(lerXmlNfse(xml.body));
+  assert.equal(dan.cabecalho.homologacao, true, 'produção restrita: NFS-e SEM VALIDADE JURÍDICA');
+  assert.equal(dan.dados.cStat, 'NFS-e MEI');
+  assert.equal(dan.dados.tpEmit, 'Prestador');
+  assert.equal(dan.prestador.simples, 'Optante - Microempreendedor Indivi...', 'NT 008: reticências acima de 37 caracteres');
+  assert.equal(dan.prestador.nome, 'EMPRESA SIMULADA MEI', 'dados do emitente vêm de infNFSe/emit');
+  assert.equal(dan.destinatarioAviso, 'DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e', 'MEI sem grupo IBS/CBS');
+  assert.equal(dan.intermediario, null);
+  assert.equal(dan.ibscbs.bc, '-', 'campos sem informação no XML: traço');
 
   // Nota emitida não pode ser alterada nem reenviada.
   assert.equal((await u.api('PUT', `/api/notas/${nota.id}`, { rascunho: { valor: '1' } })).status, 409);
@@ -356,6 +381,30 @@ test('Lucro Presumido: emite com PIS/COFINS, retenções federais e grupo IBS/CB
   assert.match(xml, /<vRetIRRF>150.00<\/vRetIRRF><vRetCSLL>465.00<\/vRetCSLL>/, 'NT 007: PIS+COFINS+CSLL retidos somados em vRetCSLL');
   assert.match(xml, /<pTotTrib><pTotTribFed>13.45<\/pTotTribFed><pTotTribEst>0.00<\/pTotTribEst><pTotTribMun>2.00<\/pTotTribMun><\/pTotTrib>/);
   assert.match(xml, /<cNBS>110014000<\/cNBS>/);
+
+  // DANFSe do Lucro Presumido: tributação federal, IBS/CBS e totais.
+  const nfse = await u.api('GET', `/api/notas/${n.id}/xml`);
+  const c = montarConteudo(lerXmlNfse(nfse.body));
+  assert.equal(c.dados.cStat, 'NFS-e Gerada');
+  assert.equal(c.dados.finNFSe, 'NFS-e regular');
+  assert.equal(c.prestador.simples, 'Não Optante');
+  assert.match(c.tomador.doc, /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/);
+  assert.equal(c.destinatarioAviso, 'O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE DA OPERAÇÃO', 'indDest = 0');
+  assert.equal(c.servico.codigo, '17.01.01');
+  assert.equal(c.servico.nbs, '1.1001.40.00');
+  assert.equal(c.issqn.retencao, 'Retido pelo Tomador');
+  assert.equal(c.federal.irrf, 'R$ 150,00');
+  assert.equal(c.federal.contribuicoes, 'R$ 465,00', 'tpRetPisCofins 3: vRetCSLL');
+  assert.equal(c.federal.pis, 'R$ 65,00');
+  assert.equal(c.federal.descricao, 'PIS/COFINS/CSLL Retidos');
+  assert.equal(c.ibscbs.cst, '000 / 000001');
+  assert.match(c.ibscbs.operacao, /^100301 \/ 3550308 \/ São Paulo \/ SP$/);
+  assert.equal(c.totais.vServ, 'R$ 10.000,00');
+  assert.match(c.informacoes.totais, /Lei nº 12\.741\/2012: Federais: 13,45% ; Estaduais: 0,00% ; Municipais: 2,00%$/);
+  const pdf = await u.api('GET', `/api/notas/${n.id}/danfse?baixar=1`);
+  assert.match(pdf.headers['content-disposition'], /^attachment;/);
+  assert.equal(paginasPdf(pdf.rawPayload), 1);
+  salvarPdf('presumido', pdf.rawPayload);
   assert.match(xml, /<IBSCBS><finNFSe>0<\/finNFSe><indFinal>0<\/indFinal><cIndOp>100301<\/cIndOp><indDest>0<\/indDest><valores><trib><gIBSCBS><CST>000<\/CST><cClassTrib>000001<\/cClassTrib><\/gIBSCBS><\/trib><\/valores><\/IBSCBS>/);
 });
 

@@ -1,11 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NotaVez">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="nv-fundo" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1a73d9"/>
       <stop offset="1" stop-color="#0a4f95"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#nv-fundo)"/>
+  <rect width="512" height="512" fill="url(#nv-fundo)"/>
+  <g transform="translate(51.2 51.2) scale(0.8)">
+  
   <g transform="translate(-20 0)">
     <path d="M152 80h160l68 68v268a20 20 0 0 1-20 20H152a20 20 0 0 1-20-20V100a20 20 0 0 1 20-20z" fill="#fff"/>
     <path d="M312 80v48a20 20 0 0 0 20 20h48z" fill="#b9d6f5"/>
@@ -13,5 +15,6 @@
     <rect x="172" y="192" width="148" height="22" rx="11" fill="#b9d6f5"/>
     <path d="M178 306l66 66L418 184" fill="none" stroke="#fff" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M178 306l66 66L418 184" fill="none" stroke="#1a7f37" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
   </g>
 </svg>

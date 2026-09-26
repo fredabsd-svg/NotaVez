@@ -34,7 +34,8 @@ export async function tela(_, query) {
 
     node.replaceChildren(
       h('div', { class: 'centro' },
-        h('img', { src: '/icons/icone.svg', alt: '', width: 72, height: 72 }),
+        h('img', { class: 'marca marca-clara', src: '/icons/logo.svg', alt: 'NotaVez', width: 220, height: 54 }),
+        h('img', { class: 'marca marca-escura', src: '/icons/logo-escuro.svg', alt: 'NotaVez', width: 220, height: 54 }),
         h('h2', {}, 'Nota fiscal de serviço em poucos toques'),
         h('p', { class: 'suave' }, 'Para MEI e empresas prestadoras de serviço (Simples, Presumido ou Real). Cadastre clientes, salve serviços e emita sua NFS-e pelo celular.')),
       h('div', { class: 'chips', role: 'tablist' },

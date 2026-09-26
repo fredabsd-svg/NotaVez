@@ -7,6 +7,7 @@ import forge from 'node-forge';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { conferirAssinatura } from '../../src/fiscal/assinatura.js';
 import { validarXsd } from '../../src/fiscal/xsd.js';
+import { municipio, servicoNacional } from '../../src/fiscal/tabelas.js';
 
 function certServidor(caPem, caChavePem) {
   const { pki } = forge;
@@ -23,6 +24,7 @@ function certServidor(caPem, caChavePem) {
   return { key: pki.privateKeyToPem(k.privateKey), cert: pki.certificateToPem(c) };
 }
 
+const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const tag = (xml, t) => xml.match(new RegExp(`<${t}>([^<]*)</${t}>`))?.[1];
 
 export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }) {
@@ -43,11 +45,50 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     const chave = `${idDps.slice(3, 10)}2${idDps.slice(10, 25)}${String(seq).padStart(13, '0')}2609${String(seq).padStart(9, '0')}1`.slice(0, 50).padEnd(50, '0');
     const dps = dpsXml.replace(/^<\?xml[^>]*>/, '');
     const xml = `<?xml version="1.0" encoding="UTF-8"?><NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS${chave}">`
-      + `<xLocEmi>Simulado</xLocEmi><xLocPrestacao>Simulado</xLocPrestacao><nNFSe>${seq}</nNFSe><xTribNac>Simulado</xTribNac><verAplic>SIMULADOR</verAplic>`
-      + `<ambGer>2</ambGer><tpEmis>1</tpEmis><cStat>107</cStat><dhProc>2026-09-25T10:00:00-03:00</dhProc><nDFSe>${seq}</nDFSe>`
-      + `<valores><vLiq>${tag(dpsXml, 'vServ')}</vLiq></valores>${dps}</infNFSe></NFSe>`;
+      + camposNfse(dpsXml, seq) + `${dps}</infNFSe></NFSe>`;
     estado.geradas.set(idDps, { chave, xml });
     return { chave, xml };
+  }
+
+  // Campos que a Sefin acrescenta à DPS (TCInfNFSe), calculados de forma simplificada.
+  function camposNfse(dpsXml, n) {
+    const mun = (c) => { const m = municipio(c) || { nome: 'Simulado', uf: 'SP' }; return { ...m, nome: esc(m.nome) }; };
+    const cLocEmi = tag(dpsXml, 'cLocEmi');
+    const cLocPrest = tag(dpsXml, 'cLocPrestacao') || cLocEmi;
+    const op = tag(dpsXml, 'opSimpNac');
+    const vServ = Number(tag(dpsXml, 'vServ'));
+    const aliq = tag(dpsXml, 'pAliq') ? Number(tag(dpsXml, 'pAliq')) : (op === '2' ? null : 2);
+    const vIss = aliq === null ? null : Math.round(vServ * aliq) / 100;
+    const issRetido = tag(dpsXml, 'tpRetISSQN') && tag(dpsXml, 'tpRetISSQN') !== '1';
+    const retFed = ['vRetIRRF', 'vRetCP', 'vRetCSLL'].reduce((s, t) => s + Number(tag(dpsXml, t) || 0), 0);
+    const vTotalRet = (issRetido ? vIss || 0 : 0) + retFed;
+    const f = (v) => v.toFixed(2);
+    const doc = dpsXml.match(/<prest><(CNPJ|CPF)>([^<]+)</);
+    const emit = `<emit><${doc[1]}>${doc[2]}</${doc[1]}><xNome>EMPRESA SIMULADA ${op === '2' ? 'MEI' : 'LTDA'}</xNome>`
+      + `<enderNac><xLgr>Rua da Simulacao</xLgr><nro>100</nro><xBairro>Centro</xBairro><cMun>${cLocEmi}</cMun><UF>${mun(cLocEmi).uf}</UF><CEP>01001000</CEP></enderNac>`
+      + '<fone>11999990000</fone><email>contato@exemplo.com.br</email></emit>';
+    const valores = '<valores>' + (vIss === null ? '' : `<vBC>${f(vServ)}</vBC><pAliqAplic>${f(aliq)}</pAliqAplic><vISSQN>${f(vIss)}</vISSQN>`)
+      + (vTotalRet ? `<vTotalRet>${f(vTotalRet)}</vTotalRet>` : '') + `<vLiq>${f(vServ - vTotalRet)}</vLiq></valores>`;
+    let ibscbs = '';
+    if (/<IBSCBS>/.test(dpsXml)) {
+      // Alíquotas de teste de 2026 (CBS 0,9%, IBS UF 0,1%, IBS Mun 0%).
+      const pis = Number(tag(dpsXml, 'vPis') || 0);
+      const cofins = Number(tag(dpsXml, 'vCofins') || 0);
+      const bc = vServ - (vIss || 0) - pis - cofins;
+      const cbs = Math.round(bc * 0.9) / 100;
+      const ibsUf = Math.round(bc * 0.1) / 100;
+      ibscbs = `<IBSCBS><cLocalidadeIncid>${cLocPrest}</cLocalidadeIncid><xLocalidadeIncid>${mun(cLocPrest).nome}</xLocalidadeIncid>`
+        + `<valores><vBC>${f(bc)}</vBC><uf><pIBSUF>0.10</pIBSUF><pAliqEfetUF>0.10</pAliqEfetUF></uf><mun><pIBSMun>0.00</pIBSMun><pAliqEfetMun>0.00</pAliqEfetMun></mun>`
+        + '<fed><pCBS>0.90</pCBS><pAliqEfetCBS>0.90</pAliqEfetCBS></fed></valores>'
+        + `<totCIBS><vTotNF>${f(vServ - vTotalRet + ibsUf + cbs)}</vTotNF><gIBS><vIBSTot>${f(ibsUf)}</vIBSTot><gIBSUFTot><vDifUF>0.00</vDifUF><vIBSUF>${f(ibsUf)}</vIBSUF></gIBSUFTot>`
+        + `<gIBSMunTot><vDifMun>0.00</vDifMun><vIBSMun>0.00</vIBSMun></gIBSMunTot></gIBS><gCBS><vDifCBS>0.00</vDifCBS><vCBS>${f(cbs)}</vCBS></gCBS></totCIBS></IBSCBS>`;
+    }
+    const cTribNac = tag(dpsXml, 'cTribNac');
+    return `<xLocEmi>${mun(cLocEmi).nome}</xLocEmi><xLocPrestacao>${mun(cLocPrest).nome}</xLocPrestacao><nNFSe>${n}</nNFSe>`
+      + `<cLocIncid>${cLocPrest}</cLocIncid><xLocIncid>${mun(cLocPrest).nome}</xLocIncid>`
+      + `<xTribNac>${esc(servicoNacional(cTribNac)?.descricao || 'Simulado')}</xTribNac><verAplic>SIMULADOR</verAplic>`
+      + `<ambGer>2</ambGer><tpEmis>1</tpEmis><cStat>${op === '2' ? '107' : '100'}</cStat><dhProc>2026-09-25T10:00:00-03:00</dhProc><nDFSe>${n}</nDFSe>`
+      + emit + valores + ibscbs;
   }
 
   function regras(xml) {

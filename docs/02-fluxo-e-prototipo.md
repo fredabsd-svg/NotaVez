@@ -30,7 +30,7 @@ flowchart TD
   V -->|erros| N
   V -->|sem internet| OFF[Aviso: rascunho salvo, ainda NÃO emitida]
   V -->|Emitir nota| E((Envio à Sefin Nacional))
-  E -->|chave de acesso| OK[Emitida: chave, XML, Consulta Pública, compartilhar]
+  E -->|chave de acesso| OK[Emitida: chave, DANFSe em PDF, XML, compartilhar]
   E -->|erros da Receita| REJ[Rejeitada: motivo + o que fazer]
   REJ -->|Corrigir| N
   E -->|sem resposta / erro 5xx| PEN[Pendente de confirmação]
@@ -53,7 +53,7 @@ flowchart TD
 | 7 | **Serviços salvos**: busca na lista nacional com palavras do dia a dia | ![](prototipo/07-servico-novo.png) |
 | 8 | **Nova nota**: cliente, serviço, competência e valor; tributação do MEI explicada | ![](prototipo/08-nova-nota.png) |
 | 9 | **Revisão**: todos os dados antes de "Emitir nota" | ![](prototipo/09-revisao.png) |
-| 10 | **Resultado — Emitida**: chave de acesso, XML, compartilhar | ![](prototipo/10-resultado-emitida.png) |
+| 10 | **Resultado — Emitida**: chave de acesso, "Enviar ao cliente" (DANFSe em PDF + XML), ver DANFSe, baixar XML | ![](prototipo/10-resultado-emitida.png) |
 | 11 | **Nota clonada**: campos a conferir destacados | ![](prototipo/11-nota-clonada.png) |
 | 12 | **Resultado — Rejeitada**: motivo em linguagem comum + código oficial | ![](prototipo/12-resultado-rejeitada.png) |
 | 13 | **Resultado — Pendente de confirmação**: "não emita de novo" | ![](prototipo/13-resultado-pendente.png) |
@@ -98,3 +98,19 @@ A seção de tributação mostra ISS (retenção e alíquota só quando exigida)
 | 26 | Nova nota: ISS retido, retenções federais (4,65%), IRRF e IBS/CBS (NBS e uso pessoal) | ![](prototipo/26-nova-nota-presumido.png) |
 | 27 | Revisão: tributação completa, líquido estimado e classificação IBS/CBS | ![](prototipo/27-revisao-presumido.png) |
 | 28 | Resultado: emitida | ![](prototipo/28-resultado-presumido.png) |
+
+### DANFSe (NT 008)
+
+O DANFSe é gerado pelo servidor a partir do XML oficial da NFS-e. Abaixo, o do modo demonstração: tem "NFS-e SEM VALIDADE JURÍDICA" (homologação) e a marca d'água "SIMULAÇÃO". [Exemplo em PDF](exemplos/danfse-demonstracao.pdf).
+
+| # | Tela | Imagem |
+|---|---|---|
+| 29 | DANFSe em PDF, página única, com QR Code da Consulta Pública | ![](prototipo/29-danfse.png) |
+
+## 2.6 Identidade visual
+
+- **Persona:** dono de MEI ou de pequena empresa, no celular, sem formação fiscal. Quer emitir a nota do mês em menos de um minuto e ter certeza de que deu certo.
+- **Personalidade:** confiável e acolhedora. Azul institucional para transmitir segurança, verde reservado à confirmação ("Emitida"), vermelho e âmbar só para erro e atenção.
+- **Logo:** um documento com um "✓" verde cujo traço forma o **V** de NotaVez; o check sai da folha para indicar a nota concluída. Funciona de 16 px (favicon) a 512 px e tem versão *maskable* para Android. Logotipo em Inter ExtraBold convertida em curvas: "Nota" em tinta escura e "Vez" em azul, com versão para fundo escuro.
+- **Tokens:** azul `#0b5cab`, verde `#1a7f37`, vermelho `#b42318`, âmbar `#8a5300`, tinta `#0f2744`; fonte do sistema; espaçamento em múltiplos de 4 e 8 px; raio de 14 px. Os mesmos tokens valem para o app (`web/css/app.css`) e para a página de apresentação (`docs/index.html`).
+- **Arquivos:** `web/icons/` (logo.svg, logo-escuro.svg, icone.svg, icone-maskable.svg, PNG 180/192/512, favicon de 32 px) e cópias em `docs/assets/`.
