@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-escuro.svg">
-    <img src="docs/assets/logo.svg" alt="Nota Sem Stress" width="320">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/marca-nota-sem-stress-escuro.svg">
+    <img src="docs/assets/marca-nota-sem-stress.svg" alt="Nota Sem Stress" width="320">
   </picture>
 </p>
 
@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/vitrine.png" alt="Telas do Nota Sem Stress: início, nova nota, nota emitida e o DANFSe em PDF" width="100%">
+  <img src="docs/assets/vitrine-nota-sem-stress.png" alt="Telas do Nota Sem Stress: início, nova nota, nota emitida e o DANFSe em PDF" width="100%">
 </p>
 
 > [!IMPORTANT]
