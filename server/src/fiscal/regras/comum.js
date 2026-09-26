@@ -86,3 +86,19 @@ export function validarComum({ prestador, nota, hoje }) {
   }
   return e;
 }
+
+// Fora do MEI, o município emissor precisa ser conveniado e usar os emissores nacionais (E0037–E0039).
+export function validarConvenioEmissor(e, parametros) {
+  const ce = parametros?.convenioEmissor;
+  if (ce?.situacao === 'inexistente') e.push({ campo: 'perfil.municipio', mensagem: 'O município do seu CNPJ não é conveniado ao Sistema Nacional da NFS-e: a nota deve ser emitida no sistema da prefeitura.', regra: 'E0037' });
+  else if (ce?.situacao === 'ativo' && ce.aderenteEmissorNacional === false) e.push({ campo: 'perfil.municipio', mensagem: 'O município do seu CNPJ não liberou os emissores nacionais: a nota deve ser emitida no sistema da prefeitura.', regra: 'E0039' });
+}
+
+// Arredondamento bancário (half-even), adotado pela NT 007 para vPis/vCofins.
+export function arredondarBancario(v) {
+  const x = Math.round(Number(v) * 1e6) / 1e6 * 100;
+  const piso = Math.floor(x);
+  const dif = x - piso;
+  const r = Math.abs(dif - 0.5) < 1e-6 ? (piso % 2 === 0 ? piso : piso + 1) : Math.round(x);
+  return r / 100;
+}

@@ -29,7 +29,7 @@ export async function tela() {
   municipio.entrada.addEventListener('input', () => { municipioIbge = ''; });
   const regime = campo({
     rotulo: 'Regime tributário', valor: p.opSimpNac || '2',
-    opcoes: [['2', 'MEI'], ['3', 'ME/EPP — Simples Nacional'], ['1', 'Lucro Presumido ou Real (em breve: só rascunhos)']],
+    opcoes: [['2', 'MEI'], ['3', 'ME/EPP — Simples Nacional'], ['1', 'Lucro Presumido ou Lucro Real']],
   });
   // ----- Simples Nacional (ME/EPP) -----
   const regApTribSN = campo({
@@ -54,7 +54,41 @@ export async function tela() {
   });
   const blocoSimples = h('fieldset', { class: 'cartao', style: 'margin:12px 0' },
     h('legend', { class: 'rotulo', style: 'margin:0' }, 'Simples Nacional'), regApTribSN, pTotTribSN, aliqIssSN);
-  const mostrarSimples = () => { blocoSimples.hidden = regime.entrada.value !== '3'; };
+  // ----- Lucro Presumido / Real -----
+  const apuracao = campo({ rotulo: 'Forma de tributação do IRPJ', valor: p.apuracao || 'presumido', opcoes: [['presumido', 'Lucro Presumido'], ['real', 'Lucro Real']] });
+  const cstPisCofins = campo({
+    rotulo: 'Situação do PIS/COFINS nos seus serviços', valor: p.cstPisCofins || '01',
+    opcoes: [['01', '01 — Tributável (alíquota básica)'], ['06', '06 — Alíquota zero'], ['08', '08 — Sem incidência'], ['09', '09 — Suspensão']],
+  });
+  const aliqPis = campo({ rotulo: 'Alíquota do PIS (%)', valor: fmtPct(p.aliqPis), atributos: { inputmode: 'decimal', placeholder: 'Ex.: 0,65' } });
+  const aliqCofins = campo({ rotulo: 'Alíquota da COFINS (%)', valor: fmtPct(p.aliqCofins), atributos: { inputmode: 'decimal', placeholder: 'Ex.: 3,00' } });
+  const padroes = h('button', {
+    class: 'btn btn-pequeno btn-texto', type: 'button',
+    onclick: () => {
+      const real = apuracao.entrada.value === 'real';
+      aliqPis.entrada.value = real ? '1,65' : '0,65';
+      aliqCofins.entrada.value = real ? '7,60' : '3,00';
+    },
+  }, 'Usar alíquotas padrão do regime');
+  const avisoPadrao = h('p', { class: 'suave' }, 'Padrão: Presumido (cumulativo) PIS 0,65% e COFINS 3%; Real (não cumulativo) PIS 1,65% e COFINS 7,6%. Há exceções por atividade: confirme com seu contador.');
+  const pTotFed = campo({ rotulo: 'Tributos federais aproximados (%)', valor: fmtPct(p.pTotTribFed), ajuda: 'Lei 12.741/2012 (ex.: tabela do IBPT para o seu serviço).', atributos: { inputmode: 'decimal', placeholder: 'Ex.: 13,45' } });
+  const pTotMun = campo({ rotulo: 'Tributos municipais aproximados (%)', valor: fmtPct(p.pTotTribMun), ajuda: 'Em geral, a alíquota do ISS.', atributos: { inputmode: 'decimal', placeholder: 'Ex.: 5,00' } });
+  const aliqIss = campo({
+    rotulo: 'Alíquota do ISS (%)', valor: fmtPct(p.aliqIss),
+    ajuda: 'Opcional. Só vai na nota quando o município onde o ISS é devido não é conveniado ao Sistema Nacional (regra E0619).',
+    atributos: { inputmode: 'decimal', placeholder: 'Ex.: 5,00' },
+  });
+  const mostrarAliqPisCofins = () => { aliqPis.hidden = aliqCofins.hidden = padroes.hidden = avisoPadrao.hidden = cstPisCofins.entrada.value !== '01'; };
+  cstPisCofins.entrada.addEventListener('change', mostrarAliqPisCofins);
+  mostrarAliqPisCofins();
+  const blocoFederais = h('fieldset', { class: 'cartao', style: 'margin:12px 0' },
+    h('legend', { class: 'rotulo', style: 'margin:0' }, 'Lucro Presumido ou Real'),
+    apuracao, cstPisCofins, aliqPis, aliqCofins, avisoPadrao, padroes, pTotFed, pTotMun, aliqIss);
+
+  const mostrarSimples = () => {
+    blocoSimples.hidden = regime.entrada.value !== '3';
+    blocoFederais.hidden = regime.entrada.value !== '1';
+  };
   regime.entrada.addEventListener('change', mostrarSimples);
   mostrarSimples();
   const email = campo({ rotulo: 'E-mail de contato', ajuda: 'Opcional. Vai na nota.', tipo: 'email', valor: p.email || '', atributos: { inputmode: 'email', maxlength: 80 } });
@@ -78,6 +112,8 @@ export async function tela() {
           documento: cnpj.entrada.value, nome: nome.entrada.value, municipioIbge, opSimpNac: regime.entrada.value,
           email: email.entrada.value, fone: fone.entrada.value, inscricaoMunicipal: im.entrada.value, serieDps: serie.entrada.value, ambiente: ambiente.entrada.value,
           regApTribSN: regApTribSN.entrada.value, pTotTribSN: pTotTribSN.entrada.value, aliqIssSN: aliqIssSN.entrada.value,
+          apuracao: apuracao.entrada.value, cstPisCofins: cstPisCofins.entrada.value, aliqPis: aliqPis.entrada.value, aliqCofins: aliqCofins.entrada.value,
+          pTotTribFed: pTotFed.entrada.value, pTotTribMun: pTotMun.entrada.value, aliqIss: aliqIss.entrada.value,
         });
         aviso('Perfil salvo.');
         estado.inicio = await api('GET', '/api/inicio');
@@ -85,11 +121,11 @@ export async function tela() {
         atualizarSelo();
         location.reload();
       } catch (err) {
-        if (err instanceof ErroApi && err.dados?.campos) mostrarErros({ documento: cnpj, municipioIbge: municipio, opSimpNac: regime, regApTribSN, pTotTribSN, aliqIssSN, email, serieDps: serie, ambiente }, err.dados.campos);
+        if (err instanceof ErroApi && err.dados?.campos) mostrarErros({ documento: cnpj, municipioIbge: municipio, opSimpNac: regime, regApTribSN, pTotTribSN, aliqIssSN, cstPisCofins, aliqPis, aliqCofins, pTotTribFed: pTotFed, pTotTribMun: pTotMun, aliqIss, email, serieDps: serie, ambiente }, err.dados.campos);
         else { erroPerfil.textContent = err.message; erroPerfil.hidden = false; }
       } finally { salvarPerfil.disabled = false; }
     },
-  }, cnpj, nome, municipio, regime, blocoSimples, email, fone, h('details', {}, h('summary', {}, 'Opções avançadas'), im, serie, ambiente), erroPerfil, salvarPerfil);
+  }, cnpj, nome, municipio, regime, blocoSimples, blocoFederais, email, fone, h('details', {}, h('summary', {}, 'Opções avançadas'), im, serie, ambiente), erroPerfil, salvarPerfil);
 
   // ----- Certificado -----
   const cert = dados.certificado;

@@ -71,6 +71,31 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
       if (ret !== '1' && temAliq && aliq < 1.8) e('E0621', 'Alíquota mínima permitida é 1,8%.');
       if (ret === '1' && temAliq) e('E0625', 'Não é permitido informar alíquota quando não há indicação de retenção do ISSQN.');
     }
+    // Não optante (Lucro Presumido/Real)
+    if (op === '1') {
+      if (reg) e('E0162', 'Não é permitido ao não optante do Simples Nacional preencher o regime de apuração do SN.');
+      if (/<indTotTrib>|<pTotTribSN>/.test(xml)) e('E0713', 'Para Não Optante do SN, indTotTrib e pTotTribSN não podem ser informados.');
+      const ativo = estado.conveniados.has(cLocIncid);
+      if (ativo && temAliq) e('E0617', 'Não é permitido informar alíquota quando o prestador não é optante e o município de incidência está ATIVO.');
+      if (!ativo && !temAliq) e('E0619', 'É obrigatório informar alíquota quando o prestador não é optante e o município de incidência não está ATIVO.');
+    }
+    const cst = tag(xml, 'CST');
+    if (cst && !['00', '08', '09'].includes(cst) && /<piscofins>/.test(xml)) {
+      const bc = Number(tag(xml, 'vBCPisCofins'));
+      if (!tag(xml, 'vBCPisCofins')) e('E0678', 'Valor BC do Pis/Cofins deve ser informado.');
+      if (!tag(xml, 'tpRetPisCofins')) e('E0698', 'O tipo de retenção para Pis/Cofins deve ser informado.');
+      const conf = (v, a) => Math.abs(Number(tag(xml, v)) - Math.round(bc * Number(tag(xml, a))) / 100) <= 0.011;
+      if (tag(xml, 'pAliqPis') && !conf('vPis', 'pAliqPis')) e('E0694', 'O valor do Pis informado não corresponde ao resultado da BC Pis/Cofins x Alíquota Pis.');
+      if (tag(xml, 'pAliqCofins') && !conf('vCofins', 'pAliqCofins')) e('E0696', 'O valor do Cofins informado não corresponde ao resultado da BC x Alíquota Cofins.');
+    }
+    const tpRet = tag(xml, 'tpRetPisCofins');
+    if (tpRet === '0' && /<vRetCSLL>/.test(xml)) e('E0720', 'Se o tipo de retenção for 0, não é permitido informar vRetCSLL.');
+    if (tpRet && !['0', '2'].includes(tpRet) && !/<vRetCSLL>/.test(xml)) e('E0724', 'É obrigatório informar o campo vRetCSLL.');
+    if (/<IBSCBS>/.test(xml)) {
+      if (!/<cNBS>/.test(xml)) e('E0322', 'É obrigatório informar na DPS um item da NBS se for declarada qualquer informação de IBS/CBS.');
+      const ibs = xml.slice(xml.indexOf('<IBSCBS>'));
+      if (tag(ibs, 'cClassTrib')?.slice(0, 3) !== tag(ibs, 'CST')) e('E0959', 'cClassTrib não pertence ao grupo CST indicado.');
+    }
     if (op === '3' && (reg === '2' || reg === '3')) {
       const ativo = estado.conveniados.has(cLocIncid);
       if (ativo && temAliq) e('E0635', 'Não é permitido informar alíquota quando o convênio do município de incidência do ISSQN está ativo.');

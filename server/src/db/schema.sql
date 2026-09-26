@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS prestadores (
   inscricao_municipal TEXT,
   contato_cifrado TEXT,             -- {email, fone}
   serie_dps TEXT NOT NULL DEFAULT '1',
-  config_fiscal TEXT,               -- {regApTribSN, pTotTribSN, aliqIssSN} (ME/EPP)
+  config_fiscal TEXT,               -- parâmetros do regime (ME/EPP: regApTribSN, pTotTribSN, aliqIssSN; não optante: PIS/COFINS, pTotTrib, aliqIss)
   ambiente TEXT NOT NULL DEFAULT 'producao_restrita',
   criado_em TEXT NOT NULL,
   atualizado_em TEXT NOT NULL

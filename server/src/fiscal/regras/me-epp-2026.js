@@ -10,7 +10,7 @@
 //   regApTribSN = 2/3: proibida se o convênio do município de incidência estiver ativo (E0635),
 //                      obrigatória se não estiver (E0640) — por isso consultamos os parâmetros municipais.
 //   Nunca acima de 5% (E0595).
-import { validarComum, tomadorIdentificado, percentual, municipioIncidencia } from './comum.js';
+import { validarComum, validarConvenioEmissor, tomadorIdentificado, percentual, municipioIncidencia } from './comum.js';
 import { municipio } from '../tabelas.js';
 
 const fmt2 = (n) => Number(n).toFixed(2);
@@ -87,10 +87,7 @@ export const pacote = {
       else if (v.pAliq < ex.minimo || v.pAliq <= 0) add('tributacao', `A alíquota do ISS deve ser de pelo menos ${String(Math.max(ex.minimo, 0.01)).replace('.', ',')}%.`, ex.regra);
     }
 
-    // Convênio do município emissor (não-MEI): E0037 inexistente, E0039 não usa os emissores nacionais.
-    const ce = parametros?.convenioEmissor;
-    if (ce?.situacao === 'inexistente') add('perfil.municipio', 'O município do seu CNPJ não é conveniado ao Sistema Nacional da NFS-e: a nota deve ser emitida no sistema da prefeitura.', 'E0037');
-    else if (ce?.situacao === 'ativo' && ce.aderenteEmissorNacional === false) add('perfil.municipio', 'O município do seu CNPJ não liberou os emissores nacionais: a nota deve ser emitida no sistema da prefeitura.', 'E0039');
+    validarConvenioEmissor(e, parametros);
     return e;
   },
 };

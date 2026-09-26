@@ -9,13 +9,41 @@ const CAMPO_TELA = {
   competencia: 'Competência', valor: 'Valor', descricao: 'Descrição', tributacao: 'Tributação', servico: 'Serviço',
   tomador: 'Cliente', 'tomador.documento': 'Cliente', 'tomador.nome': 'Cliente', 'tomador.endereco': 'Endereço do cliente',
   'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação',
-  'perfil.cnpj': 'Perfil', 'perfil.municipio': 'Perfil', 'perfil.regime': 'Perfil', regime: 'Regime', cTribMun: 'Código municipal', cNBS: 'Código NBS',
+  'perfil.cnpj': 'Perfil', 'perfil.municipio': 'Perfil', 'perfil.regime': 'Perfil', 'perfil.federais': 'Perfil', regime: 'Regime',
+  retencoes: 'Retenções federais', ibscbs: 'IBS/CBS', 'ibscbs.nbs': 'IBS/CBS (NBS)', 'ibscbs.cIndOp': 'IBS/CBS (forma de prestação)', 'ibscbs.cClassTrib': 'IBS/CBS (classificação)', cTribMun: 'Código municipal', cNBS: 'Código NBS',
 };
+
+function textoNaoOptante(p, r, ex, valor) {
+  const pct = (v) => `${Number(v).toFixed(2).replace('.', ',')}%`;
+  const bloco = (...x) => h('span', { style: 'display:block;margin-top:4px' }, ...x);
+  const a = ex?.aliquota;
+  const aliq = r.pAliq ?? p.aliqIss;
+  const partes = [bloco(`Lucro ${p.apuracao === 'real' ? 'Real' : 'Presumido'}. ISS ${r.issRetido ? 'retido pelo cliente' : 'não retido'}. `,
+    a?.modo === 'obrigatoria' ? (aliq ? `Alíquota na nota: ${pct(aliq)}.` : 'Alíquota: falta informar.') : a?.modo === 'proibida' ? `Alíquota não vai na nota: ${a.motivo}` : '')];
+  const pc = ex?.pisCofins;
+  if (pc) {
+    partes.push(bloco(h('span', { class: 'suave' }, `PIS/COFINS: CST ${pc.cst} (${pc.descricao})`,
+      pc.vPis !== null && pc.vPis !== undefined ? ` — PIS ${moeda(pc.vPis)}, COFINS ${moeda(pc.vCofins)}` : '')));
+  }
+  const rf = r.retencoesFederais || {};
+  const retidas = ['pis', 'cofins', 'csll'].filter((k) => rf[k]).map((k) => k.toUpperCase());
+  const totalRet = Number(rf.valorContribuicoes || 0) + Number(rf.irrf || 0) + Number(rf.cp || 0);
+  if (totalRet) {
+    partes.push(bloco(`Retenções federais: ${[retidas.length ? `${retidas.join('/')} ${moeda(rf.valorContribuicoes)}` : null, rf.irrf ? `IRRF ${moeda(rf.irrf)}` : null, rf.cp ? `INSS ${moeda(rf.cp)}` : null].filter(Boolean).join(' · ')}.`),
+    bloco(h('span', { class: 'suave' }, `Líquido estimado a receber: ${moeda(Number(valor) - totalRet)} (antes do ISS retido, se houver).`)));
+  }
+  const ibs = ex?.ibscbs?.grupo;
+  partes.push(bloco(h('span', { class: 'suave' }, ibs
+    ? `IBS/CBS: NBS ${ibs.cNBS}, classificação ${ibs.cClassTrib} (CST ${ibs.CST}), operação ${ibs.cIndOp}, uso pessoal: ${ibs.indFinal === '1' ? 'sim' : 'não'}. Valores calculados pela Receita.`
+    : 'IBS/CBS: falta completar a classificação.')));
+  return partes;
+}
 
 // Resumo da tributação que vai na nota, conforme o regime e o que a regra oficial exige.
 function textoTributacao(p, r, ex, valor) {
   if (p.opSimpNac === '2') return ['ISS tributável, sem retenção. MEI: impostos pagos no DAS (sem alíquota na nota).'];
-  if (p.opSimpNac !== '3') return ['Regime ainda sem emissão direta no NotaVez.'];
+  if (p.opSimpNac === '1') return textoNaoOptante(p, r, ex, valor);
+  if (p.opSimpNac !== '3') return ['Regime não informado no perfil.'];
   const reg = { 1: 'tudo pelo Simples', 2: 'federais pelo Simples, ISS fora', 3: 'tudo fora do Simples' }[p.regApTribSN] || '—';
   const pct = (v) => `${Number(v).toFixed(2).replace('.', ',')}%`;
   const aliq = r.pAliq ?? (r.issRetido && p.regApTribSN === '1' ? p.aliqIssSN : null);
@@ -72,7 +100,7 @@ export async function tela({ id }) {
       h('p', { class: 'suave', style: 'margin:0' }, 'Valor do serviço'),
       h('p', { class: 'valor-grande', style: 'margin:4px 0 0' }, moeda(nota.valor))),
     h('div', { class: 'cartao' }, h('dl', { class: 'dados' },
-      linha('Emitente (você)', `${perfil.perfil.nome || ''} ${perfil.perfil.documentoFormatado}`, h('br'), h('span', { class: 'suave' }, `${perfil.perfil.municipio?.nome || ''} - ${perfil.perfil.municipio?.uf || ''} · ${{ 2: 'MEI', 3: 'ME/EPP (Simples Nacional)', 1: 'Lucro Presumido/Real' }[perfil.perfil.opSimpNac] || ''}`)),
+      linha('Emitente (você)', `${perfil.perfil.nome || ''} ${perfil.perfil.documentoFormatado}`, h('br'), h('span', { class: 'suave' }, `${perfil.perfil.municipio?.nome || ''} - ${perfil.perfil.municipio?.uf || ''} · ${{ 2: 'MEI', 3: 'ME/EPP (Simples Nacional)', 1: perfil.perfil.apuracao === 'real' ? 'Lucro Real' : 'Lucro Presumido' }[perfil.perfil.opSimpNac] || ''}`)),
       linha('Cliente', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
         end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${end.cep}`) : null),
       linha('Serviço (lista nacional)', nota.servicoNacional ? `${nota.servicoNacional.codigo} — ${nota.servicoNacional.descricao}` : '—'),

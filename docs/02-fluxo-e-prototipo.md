@@ -87,3 +87,14 @@ Os campos extras aparecem **só para ME/EPP**, e a alíquota do ISS aparece **s�
 **Android (Chrome):** abrir o NotaVez no Chrome → menu **⋮** → **Instalar app** (ou **Adicionar à tela inicial**) → **Instalar**. Quando o navegador permite, o app mostra o botão **Instalar agora**.
 
 **iPhone (Safari):** abrir o NotaVez no Safari → botão **Compartilhar** (quadrado com seta para cima) → **Adicionar à Tela de Início** → **Adicionar**.
+
+### Lucro Presumido / Lucro Real
+
+A seção de tributação mostra ISS (retenção e alíquota só quando exigida), **retenções federais** no formato da NT 007 (PIS/COFINS/CSLL somados) e o **IBS/CBS** com as opções oficiais para o serviço (NBS, forma de prestação, classificação e uso pessoal). A revisão estima o líquido a receber.
+
+| # | Tela | Imagem |
+|---|---|---|
+| 25 | Perfil: Lucro Presumido, PIS/COFINS (com alíquotas padrão a confirmar), tributos aproximados e alíquota do ISS | ![](prototipo/25-perfil-presumido.png) |
+| 26 | Nova nota: ISS retido, retenções federais (4,65%), IRRF e IBS/CBS (NBS e uso pessoal) | ![](prototipo/26-nova-nota-presumido.png) |
+| 27 | Revisão: tributação completa, líquido estimado e classificação IBS/CBS | ![](prototipo/27-revisao-presumido.png) |
+| 28 | Resultado: emitida | ![](prototipo/28-resultado-presumido.png) |

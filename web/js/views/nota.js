@@ -1,4 +1,4 @@
-import { h, anexar, campo, aviso, hoje, moeda, buscaComSugestoes, icone, ICONES } from '../ui.js';
+import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { salvarLocal, removerLocal, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
@@ -84,7 +84,9 @@ export async function tela({ id }) {
     atributos: { maxlength: 1000 },
     oninput: (e) => { r.descricao = e.target.value; revisado('descricao'); persistir(); },
   });
+  let atualizarIbs = null; // definido na seção de tributação (Lucro Presumido/Real)
   const mostrarNacional = () => {
+    atualizarIbs?.();
     const n = meta.servicoNacional;
     nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${n.codigo} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
     if (n?.grupoExigido) nacionalTexto.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Este serviço exige dados de obra/evento, ainda não suportados. Use o Emissor Nacional para ele.'));
@@ -112,6 +114,7 @@ export async function tela({ id }) {
     buscar: buscarServicoNacional, formatar: (x) => `${x.codigo} — ${x.descricao}`,
     aoEscolher: (x, c) => {
       c.entrada.value = '';
+      if (r.cTribNac !== x.codigo) { r.cNBS = null; r.cIndOp = null; r.cClassTrib = null; }
       r.cTribNac = x.codigo; r.servicoId = null; meta.servicoNacional = x;
       if (!r.descricao) { r.descricao = x.descricao; descricao.entrada.value = x.descricao; }
       for (const b of chips.querySelectorAll('.chip')) b.setAttribute('aria-pressed', 'false');
@@ -187,9 +190,95 @@ export async function tela({ id }) {
       avisoRet, aliq, pTot, marcador('tributacao'));
     atualizarAliq();
   } else if (perfil?.opSimpNac === '1') {
-    anexar(blocoTrib, h('div', { class: 'cartao cartao-alerta' },
-      h('p', { style: 'margin:0' }, 'Lucro Presumido ou Real: a emissão direta ainda não está disponível. Você pode preparar este rascunho e emitir pelo Emissor Nacional.')),
-    marcador('tributacao'));
+    // ISS: retenção pelo cliente; alíquota só vale se o município de incidência não for conveniado (E0617/E0619).
+    const retidoIss = h('input', { type: 'checkbox', id: 'iss-retido', checked: !!r.issRetido, onchange: (e) => { r.issRetido = e.target.checked; revisado('tributacao'); persistir(); } });
+    const aliqIss = campo({
+      rotulo: 'Alíquota do ISS do município (%)',
+      ajuda: `Só vai na nota se o município onde o ISS é devido não for conveniado ao Sistema Nacional.${perfil.aliqIss ? ` Em branco = ${pctTexto(perfil.aliqIss)}% do perfil.` : ''}`,
+      valor: pctTexto(r.pAliq), atributos: { inputmode: 'decimal', placeholder: pctTexto(perfil.aliqIss) || 'Ex.: 5,00' },
+      oninput: (e) => { r.pAliq = lerPct(e.target.value); revisado('tributacao'); persistir(); },
+    });
+
+    // Retenções federais (NT 007: PIS, COFINS e CSLL retidos vão SOMADOS em um só valor).
+    const rf = { pis: false, cofins: false, csll: false, valorContribuicoes: null, irrf: null, cp: null, ...(r.retencoesFederais || {}) };
+    const salvarRf = () => { r.retencoesFederais = { ...rf }; revisado('tributacao'); persistir(); };
+    const valorTexto = (v) => (v ? Number(v).toFixed(2).replace('.', ',') : '');
+    const lerValor = (v) => {
+      const t = String(v).trim();
+      if (!t) return null;
+      const n = Number(/,\d{1,2}$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''));
+      return Number.isFinite(n) && n > 0 ? n.toFixed(2) : null;
+    };
+    const caixa = (k, rotulo) => h('label', { class: 'caixa', style: 'margin:6px 0' },
+      h('input', { type: 'checkbox', checked: !!rf[k], onchange: (e) => { rf[k] = e.target.checked; salvarRf(); } }), h('span', {}, rotulo));
+    const vContrib = campo({ rotulo: 'Valor retido de PIS/COFINS/CSLL, somados (R$)', valor: valorTexto(rf.valorContribuicoes), atributos: { inputmode: 'decimal', placeholder: '0,00' },
+      oninput: (e) => { rf.valorContribuicoes = lerValor(e.target.value); salvarRf(); } });
+    const calc465 = h('button', {
+      class: 'btn btn-pequeno btn-texto', type: 'button',
+      onclick: () => {
+        if (!r.valor) return aviso('Informe o valor do serviço primeiro.');
+        const v = (Number(r.valor) * 4.65 / 100).toFixed(2);
+        vContrib.entrada.value = v.replace('.', ','); rf.valorContribuicoes = v; rf.pis = rf.cofins = rf.csll = true;
+        for (const cx of blocoRet.querySelectorAll('input[type=checkbox]')) cx.checked = true;
+        salvarRf();
+      },
+    }, 'Preencher 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%)');
+    const vIrrf = campo({ rotulo: 'IRRF retido (R$)', valor: valorTexto(rf.irrf), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.irrf = lerValor(e.target.value); salvarRf(); } });
+    const vCp = campo({ rotulo: 'INSS retido (R$)', valor: valorTexto(rf.cp), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.cp = lerValor(e.target.value); salvarRf(); } });
+    const blocoRet = h('details', { open: !!(rf.pis || rf.cofins || rf.csll || rf.irrf || rf.cp) },
+      h('summary', {}, 'Retenções federais (cliente empresa)'),
+      h('p', { class: 'suave' }, 'Marque o que o cliente vai reter. As alíquotas dependem do serviço e do cliente: confirme com seu contador.'),
+      caixa('pis', 'PIS retido'), caixa('cofins', 'COFINS retida'), caixa('csll', 'CSLL retida'), vContrib, calc465, vIrrf, vCp);
+
+    // IBS/CBS (opções oficiais do Anexo VIII para o serviço escolhido).
+    const blocoIbs = h('div', { class: 'cartao' });
+    atualizarIbs = async () => {
+      const cod = r.cTribNac;
+      if (!cod) { blocoIbs.replaceChildren(h('p', { class: 'suave', style: 'margin:0' }, 'Escolha o serviço para ver as opções de IBS/CBS.')); return; }
+      let info;
+      try { info = await comCache(`ibscbs:${cod}`, () => api('GET', `/api/tabelas/ibscbs/${cod}`)); } catch { info = null; }
+      if (!info) { blocoIbs.replaceChildren(h('p', { class: 'suave', style: 'margin:0' }, 'Sem internet: as opções de IBS/CBS aparecem quando a conexão voltar.')); return; }
+      const cab = h('p', { style: 'margin-top:0' }, h('strong', {}, 'IBS/CBS: '), `obrigatório na nota a partir de ${dataBr(info.obrigatorioDesde)} (Ato Conjunto RFB/CGIBS nº 4/2026). A Receita calcula os valores; você informa a classificação.`);
+      if (!info.opcoes.length) { blocoIbs.replaceChildren(cab, h('p', { class: 'erro-campo' }, 'Este serviço não tem correlação oficial de IBS/CBS (Anexo VIII). Use o Emissor Nacional ou outro código.')); return; }
+      const nbsAtual = r.cNBS || (info.opcoes.length === 1 ? info.opcoes[0].nbs : '');
+      const entrada = info.opcoes.find((o) => o.nbs === nbsAtual);
+      const selNbs = campo({
+        rotulo: 'Código NBS do serviço', valor: nbsAtual,
+        opcoes: [['', 'Escolha…'], ...info.opcoes.map((o) => [o.nbs, `${o.nbs.replace(/^(\d)(\d{4})(\d{2})(\d{2})$/, '$1.$2.$3.$4')} — ${o.descricao}`])],
+        onchange: (e) => { r.cNBS = e.target.value || null; r.cIndOp = null; r.cClassTrib = null; revisado('tributacao'); persistir(); atualizarIbs(); },
+      });
+      const partes = [cab, selNbs];
+      if (entrada && entrada.cIndOp.length > 1) {
+        partes.push(campo({
+          rotulo: 'Como o serviço é prestado', valor: r.cIndOp || '', ajuda: 'Define onde o IBS/CBS é devido (Anexo VII).',
+          opcoes: [['', 'Escolha…'], ...entrada.cIndOp.map((c) => [c.codigo, `${c.caracteristica || c.tipo || c.codigo}`])],
+          onchange: (e) => { r.cIndOp = e.target.value || null; revisado('tributacao'); persistir(); },
+        }));
+      }
+      if (entrada && entrada.cClassTrib.length > 1) {
+        partes.push(campo({
+          rotulo: 'Classificação tributária do IBS/CBS', valor: r.cClassTrib || (entrada.cClassTrib.some((c) => c.codigo === '000001') ? '000001' : ''),
+          opcoes: [['', 'Escolha…'], ...entrada.cClassTrib.map((c) => [c.codigo, `${c.codigo} — ${c.nome}`])],
+          onchange: (e) => { r.cClassTrib = e.target.value || null; revisado('tributacao'); persistir(); },
+        }));
+      } else if (entrada) {
+        partes.push(h('p', { class: 'suave' }, `Classificação: ${entrada.cClassTrib[0].codigo} — ${entrada.cClassTrib[0].nome}`));
+      }
+      const tipoCliente = meta.cliente?.tipo || r.tomador?.tipo;
+      const indFinal = r.indFinal ?? (tipoCliente === 'CPF' ? '1' : '0');
+      const radio = (v, t) => h('label', { class: 'caixa', style: 'margin:6px 0' },
+        h('input', { type: 'radio', name: 'ind-final', value: v, checked: indFinal === v, onchange: () => { r.indFinal = v; revisado('tributacao'); persistir(); } }), h('span', {}, t));
+      partes.push(h('fieldset', { style: 'border:0;padding:0;margin:8px 0' },
+        h('legend', { class: 'rotulo', style: 'margin:0' }, 'O serviço é para uso ou consumo pessoal do cliente?'),
+        radio('1', 'Sim (em geral, pessoa física)'), radio('0', 'Não (uso na atividade da empresa)')));
+      blocoIbs.replaceChildren(...partes);
+    };
+
+    anexar(blocoTrib,
+      h('div', { class: 'cartao' }, h('p', { style: 'margin:0' }, h('strong', {}, `Lucro ${perfil.apuracao === 'real' ? 'Real' : 'Presumido'}: `), 'ISS, PIS/COFINS do perfil e IBS/CBS.')),
+      h('label', { class: 'caixa', for: 'iss-retido' }, retidoIss, h('span', {}, h('strong', {}, 'O cliente vai reter o ISS'), h('span', { class: 'ajuda' }, 'Só para cliente com CNPJ.'))),
+      aliqIss, blocoRet, blocoIbs, marcador('tributacao'));
+    atualizarIbs();
   } else {
     anexar(blocoTrib, h('div', { class: 'cartao' },
       h('p', { style: 'margin-top:0' }, h('strong', {}, 'MEI: '), 'o ISS e os impostos federais já são pagos no DAS mensal.'),

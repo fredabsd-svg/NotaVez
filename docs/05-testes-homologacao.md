@@ -1,10 +1,10 @@
 # 5. Testes de emissão e rejeição
 
-> **Situação em 25/09/2026:** os testes automatizados (27) e o fluxo completo no navegador **passam** contra a Receita **simulada**. Os testes no **ambiente oficial de homologação (produção restrita) ainda não foram executados**, por dois motivos: faltava um certificado A1 real e a rede desta sessão não permite TLS mútuo (ver `docs/01`, seção 1.7). O roteiro abaixo está pronto para ser executado.
+> **Situação em 26/09/2026:** os testes automatizados (34) e o fluxo completo no navegador **passam** contra a Receita **simulada**. Os testes no **ambiente oficial de homologação (produção restrita) ainda não foram executados**, por dois motivos: faltava um certificado A1 real e a rede desta sessão não permite TLS mútuo (ver `docs/01`, seção 1.7). O roteiro abaixo está pronto para ser executado.
 
 ## 5.1 Testes automatizados (`cd server && npm test`)
 
-Resultado da última execução: **27 aprovados, 0 falhas**.
+Resultado da última execução: **34 aprovados, 0 falhas**.
 
 **Unidade** (`test/unidade.test.js`):
 
@@ -16,6 +16,7 @@ Resultado da última execução: **27 aprovados, 0 falhas**.
 - Escolha do pacote de regras: MEI 2026 aceito; ME/EPP e competência de 2027 bloqueados com explicação.
 - Certificado A1: leitura, CNPJ no OID ICP-Brasil, senha errada, certificado vencido, CNPJ diferente do perfil; **assinatura XMLDSig verificada**, adulteração detectada e DPS assinada válida no XSD.
 - Tradução das mensagens da Receita.
+- **Lucro Presumido/Real:** DPS válida no XSD com `tribFed`, `pTotTrib` e `IBSCBS`; E0617/E0619; CST 08 sem base (E0682); código de retenção da NT 007; arredondamento bancário; IBS/CBS com opções oficiais (saúde exige escolher a forma de prestação e usa 200029/CST 200; varrição com `cIndOp` de imóvel é bloqueada; prazos 01/10 e 01/12/2026).
 - **ME/EPP:** DPS válida no XSD com `regApTribSN` e `pTotTribSN`, sem `indTotTrib` (E0712); matriz completa da alíquota: sem retenção proibida (E0625); com retenção obrigatória entre 1,8% e 5% (E0621, E0595); ISS fora do Simples proibida com convênio ativo (E0635) e obrigatória sem convênio (E0640); consulta indisponível não vira suposição. Também E0204, E0667, E0037, E0039, E0166, e MEI com retenção (E0583).
 
 **Ponta a ponta** (`test/emissao.test.js`, API real + Sefin simulada com TLS mútuo que confere assinatura e XSD):
@@ -36,7 +37,12 @@ Resultado da última execução: **27 aprovados, 0 falhas**.
 | ME/EPP pelo Simples | Emite sem retenção (sem alíquota) e com ISS retido por cliente CNPJ (`tpRetISSQN = 2`, `pAliq = 2.00`); retenção com cliente CPF barrada antes do envio |
 | ME/EPP em município sem convênio | Checklist mostra o motivo; emissão bloqueada (403); consulta de convênio em cache; nada enviado |
 | ME/EPP com ISS fora do Simples | Serviço com incidência no local da prestação: município não conveniado exige alíquota (422 sem ela, emitida com ela); município conveniado não envia a alíquota |
-| Lucro Presumido/Real | Só rascunho; emissão bloqueada com a pendência "regime" |
+| Lucro Presumido/Real: perfil | Exige CST do PIS/COFINS, alíquotas (CST 01) e % aproximados |
+| Lucro Presumido: emissão completa | NBS obrigatória (E0322, 23 opções para 17.01); com a NBS escolhida: ISS retido sem alíquota (E0617), `piscofins` com PIS 65,00/COFINS 300,00, `tpRetPisCofins = 3`, `vRetCSLL = 465,00` (soma), IRRF 150,00, `pTotTrib` e grupo IBS/CBS (000/000001/100301) |
+| Lucro Real, município não conveniado | Alíquota do ISS do perfil vai na nota (E0619); PIS 1,65%/COFINS 7,6%; sem retenção → `tpRetPisCofins = 0` e sem `vRetCSLL` (E0720); pessoa física → `indFinal = 1` |
+| Retenções federais | Só com cliente CNPJ; contribuição marcada sem valor → E0724 |
+
+**Interface no navegador — Lucro Presumido** (`server/scripts/fluxo-presumido.mjs`): perfil, certificado, cliente CNPJ, nota com ISS retido, retenções federais e IBS/CBS, revisão e emissão (telas 25 a 28), sem erros de JavaScript.
 
 **Interface no navegador — ME/EPP** (`server/scripts/fluxo-me-epp.mjs`): perfil ME/EPP, certificado, cliente CNPJ, nota com ISS retido, revisão e emissão (telas 20 a 24 do `docs/02`), sem erros de JavaScript.
 
@@ -61,6 +67,8 @@ NOTAVEZ_TOMADOR_CPF=52998224725 NOTAVEZ_TOMADOR_NOME='Tomador Teste' \
 npm run homologacao
 ```
 
+Para **Lucro Presumido/Real**, use `NOTAVEZ_REGIME=nao-optante` (opcionais: `NOTAVEZ_ALIQ_PIS`, `NOTAVEZ_ALIQ_COFINS`, `NOTAVEZ_NBS`). O caso 1 envia PIS/COFINS, `pTotTrib` e o grupo IBS/CBS; o caso 5 espera **E0617** (alíquota com convênio ativo).
+
 Para **ME/EPP** (CNPJ optante do Simples, em município conveniado), acrescente `NOTAVEZ_REGIME=me-epp NOTAVEZ_PTOTTRIBSN=6.00` (e, se for o caso, `NOTAVEZ_REGAPTRIBSN=2`). O script consulta o convênio do município (caso 0) e, no caso 5, espera **E0625** (alíquota sem retenção) em vez de E0600.
 
 O script usa sempre `tpAmb = 2` (sem validade jurídica), a série 900 e números de DPS derivados do horário, para não colidir com execuções anteriores. Ele grava o XML e um relatório `.md` em `server/homologacao-saida/`.
@@ -83,6 +91,7 @@ Depois, repetir pelo app. Para isso, ligar o servidor com `NOTAVEZ_MASTER_KEY` d
 - A C14N aceita na assinatura (padrão: C14N inclusiva; alternativa via `NOTAVEZ_C14N=http://www.w3.org/2001/10/xml-exc-c14n#`).
 - A URL da Consulta Pública na produção restrita.
 - As rotas e o formato de resposta da API de Parâmetros Municipais (convênio): caso 0 do roteiro ME/EPP.
+- Base do PIS/COFINS igual ao valor do serviço (E0677 × E0680) e aceitação do grupo IBS/CBS sem `gTribRegular`/`gDif` para a classificação usada: caso 1 do roteiro não optante.
 
 ## 5.3 Critérios de pronto do MVP
 

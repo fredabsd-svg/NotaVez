@@ -2,7 +2,10 @@
 Portal Nacional da NFS-e (gov.br/nfse -> Documentação técnica).
 
 Uso (requer openpyxl):
-  python3 scripts/atualizar_tabelas.py ANEXO_A.xlsx ANEXO_B.xlsx ANEXO_I.xlsx
+  python3 scripts/atualizar_tabelas.py ANEXO_A.xlsx ANEXO_B.xlsx ANEXO_I.xlsx [ANEXO_VIII.xlsx ANEXO_VII.xlsx]
+
+Anexos VII (cIndOp) e VIII (correlação item LC 116 × NBS × cIndOp × cClassTrib)
+ficam na seção RTC da documentação técnica e alimentam o grupo IBS/CBS da DPS.
 
 Saída em src/data/: municipios.json e servicos-nacionais.json, com a versão
 dos anexos registrada em src/data/versoes.json. Rode novamente sempre que o
@@ -12,6 +15,8 @@ import json, os, re, sys
 import openpyxl
 
 anexo_a, anexo_b, anexo_i = sys.argv[1:4]
+anexo_viii = sys.argv[4] if len(sys.argv) > 4 else None
+anexo_vii = sys.argv[5] if len(sys.argv) > 5 else None
 out = os.path.join(os.path.dirname(__file__), '..', 'src', 'data')
 
 def rows(path, sheet):
@@ -64,3 +69,62 @@ json.dump(lista, open(os.path.join(out, 'servicos-nacionais.json'), 'w'), ensure
 json.dump({'anexoA': os.path.basename(anexo_a), 'anexoB': os.path.basename(anexo_b), 'anexoI': os.path.basename(anexo_i)},
           open(os.path.join(out, 'versoes.json'), 'w'), ensure_ascii=False, indent=2)
 print(len(mun), 'municípios;', len(lista), 'serviços')
+
+# ---------- IBS/CBS: correlação do Anexo VIII (células mescladas → blocos) ----------
+# Cada item da LC 116 tem blocos de NBS; cada bloco tem as classificações (cClassTrib)
+# possíveis e o código indicador da operação (cIndOp). Uma linha com NBS e cClassTrib
+# inicia um bloco; linhas só com NBS entram no bloco; linhas só com cClassTrib também.
+if anexo_viii:
+    so_digitos = lambda v: re.sub(r'\D', '', str(v or ''))
+    limpa = lambda v: re.sub(r'\s+', ' ', str(v or '')).strip()
+    # Anexo VII: códigos válidos de cIndOp e o que significam.
+    cindop = {}
+    if anexo_vii:
+        for r in rows(anexo_vii, 'cIndOp Public')[1:]:
+            c = so_digitos(r[0])
+            if c:
+                cindop[c.zfill(6)] = {'tipo': limpa(r[1]), 'caracteristica': limpa(r[2]), 'local': limpa(r[3])}
+    # A planilha usa células mescladas: expandimos cada mesclagem para que toda linha
+    # tenha item, NBS, cIndOp e cClassTrib explícitos, e agrupamos por item e NBS.
+    wb8 = openpyxl.load_workbook(anexo_viii, data_only=True)
+    ws8 = wb8['tabela geral']
+    for faixa in list(ws8.merged_cells.ranges):
+        valor = ws8.cell(faixa.min_row, faixa.min_col).value
+        ws8.unmerge_cells(str(faixa))
+        for linha in range(faixa.min_row, faixa.max_row + 1):
+            for coluna in range(faixa.min_col, faixa.max_col + 1):
+                ws8.cell(linha, coluna).value = valor
+    itens_ibs = {}
+    for r in list(ws8.iter_rows(values_only=True))[1:]:
+        cod_item, desc_item, nbs, desc_nbs, onerosa, exterior, indop, local, cclass, nome_cclass = (list(r) + [None] * 10)[:10]
+        if not cod_item or not nbs:
+            continue
+        item = so_digitos(cod_item).zfill(4)
+        cod_nbs = so_digitos(nbs)
+        entrada = next((e for e in itens_ibs.setdefault(item, []) if e['nbs'] == cod_nbs), None)
+        if entrada is None:
+            entrada = {'nbs': cod_nbs, 'descricao': limpa(desc_nbs), 'cIndOp': [], 'cClassTrib': []}
+            itens_ibs[item].append(entrada)
+        # Só operações onerosas com adquirente no País (exportação não é suportada nesta versão).
+        if indop and str(exterior or 'N').strip().upper().startswith('N') and str(onerosa or 'S').strip().upper().startswith('S'):
+            c = so_digitos(indop).zfill(6)
+            if c not in [x['codigo'] for x in entrada['cIndOp']]:
+                entrada['cIndOp'].append({'codigo': c, 'valido': (c in cindop) if cindop else None})
+        if cclass:
+            c = so_digitos(cclass).zfill(6)
+            if c not in [x['codigo'] for x in entrada['cClassTrib']]:
+                entrada['cClassTrib'].append({'codigo': c, 'nome': limpa(nome_cclass)})
+    for entradas in itens_ibs.values():
+        for e in entradas:
+            e['cIndOp'] = [x['codigo'] for x in e['cIndOp'] if x['valido'] is not False]
+            e['completo'] = bool(e['cClassTrib']) and bool(e['cIndOp'])
+    usados = sorted({c for v in itens_ibs.values() for e in v for c in e['cIndOp']})
+    json.dump({'itens': itens_ibs, 'cIndOp': {c: cindop.get(c, {}) for c in usados}},
+              open(os.path.join(out, 'ibscbs-correlacao.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
+    versoes = json.load(open(os.path.join(out, 'versoes.json')))
+    versoes['anexoVIII'] = os.path.basename(anexo_viii)
+    if anexo_vii:
+        versoes['anexoVII'] = os.path.basename(anexo_vii)
+    json.dump(versoes, open(os.path.join(out, 'versoes.json'), 'w'), ensure_ascii=False, indent=2)
+    completos = sum(1 for bl in itens_ibs.values() for e in bl if e['completo'])  # noqa
+    print(len(itens_ibs), 'itens com correlação IBS/CBS;', completos, 'NBS completas de', sum(len(bl) for bl in itens_ibs.values()))

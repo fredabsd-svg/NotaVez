@@ -174,6 +174,9 @@ export async function rotasNotas(app) {
       competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
       // Retenção costuma se repetir com o mesmo cliente; percentuais mudam todo mês → voltam ao valor do perfil.
       issRetido: !!o.issRetido, pAliq: null, pTotTribSN: null,
+      // IBS/CBS acompanha o serviço; retenções federais: mantém quais são retidas, valores recalculados pelo usuário.
+      cIndOp: o.cIndOp ?? null, cClassTrib: o.cClassTrib ?? null, indFinal: o.indFinal ?? null,
+      retencoesFederais: o.retencoesFederais ? { ...o.retencoesFederais, valorContribuicoes: null, irrf: null, cp: null } : null,
       revisar: ['competencia', 'valor', 'descricao', 'tributacao'],
     });
     const id = repo.criarNota(p.id, r, { origemId: origem.id });

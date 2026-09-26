@@ -51,7 +51,7 @@ Na fase 2, recomendamos o **Capacitor** se o objetivo for reaproveitar as telas 
 
 ## 6.7 Evolução do produto que o app aproveita
 
-- Pacote de regras **não optante** (Lucro Presumido/Real: alíquota conforme convênio, retenções federais, PIS/COFINS) e **IBS/CBS 2027**. O pacote ME/EPP e a consulta de parâmetros municipais já existem.
+- Pacotes de **2027** (IBS/CBS para o Simples, CBS plena, fim do PIS/COFINS) e grupos IBS/CBS ainda não suportados (imóvel, tributação regular, diferimento). MEI, ME/EPP e Lucro Presumido/Real já emitem.
 - **DANFSe local** conforme a NT 008 (PDF gerado no servidor, com QR Code da Consulta Pública e "SEM VALIDADE JURÍDICA" em homologação).
 - **Eventos:** cancelamento (evento 101101) e substituição.
 - **Contadores:** vários perfis fiscais por conta, cada um com o seu certificado. O modelo `usuarios → prestadores` já está pronto para isso.

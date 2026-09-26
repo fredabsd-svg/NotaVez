@@ -80,6 +80,18 @@ export function rascunho(b = {}) {
     issRetido: b.issRetido === true,
     pAliq: percentualTexto(b.pAliq),
     pTotTribSN: percentualTexto(b.pTotTribSN),
+    // Lucro Presumido/Real: retenções federais (valores em R$) e classificação IBS/CBS.
+    retencoesFederais: b.retencoesFederais && typeof b.retencoesFederais === 'object' ? {
+      pis: b.retencoesFederais.pis === true,
+      cofins: b.retencoesFederais.cofins === true,
+      csll: b.retencoesFederais.csll === true,
+      valorContribuicoes: valorDecimal(b.retencoesFederais.valorContribuicoes) || null,
+      irrf: valorDecimal(b.retencoesFederais.irrf) || null,
+      cp: valorDecimal(b.retencoesFederais.cp) || null,
+    } : null,
+    cIndOp: /^\d{6}$/.test(b.cIndOp || '') ? b.cIndOp : null,
+    cClassTrib: /^\d{6}$/.test(b.cClassTrib || '') ? b.cClassTrib : null,
+    indFinal: b.indFinal === '0' || b.indFinal === '1' ? b.indFinal : null,
     revisar: Array.isArray(b.revisar) ? b.revisar.filter((x) => REVISAVEIS.includes(x)) : [],
   };
 }

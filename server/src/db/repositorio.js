@@ -60,7 +60,7 @@ export function criarRepositorio(db) {
       const campos = [
         p.tipoDocumento, cifrar(p.documento), indiceCego(p.documento), p.nome, p.municipioIbge, p.opSimpNac, p.regEspTrib ?? '0',
         p.inscricaoMunicipal || null, cifrar({ email: p.email || null, fone: p.fone || null }), p.serieDps || '1', p.ambiente || 'producao_restrita',
-        JSON.stringify({ regApTribSN: p.regApTribSN || null, pTotTribSN: p.pTotTribSN || null, aliqIssSN: p.aliqIssSN || null }), agora(),
+        JSON.stringify(p.fiscal || {}), agora(),
       ];
       if (atual) {
         db.run(`UPDATE prestadores SET tipo_documento=?, documento_cifrado=?, documento_indice=?, nome=?, municipio_ibge=?, op_simp_nac=?, reg_esp_trib=?,

@@ -68,7 +68,8 @@ test('regras MEI barram erros antes do envio', () => {
 test('pacote de regras por regime e vigência', () => {
   assert.ok(escolherPacote({ opSimpNac: '2', competencia: '2026-09-01' }).pacote);
   assert.equal(escolherPacote({ opSimpNac: '3', competencia: '2026-09-01' }).pacote.id, 'ME-EPP-2026');
-  assert.match(escolherPacote({ opSimpNac: '1', competencia: '2026-09-01' }).motivo, /Lucro Presumido\/Real/);
+  assert.equal(escolherPacote({ opSimpNac: '1', competencia: '2026-09-01' }).pacote.id, 'NAO-OPTANTE-2026');
+  assert.match(escolherPacote({ opSimpNac: '1', competencia: '2027-01-02' }).motivo, /2027/);
   assert.match(escolherPacote({ opSimpNac: '3', competencia: '2027-01-02' }).motivo, /2027/);
   assert.match(escolherPacote({ opSimpNac: '2', competencia: '2027-01-02' }).motivo, /2027/);
 });
@@ -161,4 +162,64 @@ test('ME/EPP: município do CNPJ precisa estar no Sistema Nacional (E0037, E0039
 
 test('MEI não pode ter ISS retido (E0583)', () => {
   assert.ok(pacote.validar({ prestador, nota: { ...notaBase, issRetido: true }, hoje: '2026-09-25' }).map((e) => e.regra).includes('E0583'));
+});
+
+// ---------------- Lucro Presumido / Real ----------------
+import { pacote as naoOptante, tipoRetencaoPisCofins } from '../src/fiscal/regras/nao-optante-2026.js';
+import { resolverIbsCbs, inicioObrigatoriedade } from '../src/fiscal/ibscbs.js';
+import { arredondarBancario } from '../src/fiscal/regras/comum.js';
+
+const presumido = (extra = {}) => ({ ...prestador, opSimpNac: '1', cstPisCofins: '01', aliqPis: '0.65', aliqCofins: '3.00', pTotTribFed: '13.45', pTotTribMun: '2.00', ...extra });
+const ctxNo = (p, n, parametros = { convenioEmissor: ativo, convenioIncidencia: ativo }) => ({ prestador: p, nota: { ...notaBase, cTribNac: '010101', cNBS: '115021000', ...n }, hoje: '2026-10-05', parametros, municipioIncidencia: p.municipioIbge });
+
+test('não optante: DPS válida no XSD com PIS/COFINS, pTotTrib e IBS/CBS', async () => {
+  const ctx = ctxNo(presumido(), { tomador: clienteCnpj, issRetido: true, retencoesFederais: { pis: true, cofins: true, csll: false, valorContribuicoes: '36.50', irrf: '2.25' } });
+  assert.deepEqual(naoOptante.validar(ctx), []);
+  const { xml } = montarDps({ tpAmb: '2', prestador: ctx.prestador, nota: ctx.nota, pacote: naoOptante, serie: '1', nDPS: 5, dhEmi: dataHoraBrasilia(), verAplic: 't', contexto: { parametros: ctx.parametros, municipioIncidencia: ctx.municipioIncidencia } });
+  assert.deepEqual((await validarXsd(xml)).erros, []);
+  assert.match(xml, /<tpRetPisCofins>4<\/tpRetPisCofins>/, 'PIS e COFINS retidos, CSLL não');
+  assert.ok(!/<regApTribSN>/.test(xml), 'E0162');
+  assert.ok(!/<indTotTrib>|<pTotTribSN>/.test(xml), 'E0713');
+  assert.ok(!/<pAliq>/.test(xml), 'E0617 com convênio ativo');
+});
+
+test('não optante: alíquota do ISS conforme convênio (E0617/E0619) e CST sem base (E0682)', async () => {
+  assert.equal(naoOptante.exigencias(ctxNo(presumido(), {})).aliquota.modo, 'proibida');
+  const semConv = { convenioEmissor: ativo, convenioIncidencia: inexistente };
+  assert.ok(naoOptante.validar(ctxNo(presumido(), {}, semConv)).some((e) => e.regra === 'E0619'));
+  assert.deepEqual(naoOptante.validar(ctxNo(presumido({ aliqIss: '2.00' }), {}, semConv)), []);
+  assert.ok(naoOptante.validar(ctxNo(presumido(), { pAliq: '6.00' }, semConv)).some((e) => e.regra === 'E0595'));
+  const ctx = ctxNo(presumido({ cstPisCofins: '08' }), {});
+  const t = naoOptante.tributacao(ctx);
+  assert.deepEqual(Object.keys(t.tribFed.piscofins), ['CST', 'tpRetPisCofins'], 'CST 08: sem base, alíquotas nem valores');
+});
+
+test('tpRetPisCofins (NT 007) e arredondamento bancário', () => {
+  assert.equal(tipoRetencaoPisCofins({}), '0');
+  assert.equal(tipoRetencaoPisCofins({ pis: true, cofins: true, csll: true }), '3');
+  assert.equal(tipoRetencaoPisCofins({ pis: true, cofins: true }), '4');
+  assert.equal(tipoRetencaoPisCofins({ csll: true }), '8');
+  assert.equal(arredondarBancario(0.125), 0.12);
+  assert.equal(arredondarBancario(0.135), 0.14);
+  assert.equal(arredondarBancario(1234.56 * 0.03), 37.04);
+});
+
+test('IBS/CBS: opções oficiais, padrões seguros e prazos do Ato Conjunto 4/2026', () => {
+  const um = resolverIbsCbs({ cTribNac: '010101', cNBS: '115021000', tomador: { tipo: 'CPF' } });
+  assert.deepEqual(um.erros, []);
+  assert.equal(um.grupo.cClassTrib, '000001');
+  assert.equal(um.grupo.CST, '000');
+  assert.equal(um.grupo.indFinal, '1', 'pessoa física: consumo pessoal');
+  // Saúde (04.01): três formas de prestação → precisa escolher; classificação 200029 (Anexo III).
+  const saude = resolverIbsCbs({ cTribNac: '040101', cNBS: '123012200', tomador: { tipo: 'CNPJ' } });
+  assert.ok(saude.erros.some((e) => e.campo === 'ibscbs.cIndOp'));
+  const saude2 = resolverIbsCbs({ cTribNac: '040101', cNBS: '123012200', cIndOp: '030101', tomador: { tipo: 'CNPJ' } });
+  assert.equal(saude2.grupo.cClassTrib, '200029');
+  assert.equal(saude2.grupo.CST, '200');
+  assert.ok(resolverIbsCbs({ cTribNac: '010101', cNBS: '999999999' }).erros.some((e) => e.regra === 'Anexo VIII'));
+  // Varrição (07.09.01, NBS 1.2406.10.00) usa cIndOp de imóvel (020201): exige grupo "imovel" → bloqueado.
+  assert.ok(resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000' }).erros.some((e) => e.regra === 'Anexo VI #592'));
+  assert.equal(inicioObrigatoriedade('010101'), '2026-10-01');
+  assert.equal(inicioObrigatoriedade('010301'), '2026-12-01');
+  assert.equal(inicioObrigatoriedade('160101'), '2026-12-01');
 });

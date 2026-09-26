@@ -69,12 +69,14 @@ test('sem certificado: só rascunho, com a lista do que falta', async () => {
   assert.equal(sefin.estado.recebidas.length, 0, 'nada foi enviado à Sefin');
 });
 
-test('Lucro Presumido/Real (não optante): emissão direta bloqueada, rascunho permitido', async () => {
-  const u = await usuarioPronto('presumido@exemplo.com', { opSimpNac: '1' });
-  const nota = await novoRascunho(u);
-  const e = await u.api('POST', `/api/notas/${nota.id}/emitir`);
-  assert.equal(e.status, 403);
-  assert.ok(e.body.pendencias.some((p) => p.id === 'regime'));
+test('Lucro Presumido/Real: perfil exige PIS/COFINS e percentuais aproximados', async () => {
+  const api = sessao();
+  await api('POST', '/api/conta/cadastrar', { email: 'presumido-perfil@exemplo.com', senha: 'senha-segura-1' });
+  const r = await api('PUT', '/api/perfil', { documento: '11.222.333/0001-81', municipioIbge: '3550308', opSimpNac: '1' });
+  assert.equal(r.status, 422);
+  assert.ok(r.body.campos.cstPisCofins && r.body.campos.pTotTribFed && r.body.campos.pTotTribMun);
+  const r2 = await api('PUT', '/api/perfil', { documento: '11.222.333/0001-81', municipioIbge: '3550308', opSimpNac: '1', cstPisCofins: '01', pTotTribFed: '13,45', pTotTribMun: '2' });
+  assert.ok(r2.body.campos.aliqPis && r2.body.campos.aliqCofins, 'CST 01 exige alíquotas');
 });
 
 test('fluxo completo: emitir, baixar XML e clonar como novo rascunho', async () => {
@@ -322,4 +324,66 @@ test('ME/EPP com ISS fora do Simples: alíquota só quando o município de incid
   const e2 = await u.api('POST', `/api/notas/${n2.id}/emitir`);
   assert.equal(e2.body.nota?.situacao, 'emitida', JSON.stringify(e2.body));
   assert.ok(!/<pAliq>/.test(sefin.estado.recebidas.at(-1)));
+});
+
+// ---------------- Lucro Presumido / Real (não optante) ----------------
+const PRESUMIDO = { apuracao: 'presumido', cstPisCofins: '01', aliqPis: '0,65', aliqCofins: '3,00', pTotTribFed: '13,45', pTotTribMun: '2,00', aliqIss: '5,00' };
+
+test('Lucro Presumido: emite com PIS/COFINS, retenções federais e grupo IBS/CBS', async () => {
+  const u = await usuarioPronto('presumido@exemplo.com', { opSimpNac: '1', simples: PRESUMIDO });
+  const perfil = await u.api('GET', '/api/perfil');
+  assert.equal(perfil.body.elegibilidade.podeEmitir, true, JSON.stringify(perfil.body.elegibilidade.pendencias));
+  const clienteId = await clienteEmpresa(u);
+  // Serviço 17.01 (consultoria): 23 NBS possíveis → o usuário precisa escolher (E0322).
+  const base = { clienteId, cTribNac: '170101', descricao: 'Consultoria em gestão', valor: '10.000,00', issRetido: true,
+    retencoesFederais: { pis: true, cofins: true, csll: true, valorContribuicoes: '465,00', irrf: '150,00' } };
+  const n = (await u.api('POST', '/api/notas', { rascunho: base })).body.nota;
+  const v = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.ok(v.body.erros.some((x) => x.regra === 'E0322'), 'NBS obrigatória');
+  assert.equal(v.body.exigencias.ibscbs.opcoes.length, 23);
+  assert.equal((await u.api('POST', `/api/notas/${n.id}/emitir`)).status, 422);
+
+  await u.api('PUT', `/api/notas/${n.id}`, { rascunho: { ...n.rascunho, cNBS: '110014000' } });
+  const v2 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.deepEqual(v2.body.erros, []);
+  assert.equal(v2.body.exigencias.aliquota.modo, 'proibida', 'São Paulo conveniado: E0617');
+  const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+  assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+  const xml = sefin.estado.recebidas.at(-1);
+  assert.match(xml, /<opSimpNac>1<\/opSimpNac><regEspTrib>0<\/regEspTrib>/);
+  assert.match(xml, /<tpRetISSQN>2<\/tpRetISSQN><\/tribMun>/, 'ISS retido, sem alíquota (convênio ativo)');
+  assert.match(xml, /<piscofins><CST>01<\/CST><vBCPisCofins>10000.00<\/vBCPisCofins><pAliqPis>0.65<\/pAliqPis><pAliqCofins>3.00<\/pAliqCofins><vPis>65.00<\/vPis><vCofins>300.00<\/vCofins><tpRetPisCofins>3<\/tpRetPisCofins><\/piscofins>/);
+  assert.match(xml, /<vRetIRRF>150.00<\/vRetIRRF><vRetCSLL>465.00<\/vRetCSLL>/, 'NT 007: PIS+COFINS+CSLL retidos somados em vRetCSLL');
+  assert.match(xml, /<pTotTrib><pTotTribFed>13.45<\/pTotTribFed><pTotTribEst>0.00<\/pTotTribEst><pTotTribMun>2.00<\/pTotTribMun><\/pTotTrib>/);
+  assert.match(xml, /<cNBS>110014000<\/cNBS>/);
+  assert.match(xml, /<IBSCBS><finNFSe>0<\/finNFSe><indFinal>0<\/indFinal><cIndOp>100301<\/cIndOp><indDest>0<\/indDest><valores><trib><gIBSCBS><CST>000<\/CST><cClassTrib>000001<\/cClassTrib><\/gIBSCBS><\/trib><\/valores><\/IBSCBS>/);
+});
+
+test('Lucro Real em município de incidência não conveniado: alíquota obrigatória (E0619) vinda do perfil', async () => {
+  const u = await usuarioPronto('real@exemplo.com', { opSimpNac: '1', simples: { ...PRESUMIDO, apuracao: 'real', aliqPis: '1,65', aliqCofins: '7,60', aliqIss: '3,00' } });
+  // 07.09.01 (coleta de resíduos) tem incidência no local da prestação: Rio (não conveniado no simulador).
+  const n = (await u.api('POST', '/api/notas', { rascunho: { clienteId: u.clienteId, cTribNac: '070901', cNBS: '124033200', cIndOp: '050101', descricao: 'Coleta', valor: '1.000,00', localPrestacaoIbge: '3304557' } })).body.nota;
+  const v = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.equal(v.body.exigencias.aliquota.modo, 'obrigatoria');
+  const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+  assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+  const xml = sefin.estado.recebidas.at(-1);
+  assert.match(xml, /<pAliq>3.00<\/pAliq>/);
+  assert.match(xml, /<vPis>16.50<\/vPis><vCofins>76.00<\/vCofins><tpRetPisCofins>0<\/tpRetPisCofins>/);
+  assert.ok(!/<vRetCSLL>/.test(xml), 'sem retenção → sem vRetCSLL (E0720)');
+  assert.match(xml, /<indFinal>1<\/indFinal>/, 'cliente pessoa física: uso ou consumo pessoal');
+});
+
+test('Lucro Presumido: retenções federais só com cliente CNPJ e valores coerentes (E0724, E0720)', async () => {
+  const u = await usuarioPronto('presumido-ret@exemplo.com', { opSimpNac: '1', simples: PRESUMIDO });
+  const base = { clienteId: u.clienteId, cTribNac: '010101', cNBS: '115021000', descricao: 'Sistema', valor: '1.000,00' };
+  const casos = [
+    [{ retencoesFederais: { irrf: '15,00' } }, 'Regra'],
+    [{ retencoesFederais: { pis: true } }, 'E0724'],
+  ];
+  for (const [extra, regra] of casos) {
+    const n = (await u.api('POST', '/api/notas', { rascunho: { ...base, ...extra } })).body.nota;
+    const v = await u.api('POST', `/api/notas/${n.id}/validar`);
+    assert.ok(v.body.erros.some((x) => x.regra === regra), `${regra}: ${JSON.stringify(v.body.erros)}`);
+  }
 });
