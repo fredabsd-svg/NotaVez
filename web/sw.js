@@ -1,6 +1,6 @@
 // Service worker: guarda só a "casca" do app (HTML, CSS, JS, ícones) para abrir
 // sem internet. Respostas da API NUNCA são guardadas aqui (dados fiscais e pessoais).
-const VERSAO = 'notavez-v1';
+const VERSAO = 'notavez-v3';
 const CASCA = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
   '/js/app.js', '/js/api.js', '/js/ui.js', '/js/store.js', '/js/rascunho.js',

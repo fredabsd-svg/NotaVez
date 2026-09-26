@@ -46,6 +46,13 @@ export function cliente(b) {
   return { tipo: doc.tipo, documento: doc.numero, nome, email: email || null, fone: fone || null, endereco: end, inscricaoMunicipal: texto(b.inscricaoMunicipal, 15) || null };
 }
 
+// Percentual informado pelo usuário ("2,5" → "2.50"); null se vazio/inválido.
+function percentualTexto(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return null;
+  const n = Number(String(v).trim().replace('%', '').replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 && n < 100 ? n.toFixed(2) : null;
+}
+
 const REVISAVEIS = ['competencia', 'valor', 'descricao', 'tributacao'];
 
 export function rascunho(b = {}) {
@@ -69,6 +76,22 @@ export function rascunho(b = {}) {
     competencia: /^\d{4}-\d{2}-\d{2}$/.test(b.competencia || '') ? b.competencia : '',
     valor: valorDecimal(b.valor),
     localPrestacaoIbge: somenteDigitos(b.localPrestacaoIbge).slice(0, 7) || null,
+    // Tributação (ME/EPP). Vazio = usa o valor do perfil.
+    issRetido: b.issRetido === true,
+    pAliq: percentualTexto(b.pAliq),
+    pTotTribSN: percentualTexto(b.pTotTribSN),
+    // Lucro Presumido/Real: retenções federais (valores em R$) e classificação IBS/CBS.
+    retencoesFederais: b.retencoesFederais && typeof b.retencoesFederais === 'object' ? {
+      pis: b.retencoesFederais.pis === true,
+      cofins: b.retencoesFederais.cofins === true,
+      csll: b.retencoesFederais.csll === true,
+      valorContribuicoes: valorDecimal(b.retencoesFederais.valorContribuicoes) || null,
+      irrf: valorDecimal(b.retencoesFederais.irrf) || null,
+      cp: valorDecimal(b.retencoesFederais.cp) || null,
+    } : null,
+    cIndOp: /^\d{6}$/.test(b.cIndOp || '') ? b.cIndOp : null,
+    cClassTrib: /^\d{6}$/.test(b.cClassTrib || '') ? b.cClassTrib : null,
+    indFinal: b.indFinal === '0' || b.indFinal === '1' ? b.indFinal : null,
     revisar: Array.isArray(b.revisar) ? b.revisar.filter((x) => REVISAVEIS.includes(x)) : [],
   };
 }

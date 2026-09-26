@@ -23,7 +23,7 @@ await p.getByRole('button', { name: 'Criar conta' }).click();
 await esperarTexto('O que falta para emitir');
 await foto('02-perfil-pendencias');
 
-await p.getByLabel('CNPJ do MEI').fill('11222333000181');
+await p.getByLabel('CNPJ da empresa').fill('11222333000181');
 await p.getByLabel('Nome ou razão social').fill('Ana Souza Design');
 await p.getByRole('combobox', { name: /Município do seu CNPJ/ }).fill('são paulo');
 await p.getByRole('button', { name: 'São Paulo - SP' }).click();

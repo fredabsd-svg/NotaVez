@@ -50,6 +50,7 @@ erDiagram
     text op_simp_nac "1|2 MEI|3"
     text serie_dps "1..49999"
     text ambiente "producao_restrita|producao"
+    text config_fiscal "ME/EPP ou Presumido/Real: parâmetros do regime"
   }
   certificados {
     text pfx_cifrado "AES-256-GCM"
@@ -88,7 +89,7 @@ erDiagram
   }
 ```
 
-Tabelas adicionais: `auditoria` (operações sem dados pessoais) e `chamadas_api` (cada chamada à Receita: operação, HTTP, resultado, códigos, duração).
+Tabelas adicionais: `parametros_municipais_cache` (convênios consultados, 12 h), `auditoria` (operações sem dados pessoais) e `chamadas_api` (cada chamada à Receita: operação, HTTP, resultado, códigos, duração).
 
 **Por que o Id da DPS e a chave de acesso são cifrados:** os dois contêm o CPF/CNPJ do emitente. Para buscas e unicidade usamos índices cegos (HMAC com chave derivada).
 
@@ -130,7 +131,10 @@ sequenceDiagram
   participant R as Sefin Nacional
   U->>S: POST /api/notas/{id}/emitir
   S->>S: elegibilidade (perfil, MEI, certificado válido do mesmo CNPJ)
-  S->>S: regras MEI (Anexo I) → erros em linguagem comum
+  opt ME/EPP
+    S->>R: GET parametrizacao/{município}/convenio (cache 12 h)
+  end
+  S->>S: pacote de regras do regime (Anexo I) → erros em linguagem comum
   S->>S: reserva nDPS (por CNPJ) · monta DPS v1.01 · assina · valida XSD oficial
   S->>S: grava DPS assinada (cifrada) · situação = enviando
   S->>R: POST /nfse {dpsXmlGZipB64} (TLS mútuo com o A1)
@@ -164,6 +168,9 @@ sequenceDiagram
 | Transporte | HTTPS com `key`/`cert` do A1 (convertido para PEM, compatível com PFX antigos), keep-alive, timeout configurável; corpo GZip + Base64 | `server/src/fiscal/sefin/cliente.js` |
 | Classificação | Erros **antes da conexão TLS** = "não enviada"; depois da conexão = "incerta" | idem |
 | Mensagens | Códigos oficiais → texto comum + próximo passo; códigos desconhecidos mostram a descrição oficial | `server/src/fiscal/mensagens.js` |
+| Parâmetros municipais | Convênio do município emissor (não-MEI) e do município de incidência (ISS fora do Simples), com o mesmo certificado e cache de 12 h. Falha na consulta = "desconhecido", nunca "ativo" | `emissao.js` (`convenio`, `parametrosPara`), `sefin/cliente.js` |
+| IBS/CBS | `ibscbs.js`: opções por serviço a partir dos Anexos VII/VIII (`src/data/ibscbs-correlacao.json`), padrões só quando há opção única (ou 000001), CST derivado do cClassTrib; grupo `IBSCBS` montado depois de `valores` | `fiscal/ibscbs.js`, `dps.js` |
+| Pacotes de regras | `escolherPacote` por regime e competência: `MEI-2026`, `ME-EPP-2026`, `NAO-OPTANTE-2026`. Cada pacote informa o que precisa consultar, monta `regTrib`/`tributacao` e devolve as **exigências** (alíquota obrigatória/proibida, retenção permitida) para a tela de revisão | `regras/` |
 | Ambientes | URLs em JSON; homologação é o padrão; produção exige `NOTAVEZ_PRODUCAO_LIBERADA=1` | `server/src/fiscal/sefin/ambientes.json` |
 
 ## 3.6 Segurança e privacidade (LGPD)

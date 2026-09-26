@@ -9,6 +9,7 @@ export function abrirBanco(arquivo) {
   const db = new DatabaseSync(arquivo);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
+  migrar(db);
   return {
     raw: db,
     get: (sql, ...p) => db.prepare(sql).get(...p),
@@ -28,4 +29,15 @@ export function abrirBanco(arquivo) {
     },
     fechar: () => db.close(),
   };
+}
+
+// Migrações aditivas para bancos criados por versões anteriores.
+const COLUNAS_NOVAS = [
+  ['prestadores', 'config_fiscal', 'TEXT'],
+];
+function migrar(db) {
+  for (const [tabela, coluna, tipo] of COLUNAS_NOVAS) {
+    const existe = db.prepare(`PRAGMA table_info(${tabela})`).all().some((c) => c.name === coluna);
+    if (!existe) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
+  }
 }

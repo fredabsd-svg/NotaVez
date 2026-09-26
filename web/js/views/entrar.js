@@ -36,7 +36,7 @@ export async function tela(_, query) {
       h('div', { class: 'centro' },
         h('img', { src: '/icons/icone.svg', alt: '', width: 72, height: 72 }),
         h('h2', {}, 'Nota fiscal de serviço em poucos toques'),
-        h('p', { class: 'suave' }, 'Para MEI prestador de serviço. Cadastre clientes, salve serviços e emita sua NFS-e pelo celular.')),
+        h('p', { class: 'suave' }, 'Para MEI e empresas prestadoras de serviço (Simples, Presumido ou Real). Cadastre clientes, salve serviços e emita sua NFS-e pelo celular.')),
       h('div', { class: 'chips', role: 'tablist' },
         h('button', { class: 'chip', type: 'button', role: 'tab', 'aria-pressed': String(modo === 'entrar'), 'aria-selected': String(modo === 'entrar'), onclick: () => { modo = 'entrar'; montar(); } }, 'Já tenho conta'),
         h('button', { class: 'chip', type: 'button', role: 'tab', 'aria-pressed': String(modo === 'cadastro'), 'aria-selected': String(modo === 'cadastro'), onclick: () => { modo = 'cadastro'; montar(); } }, 'Criar conta')),

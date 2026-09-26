@@ -16,6 +16,7 @@ export function criarRepositorio(db) {
     ...(decifrarJson(row.contato_cifrado) || {}),
     serieDps: row.serie_dps,
     ambiente: row.ambiente,
+    ...(row.config_fiscal ? JSON.parse(row.config_fiscal) : {}),
   };
 
   const clienteDe = (row) => row && { id: row.id, ...decifrarJson(row.dados_cifrados), atualizadoEm: row.atualizado_em, usadoEm: row.usado_em };
@@ -58,16 +59,17 @@ export function criarRepositorio(db) {
       const atual = db.get('SELECT id FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId);
       const campos = [
         p.tipoDocumento, cifrar(p.documento), indiceCego(p.documento), p.nome, p.municipioIbge, p.opSimpNac, p.regEspTrib ?? '0',
-        p.inscricaoMunicipal || null, cifrar({ email: p.email || null, fone: p.fone || null }), p.serieDps || '1', p.ambiente || 'producao_restrita', agora(),
+        p.inscricaoMunicipal || null, cifrar({ email: p.email || null, fone: p.fone || null }), p.serieDps || '1', p.ambiente || 'producao_restrita',
+        JSON.stringify(p.fiscal || {}), agora(),
       ];
       if (atual) {
         db.run(`UPDATE prestadores SET tipo_documento=?, documento_cifrado=?, documento_indice=?, nome=?, municipio_ibge=?, op_simp_nac=?, reg_esp_trib=?,
-          inscricao_municipal=?, contato_cifrado=?, serie_dps=?, ambiente=?, atualizado_em=? WHERE id=?`, ...campos, atual.id);
+          inscricao_municipal=?, contato_cifrado=?, serie_dps=?, ambiente=?, config_fiscal=?, atualizado_em=? WHERE id=?`, ...campos, atual.id);
         return atual.id;
       }
       const id = novoId();
       db.run(`INSERT INTO prestadores (tipo_documento, documento_cifrado, documento_indice, nome, municipio_ibge, op_simp_nac, reg_esp_trib,
-        inscricao_municipal, contato_cifrado, serie_dps, ambiente, atualizado_em, id, usuario_id, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        inscricao_municipal, contato_cifrado, serie_dps, ambiente, config_fiscal, atualizado_em, id, usuario_id, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ...campos, id, usuarioId, agora());
       return id;
     },
@@ -186,6 +188,17 @@ export function criarRepositorio(db) {
       });
     },
     notaPorChave: (prestadorId, chave) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chave))),
+
+    // Cache de parâmetros municipais (dados públicos; sem cifragem).
+    parametroEmCache(chave, validadeMs) {
+      const r = db.get('SELECT dados, obtido_em FROM parametros_municipais_cache WHERE chave = ?', chave);
+      if (!r || Date.now() - new Date(r.obtido_em).getTime() > validadeMs) return null;
+      return JSON.parse(r.dados);
+    },
+    guardarParametro: (chave, dados) => db.run(
+      'INSERT INTO parametros_municipais_cache (chave, dados, obtido_em) VALUES (?,?,?) ON CONFLICT(chave) DO UPDATE SET dados = excluded.dados, obtido_em = excluded.obtido_em',
+      chave, JSON.stringify(dados), agora(),
+    ),
 
     registrarChamada: (notaId, operacao, r) => db.run(
       'INSERT INTO chamadas_api (nota_id, operacao, http_status, resultado, codigos, duracao_ms, criado_em) VALUES (?,?,?,?,?,?,?)',

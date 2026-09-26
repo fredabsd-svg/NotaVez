@@ -22,6 +22,7 @@ writeFileSync(arquivo, cert.pfx);
 
 const sefin = await iniciarSefinSimulada({ caPem: cert.caPem, caChavePem: cert.caChavePem, certClientePem: cert.certPem });
 ambientesSefin.producao_restrita.sefin = sefin.baseUrl;
+ambientesSefin.producao_restrita.parametros = sefin.baseParametros;
 ambientesSefin.producao_restrita.consultaPublica = null; // não há consulta pública para notas simuladas
 const app = await criarApp({ logger: false, fabricaCliente: (o) => criarClienteSefin({ ...o, ca: sefin.ca }) });
 app.ctx.sefinSimulada = sefin; // permite forçar cenários: POST /api/demo/cenario
@@ -30,6 +31,6 @@ await app.listen({ port: config.porta, host: config.host });
 console.log(`
   NotaVez — MODO DEMONSTRAÇÃO (Receita simulada; nada é enviado à Receita)
   App:         http://localhost:${config.porta}
-  CNPJ do MEI: ${cnpj}   (use no Perfil)
+  CNPJ:        ${cnpj}   (use no Perfil — MEI ou ME/EPP)
   Certificado: ${arquivo}   senha: demo1234   (FICTÍCIO)
 `);

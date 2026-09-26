@@ -1,5 +1,4 @@
 import { rascunho as lerRascunho } from '../util/entrada.js';
-import { validarRascunho } from '../fiscal/emissao.js';
 import { hojeBrasilia } from '../fiscal/dps.js';
 import { servicoNacional, municipio } from '../fiscal/tabelas.js';
 import { ambientesSefin } from '../config.js';
@@ -136,8 +135,8 @@ export async function rotasNotas(app) {
     const p = exigirPrestador(req);
     const n = repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
-    const v = validarRascunho(p, comTomadorAtual(repo, p.id, n.rascunho), hojeBrasilia());
-    return { ok: v.ok, erros: v.erros };
+    const v = await emissao.validar(p, comTomadorAtual(repo, p.id, n.rascunho));
+    return { ok: v.ok, erros: v.erros, exigencias: v.exigencias, regime: p.opSimpNac, regApTribSN: p.regApTribSN || null };
   });
 
   app.post('/notas/:id/emitir', async (req) => {
@@ -173,6 +172,11 @@ export async function rotasNotas(app) {
       clienteId: o.clienteId, tomador: o.tomador, servicoId: o.servicoId,
       cTribNac: o.cTribNac, cTribMun: o.cTribMun, cNBS: o.cNBS, descricao: o.descricao,
       competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
+      // Retenção costuma se repetir com o mesmo cliente; percentuais mudam todo mês → voltam ao valor do perfil.
+      issRetido: !!o.issRetido, pAliq: null, pTotTribSN: null,
+      // IBS/CBS acompanha o serviço; retenções federais: mantém quais são retidas, valores recalculados pelo usuário.
+      cIndOp: o.cIndOp ?? null, cClassTrib: o.cClassTrib ?? null, indFinal: o.indFinal ?? null,
+      retencoesFederais: o.retencoesFederais ? { ...o.retencoesFederais, valorContribuicoes: null, irrf: null, cp: null } : null,
       revisar: ['competencia', 'valor', 'descricao', 'tributacao'],
     });
     const id = repo.criarNota(p.id, r, { origemId: origem.id });

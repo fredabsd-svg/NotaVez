@@ -25,13 +25,16 @@ export function lerMensagens(corpo) {
   })).filter((m) => m.codigo !== 'SEM_CODIGO' || m.descricao);
 }
 
-export function criarClienteSefin({ baseUrl, chavePem, certPem, cadeiaPem = [], ca, timeoutMs = 30_000 }) {
+export function criarClienteSefin({ baseUrl, baseParametros, rotasParametros = {}, chavePem, certPem, cadeiaPem = [], ca, timeoutMs = 30_000 }) {
   const agente = new https.Agent({ key: chavePem, cert: [certPem, ...cadeiaPem].join('\n'), ca, keepAlive: true, maxSockets: 4 });
   const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
 
-  function requisitar(metodo, caminho, corpo) {
+  const baseParam = baseParametros ? new URL(baseParametros.endsWith('/') ? baseParametros : `${baseParametros}/`) : null;
+  const rota = (modelo, valores) => modelo.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(valores[k] ?? ''));
+
+  function requisitar(metodo, caminho, corpo, raiz = base) {
     return new Promise((resolve) => {
-      const url = new URL(caminho.replace(/^\//, ''), base);
+      const url = new URL(caminho.replace(/^\//, ''), raiz);
       const dados = corpo ? Buffer.from(JSON.stringify(corpo)) : null;
       let conectado = false;
       const inicio = Date.now();
@@ -112,6 +115,39 @@ export function criarClienteSefin({ baseUrl, chavePem, certPem, cadeiaPem = [], 
       if (r.status === 200 && xmlB64) return { ...base, tipo: 'ok', nfseXml: ungz64(xmlB64) };
       if (r.status === 404) return { ...base, tipo: 'nao_encontrada' };
       return { ...base, tipo: 'falha', detalhe: `http_${r.status}` };
+    },
+
+    /**
+     * Parâmetros municipais — convênio do município com o Sistema Nacional.
+     * 'ativo' só quando há parâmetros de convênio; 404/mensagem = 'inexistente';
+     * qualquer falha de rede ou formato inesperado = 'desconhecido' (nunca supomos).
+     */
+    async consultarConvenio(municipio) {
+      if (!baseParam) return { situacao: 'desconhecido', motivo: 'sem_endereco' };
+      const r = await requisitar('GET', rota(rotasParametros.convenio || '/{municipio}/convenio', { municipio }), undefined, baseParam);
+      const base = { http: r.status ?? null, ms: r.ms };
+      if (r.erroRede) return { ...base, situacao: 'desconhecido', motivo: r.erroRede.code || r.erroRede.message };
+      const p = pegar(r.json, 'parametrosConvenio', 'ParametrosConvenio');
+      if (r.status === 200 && p) {
+        const adere = pegar(p, 'aderenteEmissorNacional', 'AderenteEmissorNacional');
+        return { ...base, situacao: 'ativo', aderenteEmissorNacional: adere === undefined ? null : String(adere) === '1', tipoConvenio: String(pegar(p, 'tipoConvenio', 'tipoConvenioDeserializationSetter') ?? '') || null };
+      }
+      if (r.status === 404 || ((r.status === 200 || r.status === 400) && pegar(r.json, 'mensagem', 'Mensagem'))) {
+        return { ...base, situacao: 'inexistente', mensagem: pegar(r.json, 'mensagem', 'Mensagem') ?? null };
+      }
+      return { ...base, situacao: 'desconhecido', motivo: `http_${r.status}` };
+    },
+
+    /** Alíquota de ISS parametrizada (informativa: o NotaVez não a envia quando o município é conveniado). */
+    async consultarAliquota(municipio, servico, competencia) {
+      if (!baseParam) return { tipo: 'falha' };
+      const r = await requisitar('GET', rota(rotasParametros.aliquota || '/{municipio}/{servico}/{competencia}/aliquota', { municipio, servico, competencia }), undefined, baseParam);
+      if (r.erroRede || r.status !== 200) return { tipo: 'falha', http: r.status ?? null };
+      const mapa = pegar(r.json, 'aliquotas', 'Aliquotas') || {};
+      const lista = Object.values(mapa).flat().filter(Boolean);
+      const vigente = lista.find((a) => (pegar(a, 'DtIni', 'dtIni') || '') <= competencia && (!pegar(a, 'DtFim', 'dtFim') || pegar(a, 'DtFim', 'dtFim') >= competencia)) || lista[0];
+      const aliq = vigente ? Number(pegar(vigente, 'Aliq', 'aliq', 'aliquota')) : NaN;
+      return Number.isFinite(aliq) ? { tipo: 'ok', aliquota: aliq } : { tipo: 'falha', http: r.status };
     },
 
     fechar: () => agente.destroy(),

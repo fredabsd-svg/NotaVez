@@ -7,7 +7,7 @@ import { ir } from '../app.js';
 export async function usarNaNota(notaId, s, { manterDescricao = false, descricaoAtual = '' } = {}) {
   const nac = await servicoNacionalPorCodigo(s.cTribNac);
   await aplicar(notaId, {
-    servicoId: s.id || null, cTribNac: s.cTribNac, cTribMun: s.cTribMun || null, cNBS: s.cNBS || null,
+    servicoId: s.id || null, cTribNac: s.cTribNac, cTribMun: s.cTribMun || null, cNBS: s.cNBS || null, cIndOp: null, cClassTrib: null,
     ...(manterDescricao && descricaoAtual ? {} : { descricao: s.descricao || '' }),
     ...(s.valorPadrao ? { valor: s.valorPadrao } : {}),
   }, { servicoNacional: nac, servicoApelido: s.apelido || null });

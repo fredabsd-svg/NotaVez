@@ -5,12 +5,19 @@
     "tpAmb": "2",
     "sefin": "https://sefin.producaorestrita.nfse.gov.br/SefinNacional",
     "adn": "https://adn.producaorestrita.nfse.gov.br",
-    "consultaPublica": "https://www.producaorestrita.nfse.gov.br/ConsultaPublica/?tpc=1&chave="
+    "consultaPublica": "https://www.producaorestrita.nfse.gov.br/ConsultaPublica/?tpc=1&chave=",
+    "parametros": "https://adn.producaorestrita.nfse.gov.br/parametrizacao"
   },
   "producao": {
     "tpAmb": "1",
     "sefin": "https://sefin.nfse.gov.br/SefinNacional",
     "adn": "https://adn.nfse.gov.br",
-    "consultaPublica": "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave="
+    "consultaPublica": "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=",
+    "parametros": "https://adn.nfse.gov.br/parametrizacao"
+  },
+  "_nota_parametros": "API de Parâmetros Municipais: host oficial listado na página de APIs (adn…/parametrizacao). As rotas e o formato das respostas vieram de bibliotecas de código aberto (o Swagger exige certificado); confirmar na homologação e ajustar aqui.",
+  "rotasParametros": {
+    "convenio": "/{municipio}/convenio",
+    "aliquota": "/{municipio}/{servico}/{competencia}/aliquota"
   }
 }

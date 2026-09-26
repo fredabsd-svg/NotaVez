@@ -39,12 +39,14 @@ function enderecoXml(en) {
  * @param {object} p.prestador {tipoDocumento, documento, municipioIbge, inscricaoMunicipal, email, fone}
  * @param {object} p.nota      rascunho validado
  * @param {object} p.pacote    pacote de regras (tributação/regime)
+ * @param {object} [p.contexto] contexto das regras (parâmetros municipais já consultados)
  */
-export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic }) {
+export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic, contexto = {} }) {
   const cLocEmi = prestador.municipioIbge;
   const Id = idDps({ cLocEmi, tipoDocumento: prestador.tipoDocumento, documento: prestador.documento, serie, nDPS });
-  const reg = pacote.regTrib();
-  const trib = pacote.tributacao();
+  const ctx = { prestador, nota, ...contexto };
+  const reg = pacote.regTrib(ctx);
+  const trib = pacote.tributacao(ctx);
   const t = nota.tomador && nota.tomador.tipo && nota.tomador.tipo !== 'NENHUM' ? nota.tomador : null;
   const localPrest = nota.localPrestacaoIbge || cLocEmi;
   if (!municipio(localPrest)) throw new Error('Local da prestação inválido');
@@ -59,19 +61,35 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
       + `${t.endereco && t.endereco.cep ? enderecoXml(t.endereco) : ''}${el('fone', t.fone)}${el('email', t.email)}</toma>`
     : '';
 
-  const serv = `<serv><locPrest>${el('cLocPrestacao', localPrest)}</locPrest>`
-    + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', nota.cNBS)}</cServ></serv>`;
+  // Grupo IBS/CBS (só pacotes que o exigem). A NBS é obrigatória quando ele é informado (E0322).
+  const ibs = pacote.ibscbs ? pacote.ibscbs(ctx) : null;
+  const cNBS = nota.cNBS || ibs?.cNBS;
 
-  const totTrib = trib.totTrib.indTotTrib !== undefined ? el('indTotTrib', trib.totTrib.indTotTrib) : '';
+  const serv = `<serv><locPrest>${el('cLocPrestacao', localPrest)}</locPrest>`
+    + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', cNBS)}</cServ></serv>`;
+
+  // totTrib é um choice: indTotTrib (MEI), pTotTribSN (ME/EPP) ou pTotTrib (não optante) — E0710/E0712/E0713.
+  const tt = trib.totTrib;
+  const totTrib = tt.indTotTrib !== undefined ? el('indTotTrib', tt.indTotTrib)
+    : tt.pTotTrib ? `<pTotTrib>${el('pTotTribFed', tt.pTotTrib.pTotTribFed)}${el('pTotTribEst', tt.pTotTrib.pTotTribEst)}${el('pTotTribMun', tt.pTotTrib.pTotTribMun)}</pTotTrib>`
+      : el('pTotTribSN', tt.pTotTribSN);
+  const f = trib.tribFed;
+  const pc = f?.piscofins;
+  const tribFed = f ? `<tribFed>${pc ? `<piscofins>${el('CST', pc.CST)}${el('vBCPisCofins', pc.vBCPisCofins)}${el('pAliqPis', pc.pAliqPis)}${el('pAliqCofins', pc.pAliqCofins)}`
+    + `${el('vPis', pc.vPis)}${el('vCofins', pc.vCofins)}${el('tpRetPisCofins', pc.tpRetPisCofins)}</piscofins>` : ''}`
+    + `${el('vRetCP', f.vRetCP)}${el('vRetIRRF', f.vRetIRRF)}${el('vRetCSLL', f.vRetCSLL)}</tribFed>` : '';
   const valores = `<valores><vServPrest>${el('vServ', formatarValor(nota.valor))}</vServPrest>`
     + `<trib><tribMun>${el('tribISSQN', trib.tribISSQN)}${el('tpRetISSQN', trib.tpRetISSQN)}${el('pAliq', trib.pAliq)}</tribMun>`
-    + `<totTrib>${totTrib}</totTrib></trib></valores>`;
+    + `${tribFed}<totTrib>${totTrib}</totTrib></trib></valores>`;
+
+  const ibscbs = ibs ? `<IBSCBS>${el('finNFSe', ibs.finNFSe)}${el('indFinal', ibs.indFinal)}${el('cIndOp', ibs.cIndOp)}${el('indDest', ibs.indDest)}`
+    + `<valores><trib><gIBSCBS>${el('CST', ibs.CST)}${el('cClassTrib', ibs.cClassTrib)}</gIBSCBS></trib></valores></IBSCBS>` : '';
 
   const xml = '<?xml version="1.0" encoding="UTF-8"?>'
     + `<DPS xmlns="${NS_NFSE}" versao="${VERSAO_LEIAUTE}"><infDPS Id="${Id}">`
     + `${el('tpAmb', tpAmb)}${el('dhEmi', dhEmi)}${el('verAplic', verAplic)}${el('serie', serie)}${el('nDPS', nDPS)}`
     + `${el('dCompet', nota.competencia)}${el('tpEmit', '1')}${el('cLocEmi', cLocEmi)}`
-    + prest + toma + serv + valores
+    + prest + toma + serv + valores + ibscbs
     + '</infDPS></DPS>';
   return { xml, Id };
 }

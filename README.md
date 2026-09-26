@@ -1,8 +1,8 @@
-# NotaVez — NFS-e do MEI pelo celular
+# NotaVez — NFS-e pelo celular
 
-Web app instalável (PWA) para emitir a **NFS-e do Padrão Nacional** pelo celular: cadastro de clientes, serviços salvos, rascunhos (também sem internet), emissão com revisão, histórico e **"Clonar última nota"**. O público inicial é o **MEI prestador de serviço**; a arquitetura já prevê outros regimes.
+Web app instalável (PWA) para emitir a **NFS-e do Padrão Nacional** pelo celular: cadastro de clientes, serviços salvos, rascunhos (também sem internet), emissão com revisão, histórico e **"Clonar última nota"**. Emissão direta para **MEI**, **ME/EPP do Simples Nacional** e **Lucro Presumido/Real** (estes dois em município conveniado ao Sistema Nacional). Para não optantes, a nota já sai com PIS/COFINS, retenções federais e o grupo **IBS/CBS** exigido pelo Ato Conjunto RFB/CGIBS nº 4/2026.
 
-> ⚠️ **Situação:** o MVP funciona de ponta a ponta contra uma Receita **simulada**, e 18 testes automatizados passam. **Ainda falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real (`docs/05`).
+> ⚠️ **Situação:** o MVP funciona de ponta a ponta contra uma Receita **simulada**, e 34 testes automatizados passam. **Ainda falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real (`docs/05`).
 
 ## Entregas
 
@@ -20,7 +20,7 @@ Requisitos: Node.js 22.13 ou mais recente (usa `node:sqlite`).
 ```bash
 cd server
 npm install
-npm test          # 18 testes: regras, XSD oficial, assinatura, fluxos de emissão, segurança
+npm test          # 34 testes: regras MEI, ME/EPP e Presumido/Real, IBS/CBS, XSD oficial, assinatura, emissão, segurança
 npm run demo      # app em http://localhost:8080 com a Receita SIMULADA (aviso fixo na tela)
 ```
 
@@ -49,7 +49,8 @@ web/                      PWA (HTML/CSS/JS sem etapa de build)
   sw.js                   service worker (só a "casca" do app; nunca dados da API)
 server/
   src/fiscal/
-    regras/               pacotes de regras por regime e vigência (MEI-2026)
+    regras/               pacotes de regras por regime e vigência (MEI-2026, ME-EPP-2026, NAO-OPTANTE-2026)
+    ibscbs.js             grupo IBS/CBS (opções oficiais dos Anexos VII e VIII)
     dps.js                gerador da DPS v1.01
     xsd/ + xsd.js         esquemas XSD oficiais e validação local
     assinatura.js         XMLDSig (RSA-SHA256)
