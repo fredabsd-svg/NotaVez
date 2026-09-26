@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="Testes" src="https://img.shields.io/badge/testes-36%20aprovados-1a7f37">
+  <img alt="Testes" src="https://img.shields.io/badge/testes-38%20aprovados-1a7f37">
   <img alt="NFS-e" src="https://img.shields.io/badge/NFS--e-leiaute%20v1.01%20%2B%20IBS%2FCBS-0b5cab">
   <img alt="DANFSe" src="https://img.shields.io/badge/DANFSe-NT%20008-0b5cab">
   <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.13%2B-339933">
@@ -31,7 +31,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, e os 36 testes automatizados passam. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
+> **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, e os 38 testes automatizados passam. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
 
 ## Por que NotaVez
 
@@ -78,7 +78,7 @@ npm run demo      # abre em http://localhost:8080 com a Receita SIMULADA
 O terminal mostra um CNPJ e um certificado **fictício** para testar o app inteiro. Uma faixa vermelha fixa avisa que nada ali é nota fiscal real.
 
 ```bash
-npm test          # 36 testes: regras dos regimes, IBS/CBS, XSD oficial, assinatura, emissão, DANFSe e segurança
+npm test          # 38 testes: regras dos regimes, IBS/CBS, XSD oficial, assinatura, emissão, DANFSe e segurança
 ```
 
 <details>

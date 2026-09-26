@@ -1,10 +1,10 @@
 # 5. Testes de emissão e rejeição
 
-> **Situação em 26/09/2026:** os testes automatizados (36) e o fluxo completo no navegador **passam** contra a Receita **simulada**. Os testes no **ambiente oficial de homologação (produção restrita) ainda não foram executados**, por dois motivos: faltava um certificado A1 real e a rede desta sessão não permite TLS mútuo (ver `docs/01`, seção 1.7). O roteiro abaixo está pronto para ser executado.
+> **Situação em 26/09/2026:** os testes automatizados (38) e o fluxo completo no navegador **passam** contra a Receita **simulada**. Os testes no **ambiente oficial de homologação (produção restrita) ainda não foram executados**, por dois motivos: faltava um certificado A1 real e a rede desta sessão não permite TLS mútuo (ver `docs/01`, seção 1.7). O roteiro abaixo está pronto para ser executado.
 
 ## 5.1 Testes automatizados (`cd server && npm test`)
 
-Resultado da última execução: **36 aprovados, 0 falhas**.
+Resultado da última execução: **38 aprovados, 0 falhas**.
 
 **Unidade** (`test/unidade.test.js`):
 
@@ -34,6 +34,7 @@ Resultado da última execução: **36 aprovados, 0 falhas**.
 | Rascunho criado sem internet | Sincroniza com o mesmo id; envio repetido é idempotente |
 | Segurança | 401 sem login; 403 sem cabeçalho anti-CSRF; outra conta não vê notas nem clientes (404); **CPF, CNPJ e nome não aparecem em claro no banco**; limite de tentativas de login (429) |
 | Certificado de outro CNPJ | Recusado com explicação |
+| Servidor do PWA (`test/servidor-web.test.js`) | `index.html`, `sw.js` e manifest com `no-cache`; rotas do app voltam ao index; caminhos codificados (`/%2e%2e/…`, `..%2f`) não saem de `web/`; `/%61pi/notas` exige login e o anti-CSRF (a proteção usa a rota escolhida pelo roteador, não o texto da URL); recusas do `@fastify/static` mantêm o 4xx |
 | ME/EPP: perfil | Exige regime de apuração e % do Simples; alíquota de retenção fora de 1,8%–5% recusada |
 | ME/EPP pelo Simples | Emite sem retenção (sem alíquota) e com ISS retido por cliente CNPJ (`tpRetISSQN = 2`, `pAliq = 2.00`); retenção com cliente CPF barrada antes do envio |
 | ME/EPP em município sem convênio | Checklist mostra o motivo; emissão bloqueada (403); consulta de convênio em cache; nada enviado |
