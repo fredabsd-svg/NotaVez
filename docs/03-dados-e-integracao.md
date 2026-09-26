@@ -5,9 +5,9 @@
 ```mermaid
 flowchart LR
   subgraph Celular
-    PWA[PWA NotaVez<br/>HTML/CSS/JS sem build<br/>IndexedDB: rascunhos offline]
+    PWA[PWA Nota Sem Stress<br/>HTML/CSS/JS sem build<br/>IndexedDB: rascunhos offline]
   end
-  subgraph Servidor NotaVez
+  subgraph Servidor Nota Sem Stress
     API[API REST Fastify<br/>contas · clientes · serviços · notas]
     REG[Pacotes de regras fiscais<br/>por regime e vigência]
     DPS[Gerador de DPS + XSD oficial<br/>+ assinatura XMLDSig]
@@ -118,7 +118,7 @@ Garantias:
 
 1. **"Emitida" só com a chave de acesso oficial.** Qualquer dúvida vira "pendente".
 2. **Consultar antes de reenviar:** o reenvio só acontece depois que `GET /dps/{id}` responde "não encontrada", passado o tempo mínimo de espera (`NOTAVEZ_ESPERA_REENVIO_MS`, padrão 60 s).
-3. **O reenvio é idempotente:** usa o **mesmo XML assinado** (mesmo Id). Se a primeira tentativa tiver sido processada nesse meio-tempo, a Receita responde E0014, e o NotaVez consulta e recupera a nota. Não há como gerar duas NFS-e para o mesmo rascunho.
+3. **O reenvio é idempotente:** usa o **mesmo XML assinado** (mesmo Id). Se a primeira tentativa tiver sido processada nesse meio-tempo, a Receita responde E0014, e o Nota Sem Stress consulta e recupera a nota. Não há como gerar duas NFS-e para o mesmo rascunho.
 4. **Travas:** transição de estado atômica (compare-and-set no banco) e trava por nota no processo, contra toque duplo.
 5. **Clonar** copia só cliente, serviço, descrição, valor e local. Nunca copia número de DPS, Id, chave, XML ou situação. Competência, valor, descrição e tributação ficam marcados em `revisar` e bloqueiam a emissão até serem conferidos.
 
@@ -127,7 +127,7 @@ Garantias:
 ```mermaid
 sequenceDiagram
   participant U as PWA
-  participant S as Servidor NotaVez
+  participant S as Servidor Nota Sem Stress
   participant R as Sefin Nacional
   U->>S: POST /api/notas/{id}/emitir
   S->>S: elegibilidade (perfil, MEI, certificado válido do mesmo CNPJ)

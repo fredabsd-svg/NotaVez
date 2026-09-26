@@ -235,7 +235,7 @@ function nfseDanfse({ tribISSQN = '4', tpRetPisCofins = '1', dCompet = '2027-01-
     + '<emit><CNPJ>11222333000181</CNPJ><xNome>Empresa Emitente Ltda</xNome><enderNac><xLgr>Rua A</xLgr><nro>1</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><UF>SP</UF><CEP>01001000</CEP></enderNac></emit>'
     + '<valores><vTotalRet>0.00</vTotalRet><vLiq>1000.00</vLiq></valores><xOutInf>Informação do município</xOutInf>'
     + '<DPS versao="1.01"><infDPS Id="DPS355030821122233300018100900000000000000001"><tpAmb>1</tpAmb><dhEmi>2027-01-15T09:00:00-03:00</dhEmi>'
-    + `<verAplic>NotaVez</verAplic><serie>900</serie><nDPS>1</nDPS><dCompet>${dCompet}</dCompet><tpEmit>1</tpEmit><cLocEmi>3550308</cLocEmi>`
+    + `<verAplic>NotaSemStress</verAplic><serie>900</serie><nDPS>1</nDPS><dCompet>${dCompet}</dCompet><tpEmit>1</tpEmit><cLocEmi>3550308</cLocEmi>`
     + '<prest><CNPJ>11222333000181</CNPJ><regTrib><opSimpNac>1</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>'
     + '<toma><CPF>52998224725</CPF><xNome>Maria da Silva</xNome></toma>'
     + '<interm><NIF>ABC123</NIF><xNome>Agência Exterior</xNome><end><endExt><cPais>US</cPais><cEndPost>10001</cEndPost><xCidade>New York</xCidade><xEstProvReg>NY</xEstProvReg></endExt><xLgr>5th Ave</xLgr><nro>1</nro><xBairro>-</xBairro></end></interm>'

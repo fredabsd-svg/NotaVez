@@ -28,7 +28,7 @@ export function avaliarElegibilidade(prestador, certificado, { convenioEmissor =
     const c = convenioEmissor;
     if (c?.situacao === 'inexistente' || (c?.situacao === 'ativo' && c.aderenteEmissorNacional === false)) {
       item('convenio', false, 'Município no Sistema Nacional da NFS-e',
-        'O município do seu CNPJ não usa o Sistema Nacional para empresas que não são MEI (E0037/E0039). Emita pelo sistema da prefeitura; o NotaVez guarda seus rascunhos.');
+        'O município do seu CNPJ não usa o Sistema Nacional para empresas que não são MEI (E0037/E0039). Emita pelo sistema da prefeitura; o Nota Sem Stress guarda seus rascunhos.');
     } else {
       item('convenio', true, 'Município no Sistema Nacional da NFS-e', null,
         c?.situacao === 'ativo' ? null : 'Ainda não confirmado: verificamos com o seu certificado antes de emitir.');

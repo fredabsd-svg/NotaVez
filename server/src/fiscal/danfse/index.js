@@ -347,7 +347,7 @@ export async function gerarDanfse(xml, { marcaDagua = null } = {}) {
 
   const doc = new PDFDocument({
     size: 'A4', layout: 'portrait', margin: 0, autoFirstPage: true, compress: true,
-    info: { Title: `DANFSe ${c.chave}`, Subject: 'Documento Auxiliar da NFS-e', Creator: 'NotaVez', Producer: 'NotaVez' },
+    info: { Title: `DANFSe ${c.chave}`, Subject: 'Documento Auxiliar da NFS-e', Creator: 'Nota Sem Stress', Producer: 'Nota Sem Stress' },
   });
   const partes = [];
   doc.on('data', (b) => partes.push(b));

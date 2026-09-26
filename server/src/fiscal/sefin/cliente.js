@@ -138,7 +138,7 @@ export function criarClienteSefin({ baseUrl, baseParametros, rotasParametros = {
       return { ...base, situacao: 'desconhecido', motivo: `http_${r.status}` };
     },
 
-    /** Alíquota de ISS parametrizada (informativa: o NotaVez não a envia quando o município é conveniado). */
+    /** Alíquota de ISS parametrizada (informativa: o Nota Sem Stress não a envia quando o município é conveniado). */
     async consultarAliquota(municipio, servico, competencia) {
       if (!baseParam) return { tipo: 'falha' };
       const r = await requisitar('GET', rota(rotasParametros.aliquota || '/{municipio}/{servico}/{competencia}/aliquota', { municipio, servico, competencia }), undefined, baseParam);

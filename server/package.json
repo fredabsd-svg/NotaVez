@@ -1,8 +1,8 @@
 {
-  "name": "notavez-server",
+  "name": "nota-sem-stress-server",
   "version": "0.1.0",
   "private": true,
-  "description": "Servidor do NotaVez: contas, clientes, rascunhos, histórico e integração com a API oficial da NFS-e Nacional",
+  "description": "Servidor do Nota Sem Stress: contas, clientes, rascunhos, histórico e integração com a API oficial da NFS-e Nacional",
   "type": "module",
   "engines": {
     "node": ">=22.13"

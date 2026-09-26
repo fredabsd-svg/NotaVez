@@ -57,7 +57,7 @@ let numero = Number(process.env.NOTAVEZ_NDPS_INICIAL || Math.floor(Date.now() / 
 const cliente = criarClienteSefin({ baseUrl: amb.sefin, baseParametros: amb.parametros, rotasParametros: ambientesSefin.rotasParametros, ...info });
 const nota = {
   competencia: hojeBrasilia(), valor: '10.00', cTribNac: process.env.NOTAVEZ_CTRIBNAC || '010101',
-  descricao: 'TESTE DE HOMOLOGACAO NotaVez - sem valor fiscal',
+  descricao: 'TESTE DE HOMOLOGACAO Nota Sem Stress - sem valor fiscal',
   ...(naoOptante ? { cNBS: process.env.NOTAVEZ_NBS || '115021000' } : {}),
   tomador: process.env.NOTAVEZ_TOMADOR_CPF
     ? { tipo: 'CPF', documento: env('NOTAVEZ_TOMADOR_CPF'), nome: process.env.NOTAVEZ_TOMADOR_NOME || 'Tomador de teste' }
@@ -74,7 +74,7 @@ let parametros = {};
 async function preparar(n, ajustarXml = (x) => x) {
   numero += 1;
   const { xml, Id } = montarDps({
-    tpAmb: amb.tpAmb, prestador, nota: n, pacote, serie, nDPS: numero, dhEmi: dataHoraBrasilia(), verAplic: 'NotaVez-homolog',
+    tpAmb: amb.tpAmb, prestador, nota: n, pacote, serie, nDPS: numero, dhEmi: dataHoraBrasilia(), verAplic: 'NotaSemStress-hom',
     contexto: { parametros, municipioIncidencia: prestador.municipioIbge },
   });
   const assinado = assinarDps(ajustarXml(xml), info);
@@ -126,7 +126,7 @@ registrar('6. Rejeição competência futura', 'rejeitada E0015', `${r6.tipo} ${
 
 cliente.fechar();
 const quando = new Date().toISOString();
-const md = [`# Relatório de homologação NotaVez — ${quando}`, '', `Ambiente: produção restrita (${amb.sefin}), série ${serie}, regime ${meEpp ? "ME/EPP" : naoOptante ? "Lucro Presumido/Real" : "MEI"}.`, '',
+const md = [`# Relatório de homologação Nota Sem Stress — ${quando}`, '', `Ambiente: produção restrita (${amb.sefin}), série ${serie}, regime ${meEpp ? "ME/EPP" : naoOptante ? "Lucro Presumido/Real" : "MEI"}.`, '',
   '| Caso | Esperado | Obtido | OK | Detalhe |', '|---|---|---|---|---|',
   ...resultados.map((r) => `| ${r.caso} | ${r.esperado} | ${r.obtido} | ${r.ok ? 'sim' : 'NÃO'} | ${String(r.extra).replace(/\|/g, '/').slice(0, 300)} |`)].join('\n');
 writeFileSync(new URL(`relatorio-homologacao-${quando.replace(/[:.]/g, '-')}.md`, saida), md);

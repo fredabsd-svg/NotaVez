@@ -43,7 +43,7 @@ export function lerNfse(xml) {
  */
 export function validarRascunho(prestador, rascunho, hoje = hojeBrasilia(), parametros = {}) {
   const escolha = escolherPacote({ opSimpNac: prestador?.opSimpNac, competencia: rascunho.competencia });
-  if (!escolha.pacote) return { ok: false, erros: [{ campo: 'regime', mensagem: escolha.motivo, regra: 'NotaVez' }], exigencias: null };
+  if (!escolha.pacote) return { ok: false, erros: [{ campo: 'regime', mensagem: escolha.motivo, regra: 'Nota Sem Stress' }], exigencias: null };
   const contexto = { hoje, parametros, municipioIncidencia: municipioIncidencia(prestador, rascunho) };
   const ctx = { prestador, nota: rascunho, ...contexto };
   const erros = escolha.pacote.validar(ctx);
@@ -153,7 +153,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const certificado = repo.certificadoAtivo(prestador.id);
       const parametros = await parametrosPara(prestador, certificado, nota.rascunho);
       const eleg = avaliarElegibilidade(prestador, certificado, { convenioEmissor: parametros.convenioEmissor });
-      if (!eleg.podeEmitir) throw new ErroApp(403, 'Ainda falta algo para emitir pelo NotaVez.', { pendencias: eleg.pendencias });
+      if (!eleg.podeEmitir) throw new ErroApp(403, 'Ainda falta algo para emitir pelo Nota Sem Stress.', { pendencias: eleg.pendencias });
 
       const v = validarRascunho(prestador, nota.rascunho, hojeBrasilia(), parametros);
       if (!v.ok) throw new ErroApp(422, 'Corrija os campos indicados antes de emitir.', { erros: v.erros });

@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 const app = await criarApp();
 await app.listen({ port: config.porta, host: config.host });
-console.log(`NotaVez em http://localhost:${config.porta} — ambiente padrão: ${config.ambientePadrao}${config.dev ? ' (desenvolvimento: dados em memória)' : ''}`);
+console.log(`Nota Sem Stress em http://localhost:${config.porta} — ambiente padrão: ${config.ambientePadrao}${config.dev ? ' (desenvolvimento: dados em memória)' : ''}`);
 
 // Verificação periódica de notas pendentes (consulta antes de reenviar).
 const intervalo = setInterval(() => app.ctx.emissao.verificarPendentes().catch((e) => app.log.error(e)), 2 * 60_000);

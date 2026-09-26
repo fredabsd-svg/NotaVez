@@ -29,7 +29,7 @@ export async function tela() {
     return {
       titulo: 'Início', aba: 'inicio',
       node: h('div', {},
-        h('h2', {}, 'Bem-vindo ao NotaVez'),
+        h('h2', {}, 'Bem-vindo ao Nota Sem Stress'),
         h('p', {}, 'Primeiro, preencha seu perfil fiscal (CNPJ, município e regime). Leva um minuto.'),
         h('a', { class: 'btn btn-primario btn-grande', href: '#/perfil' }, 'Preencher perfil')),
     };

@@ -15,7 +15,7 @@ O protótipo é o próprio PWA funcionando. As imagens abaixo foram capturadas a
 
 ```mermaid
 flowchart TD
-  A[Entrar / criar conta NotaVez] --> B{Perfil completo?}
+  A[Entrar / criar conta Nota Sem Stress] --> B{Perfil completo?}
   B -- não --> P[Perfil: CNPJ, município do CNPJ, regime]
   P --> C{Certificado A1 enviado e válido?}
   C -- não --> R0[Pode preparar rascunhos<br/>+ lista 'o que falta']
@@ -84,9 +84,9 @@ Os campos extras aparecem **só para ME/EPP**, e a alíquota do ISS aparece **s�
 
 ## 2.5 Instruções de instalação (também dentro do app, em Perfil › Instalar)
 
-**Android (Chrome):** abrir o NotaVez no Chrome → menu **⋮** → **Instalar app** (ou **Adicionar à tela inicial**) → **Instalar**. Quando o navegador permite, o app mostra o botão **Instalar agora**.
+**Android (Chrome):** abrir o Nota Sem Stress no Chrome → menu **⋮** → **Instalar app** (ou **Adicionar à tela inicial**) → **Instalar**. Quando o navegador permite, o app mostra o botão **Instalar agora**.
 
-**iPhone (Safari):** abrir o NotaVez no Safari → botão **Compartilhar** (quadrado com seta para cima) → **Adicionar à Tela de Início** → **Adicionar**.
+**iPhone (Safari):** abrir o Nota Sem Stress no Safari → botão **Compartilhar** (quadrado com seta para cima) → **Adicionar à Tela de Início** → **Adicionar**.
 
 ### Lucro Presumido / Lucro Real
 
@@ -111,6 +111,6 @@ O DANFSe é gerado pelo servidor a partir do XML oficial da NFS-e. Abaixo, o do 
 
 - **Persona:** dono de MEI ou de pequena empresa, no celular, sem formação fiscal. Quer emitir a nota do mês em menos de um minuto e ter certeza de que deu certo.
 - **Personalidade:** confiável e acolhedora. Azul institucional para transmitir segurança, verde reservado à confirmação ("Emitida"), vermelho e âmbar só para erro e atenção.
-- **Logo:** um documento com um "✓" verde cujo traço forma o **V** de NotaVez; o check sai da folha para indicar a nota concluída. Funciona de 16 px (favicon) a 512 px e tem versão *maskable* para Android. Logotipo em Inter ExtraBold convertida em curvas: "Nota" em tinta escura e "Vez" em azul, com versão para fundo escuro.
+- **Logo:** um documento com um "✓" verde que sai da folha: a nota pronta, sem stress. O check é o mesmo sinal de "Emitida" dentro do app. Funciona de 16 px (favicon) a 512 px e tem versão *maskable* para Android. Logotipo em Inter ExtraBold convertida em curvas: "Nota" em tinta escura e "Sem Stress" em azul, com versão para fundo escuro. No ícone instalado, o nome curto é "Sem Stress", porque "Nota Sem Stress" é cortado nas telas iniciais do Android e do iPhone.
 - **Tokens:** azul `#0b5cab`, verde `#1a7f37`, vermelho `#b42318`, âmbar `#8a5300`, tinta `#0f2744`; fonte do sistema; espaçamento em múltiplos de 4 e 8 px; raio de 14 px. Os mesmos tokens valem para o app (`web/css/app.css`) e para a página de apresentação (`docs/index.html`).
 - **Arquivos:** `web/icons/` (logo.svg, logo-escuro.svg, icone.svg, icone-maskable.svg, PNG 180/192/512, favicon de 32 px) e cópias em `docs/assets/`.

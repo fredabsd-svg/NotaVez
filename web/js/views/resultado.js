@@ -60,7 +60,7 @@ function blocoEmitida(n) {
     n.documentos?.danfse ? h('a', { class: 'btn', href: `/api/notas/${n.id}/danfse`, target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe (PDF)') : null,
     n.documentos?.xml !== undefined ? h('a', { class: 'btn', href: `/api/notas/${n.id}/xml`, download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML da NFS-e') : null,
     n.documentos?.consultaPublica ? h('a', { class: 'btn btn-texto', href: n.documentos.consultaPublica, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'Conferir na Consulta Pública') : null,
-    h('p', { class: 'suave' }, '"Enviar ao cliente" manda o DANFSe (PDF) e o XML. O DANFSe é a versão para imprimir da NFS-e: o NotaVez o gera a partir do XML oficial da Receita, no modelo da NT 008, com QR Code para conferir a nota.'),
+    h('p', { class: 'suave' }, '"Enviar ao cliente" manda o DANFSe (PDF) e o XML. O DANFSe é a versão para imprimir da NFS-e: o Nota Sem Stress o gera a partir do XML oficial da Receita, no modelo da NT 008, com QR Code para conferir a nota.'),
   ];
 }
 
@@ -106,7 +106,7 @@ function montar(n, { detalhe = false } = {}) {
         }
       },
     }, icone(ICONES.atualizar), 'Verificar situação agora');
-    acoes.push(b, h('p', { class: 'suave' }, 'O NotaVez também verifica sozinho a cada poucos minutos.'));
+    acoes.push(b, h('p', { class: 'suave' }, 'O Nota Sem Stress também verifica sozinho a cada poucos minutos.'));
   }
   if (n.alertas?.length) acoes.push(h('div', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Avisos da Receita:'), h('ul', {}, n.alertas.map((a) => h('li', {}, `${a.mensagem} (${a.codigo})`)))));
 

@@ -1,4 +1,4 @@
-/* NotaVez — interface para celular. Alvos de toque ≥ 48px, contraste AA,
+/* Nota Sem Stress — interface para celular. Alvos de toque ≥ 48px, contraste AA,
    foco visível, respeita modo escuro e "reduzir movimento". */
 :root {
   --azul: #0b5cab; --azul-escuro: #084785; --azul-claro: #e7f0fb;
@@ -30,7 +30,7 @@ body {
 :focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; }
 .pular { position: absolute; left: -999px; top: 8px; background: var(--cartao); padding: 8px; z-index: 50; }
 .pular:focus { left: 8px; }
-.marca { display: block; margin: 8px auto 4px; height: 54px; width: auto; }
+.marca { display: block; margin: 8px auto 4px; height: 44px; width: auto; max-width: 100%; }
 .marca-escura { display: none; }
 @media (prefers-color-scheme: dark) { .marca-clara { display: none; } .marca-escura { display: block; } }
 

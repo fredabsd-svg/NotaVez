@@ -1,5 +1,5 @@
 // Simulador LOCAL da Sefin Nacional para testes automatizados. Reproduz o
-// contrato usado pelo NotaVez (POST /nfse, GET /dps/{id}, GET /nfse/{chave})
+// contrato usado pelo Nota Sem Stress (POST /nfse, GET /dps/{id}, GET /nfse/{chave})
 // com TLS mútuo, valida assinatura e XSD, e aplica algumas regras oficiais.
 // NÃO substitui os testes no ambiente oficial de produção restrita.
 import https from 'node:https';

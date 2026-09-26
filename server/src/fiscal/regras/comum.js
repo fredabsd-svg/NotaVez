@@ -46,8 +46,8 @@ export function validarComum({ prestador, nota, hoje }) {
   const s = servicoNacional(nota.cTribNac);
   if (!s) add('servico', 'Escolha um código de serviço da lista nacional.', 'E0310');
   else {
-    if (s.grupoExigido === 'obra') add('servico', 'Este serviço exige os dados da obra (CNO/CEI), ainda não disponíveis no NotaVez. Use o Emissor Nacional para ele.', 'Anexo I');
-    if (s.grupoExigido === 'atvEvento') add('servico', 'Este serviço exige os dados do evento, ainda não disponíveis no NotaVez. Use o Emissor Nacional para ele.', 'Anexo I');
+    if (s.grupoExigido === 'obra') add('servico', 'Este serviço exige os dados da obra (CNO/CEI), ainda não disponíveis no Nota Sem Stress. Use o Emissor Nacional para ele.', 'Anexo I');
+    if (s.grupoExigido === 'atvEvento') add('servico', 'Este serviço exige os dados do evento, ainda não disponíveis no Nota Sem Stress. Use o Emissor Nacional para ele.', 'Anexo I');
     if (!s.incidencia || s.incidencia === 'OUTRO') add('servico', 'Este serviço tem regra de local especial não suportada nesta versão.', 'Anexo I');
   }
   if (nota.cTribMun && !/^\d{3}$/.test(nota.cTribMun)) add('cTribMun', 'O código municipal deve ter 3 dígitos.', 'XSD');

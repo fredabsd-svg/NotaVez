@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-escuro.svg">
-    <img src="docs/assets/logo.svg" alt="NotaVez" width="320">
+    <img src="docs/assets/logo.svg" alt="Nota Sem Stress" width="320">
   </picture>
 </p>
 
-<h3 align="center">A nota fiscal de serviço, na sua vez, pelo celular.</h3>
+<h3 align="center">Nota fiscal de serviço sem stress, pelo celular.</h3>
 
 <p align="center">
   App instalável (PWA) para emitir a <strong>NFS-e do Padrão Nacional</strong> em poucos toques:<br>
@@ -27,13 +27,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/vitrine.png" alt="Telas do NotaVez: início, nova nota, nota emitida e o DANFSe em PDF" width="100%">
+  <img src="docs/assets/vitrine.png" alt="Telas do Nota Sem Stress: início, nova nota, nota emitida e o DANFSe em PDF" width="100%">
 </p>
 
 > [!IMPORTANT]
 > **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, e os 38 testes automatizados passam. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
 
-## Por que NotaVez
+## Por que Nota Sem Stress
 
 | | |
 |---|---|
@@ -54,7 +54,7 @@
 
 ## DANFSe local (NT 008)
 
-A API de DANFSe da Receita foi desativada em 03/08/2026, e o documento auxiliar passou a ser gerado por quem emite. O NotaVez gera o PDF **a partir do XML oficial da NFS-e** (nunca do rascunho), seguindo a NT 008 v1.02:
+A API de DANFSe da Receita foi desativada em 03/08/2026, e o documento auxiliar passou a ser gerado por quem emite. O Nota Sem Stress gera o PDF **a partir do XML oficial da NFS-e** (nunca do rascunho), seguindo a NT 008 v1.02:
 
 - A4 retrato, **página única**, blocos e grade do Anexo I, sombreamento e espessuras de linha da norma.
 - Cabeçalho com a logomarca da NFS-e, **"DANFSe v2.0"** e, em homologação, **"NFS-e SEM VALIDADE JURÍDICA"** em vermelho.
@@ -148,8 +148,17 @@ docs/                     entregas 1 a 6, página de apresentação, imagens e e
 ```
 </details>
 
+## Nome e identificadores técnicos
+
+O app se chamava **NotaVez** e passou a se chamar **Nota Sem Stress**. Alguns identificadores internos mantêm o nome antigo de propósito, porque trocá-los faria perder dados já gravados ou quebraria instalações existentes, sem nenhum ganho para quem usa o app:
+
+- variáveis de ambiente `NOTAVEZ_*` (ex.: `NOTAVEZ_MASTER_KEY`);
+- cabeçalho anti-CSRF `X-NotaVez`;
+- contexto da derivação de chaves (HKDF), que protege os dados cifrados;
+- banco padrão `notavez.db`, IndexedDB `notavez` (rascunhos offline) e cache do service worker.
+
 ## Aviso
 
-O NotaVez não é um aplicativo oficial da Receita Federal nem do Comitê Gestor da NFS-e. A logomarca da NFS-e aparece apenas no DANFSe, como exige a NT 008.
+O Nota Sem Stress não é um aplicativo oficial da Receita Federal nem do Comitê Gestor da NFS-e. A logomarca da NFS-e aparece apenas no DANFSe, como exige a NT 008.
 
 Licença [MIT](LICENSE).
