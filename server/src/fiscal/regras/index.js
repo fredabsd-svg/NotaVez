@@ -13,8 +13,8 @@ export function escolherPacote({ opSimpNac, competencia }) {
   if (competencia && competencia >= '2027-01-01') {
     return {
       motivo: opSimpNac === '1'
-        ? 'Em 2027 começam a CBS plena e a extinção do PIS/COFINS. Esta versão do NotaVez ainda não foi atualizada para as regras de 2027.'
-        : 'A partir de 2027 as notas do Simples Nacional exigem os grupos de IBS/CBS (Anexo I). Esta versão do NotaVez ainda não foi atualizada para essa regra.',
+        ? 'Em 2027 começam a CBS plena e a extinção do PIS/COFINS. Esta versão do Nota Sem Stress ainda não foi atualizada para as regras de 2027.'
+        : 'A partir de 2027 as notas do Simples Nacional exigem os grupos de IBS/CBS (Anexo I). Esta versão do Nota Sem Stress ainda não foi atualizada para essa regra.',
     };
   }
   if (opSimpNac === '2' && competencia && competencia < '2023-09-01') {

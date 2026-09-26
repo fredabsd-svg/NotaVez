@@ -1,4 +1,4 @@
--- Esquema do NotaVez (SQLite no MVP; compatível com migração para PostgreSQL).
+-- Esquema do Nota Sem Stress (SQLite no MVP; compatível com migração para PostgreSQL).
 -- Campos *_cifrado usam AES-256-GCM (security/cripto.js). *_indice são HMACs
 -- para busca exata sem expor CPF/CNPJ.
 

@@ -1,4 +1,4 @@
-// Testes ponta a ponta: API do NotaVez + Sefin SIMULADA (TLS mútuo).
+// Testes ponta a ponta: API do Nota Sem Stress + Sefin SIMULADA (TLS mútuo).
 process.env.NODE_ENV = 'test';
 process.env.NOTAVEZ_ESPERA_REENVIO_MS = '0';
 process.env.NOTAVEZ_TIMEOUT_SEFIN_MS = '1500';

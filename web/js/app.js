@@ -72,8 +72,8 @@ async function renderizar() {
     if (!(e instanceof ErroApi)) console.error(e);
   }
   if (meu !== renderizando || !tela) return; // navegação mais nova em andamento
-  document.getElementById('titulo').textContent = tela.titulo || 'NotaVez';
-  document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}NotaVez`;
+  document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
+  document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;
   document.getElementById('abas').hidden = !estado.conta || tela.semAbas;
   for (const a of document.querySelectorAll('.abas a')) {

@@ -9,7 +9,7 @@ export async function tela(_, query) {
     const email = campo({ rotulo: 'E-mail', tipo: 'email', atributos: { autocomplete: 'email', inputmode: 'email', required: true } });
     const senha = campo({
       rotulo: 'Senha', tipo: 'password',
-      ajuda: modo === 'cadastro' ? 'Mínimo de 8 caracteres. É a senha do NotaVez — não use sua senha gov.br.' : null,
+      ajuda: modo === 'cadastro' ? 'Mínimo de 8 caracteres. É a senha do Nota Sem Stress — não use sua senha gov.br.' : null,
       atributos: { autocomplete: modo === 'cadastro' ? 'new-password' : 'current-password', required: true, minlength: modo === 'cadastro' ? 8 : undefined },
     });
     const erro = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
@@ -34,8 +34,8 @@ export async function tela(_, query) {
 
     node.replaceChildren(
       h('div', { class: 'centro' },
-        h('img', { class: 'marca marca-clara', src: '/icons/logo.svg', alt: 'NotaVez', width: 220, height: 54 }),
-        h('img', { class: 'marca marca-escura', src: '/icons/logo-escuro.svg', alt: 'NotaVez', width: 220, height: 54 }),
+        h('img', { class: 'marca marca-clara', src: '/icons/logo.svg', alt: 'Nota Sem Stress', width: 290, height: 44 }),
+        h('img', { class: 'marca marca-escura', src: '/icons/logo-escuro.svg', alt: 'Nota Sem Stress', width: 290, height: 44 }),
         h('h2', {}, 'Nota fiscal de serviço em poucos toques'),
         h('p', { class: 'suave' }, 'Para MEI e empresas prestadoras de serviço (Simples, Presumido ou Real). Cadastre clientes, salve serviços e emita sua NFS-e pelo celular.')),
       h('div', { class: 'chips', role: 'tablist' },
@@ -43,7 +43,7 @@ export async function tela(_, query) {
         h('button', { class: 'chip', type: 'button', role: 'tab', 'aria-pressed': String(modo === 'cadastro'), 'aria-selected': String(modo === 'cadastro'), onclick: () => { modo = 'cadastro'; montar(); } }, 'Criar conta')),
       form,
       h('div', { class: 'cartao' },
-        h('p', { class: 'suave' }, 'Importante: o NotaVez nunca pede nem guarda sua senha gov.br. Para emitir, a Receita exige o certificado digital A1 do seu CNPJ, que você envia depois, com segurança.')),
+        h('p', { class: 'suave' }, 'Importante: o Nota Sem Stress nunca pede nem guarda sua senha gov.br. Para emitir, a Receita exige o certificado digital A1 do seu CNPJ, que você envia depois, com segurança.')),
       h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Como instalar no celular'),
     );
   }

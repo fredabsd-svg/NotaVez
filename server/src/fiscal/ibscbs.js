@@ -13,11 +13,11 @@ const dados = JSON.parse(readFileSync(new URL('../data/ibscbs-correlacao.json', 
 // Prazos do Ato Conjunto RFB/CGIBS nº 4/2026 (orientação SE/CGNFS-e): serviços da
 // LC 116 em geral a partir de 01/10/2026; subitens 1.03, 1.05, 1.09 e 16.01 e
 // locações a partir de 01/12/2026. Até 31/12/2026 a ausência não gera rejeição,
-// mas deixa o documento em desconformidade — por isso o NotaVez já informa.
+// mas deixa o documento em desconformidade — por isso o Nota Sem Stress já informa.
 const ITENS_DEZEMBRO = ['0103', '0105', '0109', '1601'];
 
 // Anexo VI, regras 591–593: cIndOp de operações com imóveis (020101, 020201, 020301) exige o
-// grupo "imovel", salvo nos subitens de obra listados — grupo ainda não suportado pelo NotaVez.
+// grupo "imovel", salvo nos subitens de obra listados — grupo ainda não suportado pelo Nota Sem Stress.
 const CINDOP_IMOVEL = ['020101', '020201', '020301'];
 const SUBITENS_SEM_IMOVEL = ['070201', '070202', '070401', '070501', '070502', '070601', '070602', '070701', '070801', '071701', '071901'];
 export const inicioObrigatoriedade = (cTribNac) => (ITENS_DEZEMBRO.includes(String(cTribNac || '').slice(0, 4)) || String(cTribNac || '').startsWith('99') ? '2026-12-01' : '2026-10-01');
@@ -56,7 +56,7 @@ export function resolverIbsCbs(nota) {
   if (!cIndOp) add('ibscbs.cIndOp', 'Informe como o serviço é prestado (define o local do IBS/CBS).', 'E0901');
   else if (!entrada.cIndOp.some((c) => c.codigo === cIndOp)) add('ibscbs.cIndOp', 'Indicador de operação não previsto para esta NBS na tabela oficial.', 'E0901');
   else if (CINDOP_IMOVEL.includes(cIndOp) && !SUBITENS_SEM_IMOVEL.includes(String(nota.cTribNac))) {
-    add('ibscbs.cIndOp', 'Esta operação é relativa a imóvel e exige os dados do imóvel no IBS/CBS, ainda não disponíveis no NotaVez. Use o Emissor Nacional para ela.', 'Anexo VI #592');
+    add('ibscbs.cIndOp', 'Esta operação é relativa a imóvel e exige os dados do imóvel no IBS/CBS, ainda não disponíveis no Nota Sem Stress. Use o Emissor Nacional para ela.', 'Anexo VI #592');
   }
 
   const classes = entrada.cClassTrib.map((c) => c.codigo);

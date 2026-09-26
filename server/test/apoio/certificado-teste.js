@@ -21,7 +21,7 @@ export function gerarCertificadoTeste({ cnpj = '11222333000181', senha = 'teste'
   caCert.serialNumber = '01';
   caCert.validity.notBefore = new Date(Date.now() - 86400_000);
   caCert.validity.notAfter = new Date(Date.now() + 3 * 365 * 86400_000);
-  const caAttrs = [{ name: 'commonName', value: 'AC TESTE NotaVez' }, { name: 'organizationName', value: 'ICP-Brasil (SIMULADO - SOMENTE TESTE)' }];
+  const caAttrs = [{ name: 'commonName', value: 'AC TESTE Nota Sem Stress' }, { name: 'organizationName', value: 'ICP-Brasil (SIMULADO - SOMENTE TESTE)' }];
   caCert.setSubject(caAttrs);
   caCert.setIssuer(caAttrs);
   caCert.setExtensions([{ name: 'basicConstraints', cA: true }]);

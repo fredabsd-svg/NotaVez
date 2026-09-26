@@ -92,7 +92,7 @@ Depois, repetir pelo app. Para isso, ligar o servidor com `NOTAVEZ_MASTER_KEY` d
 - A URL-base (`/SefinNacional` ou `/API/SefinNacional`) e os nomes dos campos JSON. Ajustar em `server/src/fiscal/sefin/ambientes.json` e em `cliente.js`, se preciso.
 - A C14N aceita na assinatura (padrão: C14N inclusiva; alternativa via `NOTAVEZ_C14N=http://www.w3.org/2001/10/xml-exc-c14n#`).
 - A URL da Consulta Pública na produção restrita.
-- O DANFSe gerado pelo NotaVez comparado com o DANFSe oficial da mesma nota (Emissor Nacional): dados do prestador vindos de `emit` e linha de totais aproximados para MEI e ME/EPP.
+- O DANFSe gerado pelo Nota Sem Stress comparado com o DANFSe oficial da mesma nota (Emissor Nacional): dados do prestador vindos de `emit` e linha de totais aproximados para MEI e ME/EPP.
 - As rotas e o formato de resposta da API de Parâmetros Municipais (convênio): caso 0 do roteiro ME/EPP.
 - Base do PIS/COFINS igual ao valor do serviço (E0677 × E0680) e aceitação do grupo IBS/CBS sem `gTribRegular`/`gDif` para a classificação usada: caso 1 do roteiro não optante.
 

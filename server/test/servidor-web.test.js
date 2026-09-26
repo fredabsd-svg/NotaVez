@@ -32,7 +32,7 @@ test('serve o PWA com cache correto e volta ao index nas rotas do app', async ()
 test('caminhos codificados não escapam de web/ nem pulam o login e o anti-CSRF', async () => {
   for (const url of ['/%2e%2e/server/package.json', '/..%2fserver%2fpackage.json', '/icons/..%2f..%2fserver%2fpackage.json', '/%2e%2e%2f%2e%2e%2fetc%2fpasswd']) {
     const r = await get(url);
-    assert.doesNotMatch(r.body, /notavez-server|root:/, `${url} vazou arquivo de fora`);
+    assert.doesNotMatch(r.body, /nota-sem-stress-server|root:/, `${url} vazou arquivo de fora`);
     assert.ok(r.statusCode < 500, `${url}: ${r.statusCode}`);
   }
   // O roteador decodifica "/%61pi" como "/api": a proteção tem de valer igual.

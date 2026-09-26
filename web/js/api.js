@@ -1,4 +1,4 @@
-// Cliente da API do servidor NotaVez. Sem internet → ErroApi(0).
+// Cliente da API do servidor Nota Sem Stress. Sem internet → ErroApi(0).
 export class ErroApi extends Error {
   constructor(status, dados) {
     super(dados?.erro || (status === 0 ? 'Sem conexão com a internet.' : 'Não foi possível concluir.'));

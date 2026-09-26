@@ -35,7 +35,7 @@ export const config = {
   producaoLiberada: process.env.NOTAVEZ_PRODUCAO_LIBERADA === '1',
   servirWeb: process.env.NOTAVEZ_SERVIR_WEB !== '0',
   cookieSeguro: !dev,
-  versaoAplicativo: 'NotaVez-0.1.0',
+  versaoAplicativo: 'NotaSemStress-0.1.0',
   // Série da DPS: faixa 00001–49999 é reservada a "aplicativo próprio" (Anexo I, leiaute campo serie).
   serieDpsPadrao: '1',
   // Tempo mínimo entre um envio incerto e o reenvio (evita corrida com o processamento).

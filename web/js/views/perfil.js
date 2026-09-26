@@ -158,7 +158,7 @@ export async function tela() {
     },
   }, arquivo, senha,
   h('label', { class: 'caixa', for: 'consentimento' }, consentimento,
-    h('span', {}, 'Autorizo o NotaVez a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
+    h('span', {}, 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
   erroCert, enviar);
 
   const statusCert = cert

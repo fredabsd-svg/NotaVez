@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NotaVez — NFS-e pelo celular</title>
+  <title>Nota Sem Stress — NFS-e pelo celular</title>
   <meta name="description" content="App instalável para emitir a NFS-e do Padrão Nacional pelo celular: MEI, ME/EPP, Lucro Presumido e Real. DANFSe em PDF conforme a NT 008.">
   <meta name="theme-color" content="#0b5cab">
   <link rel="icon" href="assets/icone.svg" type="image/svg+xml">
-  <meta property="og:title" content="NotaVez — NFS-e pelo celular">
+  <meta property="og:title" content="Nota Sem Stress — NFS-e pelo celular">
   <meta property="og:description" content="Emita a NFS-e do Padrão Nacional em poucos toques, com regras oficiais conferidas antes do envio.">
   <meta property="og:image" content="assets/vitrine.png">
   <style>
-    /* Tokens do NotaVez: os mesmos do app (web/css/app.css). */
+    /* Tokens do Nota Sem Stress: os mesmos do app (web/css/app.css). */
     :root {
       --azul: #0b5cab; --azul-escuro: #084785; --azul-claro: #e7f0fb;
       --verde: #1a7f37; --verde-claro: #e6f4ea;
@@ -45,7 +45,7 @@
 
     header { padding: var(--e3) 0; border-bottom: 1px solid var(--borda); }
     header .largura { display: flex; align-items: center; justify-content: space-between; gap: var(--e3); }
-    header img { height: 36px; width: auto; display: block; }
+    header img { height: 32px; width: auto; max-width: 100%; display: block; }
     header nav a { margin-left: var(--e3); font-weight: 600; text-decoration: none; display: inline-block; padding: 10px 0; min-height: 44px; }
 
     .hero { padding: var(--e6) 0 var(--e5); text-align: center; background: linear-gradient(180deg, var(--azul-claro), var(--fundo)); }
@@ -109,9 +109,9 @@
   <a class="pular" href="#principal">Pular para o conteúdo</a>
   <header>
     <div class="largura">
-      <a href="./" aria-label="NotaVez, início">
-        <img class="logo-clara" src="assets/logo.svg" alt="NotaVez" width="144" height="36">
-        <img class="logo-escura" src="assets/logo-escuro.svg" alt="NotaVez" width="144" height="36">
+      <a href="./" aria-label="Nota Sem Stress, início">
+        <img class="logo-clara" src="assets/logo.svg" alt="Nota Sem Stress" width="238" height="36">
+        <img class="logo-escura" src="assets/logo-escuro.svg" alt="Nota Sem Stress" width="238" height="36">
       </a>
       <nav aria-label="Seções">
         <a href="#como-funciona">Como funciona</a>
@@ -124,15 +124,15 @@
   <main id="principal">
     <div class="hero">
       <div class="largura">
-        <h1>A nota fiscal de serviço, na sua vez, pelo celular.</h1>
+        <h1>Nota fiscal de serviço sem stress, pelo celular.</h1>
         <p>App instalável para emitir a <strong>NFS-e do Padrão Nacional</strong> em poucos toques. Feito para MEI e pequenas empresas: ME/EPP do Simples, Lucro Presumido e Lucro Real.</p>
         <div class="acoes">
           <a class="btn btn-primario" href="#experimentar">Experimentar a demonstração</a>
-          <a class="btn btn-secundario" href="https://github.com/fredabsd-svg/NotaVez">Ver o código no GitHub</a>
+          <a class="btn btn-secundario" href="https://github.com/fredabsd-svg/nota-sem-stress">Ver o código no GitHub</a>
         </div>
       </div>
       <div class="vitrine">
-        <img src="assets/vitrine.png" alt="Telas do NotaVez: início, nova nota, nota emitida e o DANFSe em PDF" width="1600" height="860">
+        <img src="assets/vitrine.png" alt="Telas do Nota Sem Stress: início, nova nota, nota emitida e o DANFSe em PDF" width="1600" height="860">
       </div>
     </div>
 
@@ -154,7 +154,7 @@
           <div class="cartao">
             <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg></div>
             <h3>Nunca uma nota em dobro</h3>
-            <p>Se a Receita não responde, o NotaVez consulta antes de reenviar e reenvia a mesma DPS assinada.</p>
+            <p>Se a Receita não responde, o Nota Sem Stress consulta antes de reenviar e reenvia a mesma DPS assinada.</p>
           </div>
           <div class="cartao">
             <div class="icone" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h5"/></svg></div>
@@ -192,7 +192,7 @@
         <h2>Para quem</h2>
         <p class="intro">Cada regime tem o seu pacote de regras, com a vigência oficial. Os campos extras só aparecem quando a regra exige.</p>
         <table>
-          <thead><tr><th scope="col">Regime</th><th scope="col">O que o NotaVez resolve</th></tr></thead>
+          <thead><tr><th scope="col">Regime</th><th scope="col">O que o Nota Sem Stress resolve</th></tr></thead>
           <tbody>
             <tr><td>MEI</td><td>Tributação do MEI já preenchida. Você só escolhe cliente, serviço e valor.</td></tr>
             <tr><td>ME/EPP do Simples</td><td>Convênio do município, ISS retido pelo cliente, ISS fora do Simples e percentual aproximado de tributos.</td></tr>
@@ -206,7 +206,7 @@
       <div class="largura duas">
         <div>
           <h2>DANFSe local, no modelo da NT 008</h2>
-          <p class="intro">A Receita desativou a API de DANFSe em 03/08/2026. O NotaVez gera o PDF a partir do XML oficial da NFS-e, nunca do rascunho.</p>
+          <p class="intro">A Receita desativou a API de DANFSe em 03/08/2026. O Nota Sem Stress gera o PDF a partir do XML oficial da NFS-e, nunca do rascunho.</p>
           <ul class="checks">
             <li>A4 retrato, página única, blocos e grade do Anexo I</li>
             <li>QR Code da Consulta Pública com a chave de acesso</li>
@@ -216,7 +216,7 @@
           </ul>
           <a class="btn btn-secundario" href="exemplos/danfse-demonstracao.pdf">Abrir o exemplo em PDF</a>
         </div>
-        <img src="prototipo/29-danfse.png" alt="Exemplo de DANFSe gerado pelo NotaVez no modo demonstração, com a marca d'água SIMULAÇÃO" width="827" height="1170" loading="lazy">
+        <img src="prototipo/29-danfse.png" alt="Exemplo de DANFSe gerado pelo Nota Sem Stress no modo demonstração, com a marca d'água SIMULAÇÃO" width="827" height="1170" loading="lazy">
       </div>
     </section>
 
@@ -227,20 +227,20 @@
           <strong>Situação atual:</strong> o app funciona de ponta a ponta contra uma Receita <strong>simulada</strong>, e os 38 testes automatizados passam. Falta a primeira emissão no ambiente oficial de homologação, que depende de um certificado A1 real.
         </div>
         <p>Requisito: Node.js 22.13 ou mais recente.</p>
-<pre><code>git clone https://github.com/fredabsd-svg/NotaVez.git
-cd NotaVez/server
+<pre><code>git clone https://github.com/fredabsd-svg/nota-sem-stress.git
+cd nota-sem-stress/server
 npm install
 npm run demo   <span class="c"># http://localhost:8080 com a Receita SIMULADA</span>
 npm test       <span class="c"># 38 testes</span></code></pre>
         <p>O terminal mostra um CNPJ e um certificado fictícios. Uma faixa vermelha fixa avisa que nenhuma nota real é emitida.</p>
-        <p><a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/01-requisitos-oficiais.md">Requisitos oficiais</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/02-fluxo-e-prototipo.md">Todas as telas</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/05-testes-homologacao.md">Testes e homologação</a> · <a href="https://github.com/fredabsd-svg/NotaVez/blob/main/docs/06-plano-apps-nativos.md">Plano para as lojas</a></p>
+        <p><a href="https://github.com/fredabsd-svg/nota-sem-stress/blob/main/docs/01-requisitos-oficiais.md">Requisitos oficiais</a> · <a href="https://github.com/fredabsd-svg/nota-sem-stress/blob/main/docs/02-fluxo-e-prototipo.md">Todas as telas</a> · <a href="https://github.com/fredabsd-svg/nota-sem-stress/blob/main/docs/05-testes-homologacao.md">Testes e homologação</a> · <a href="https://github.com/fredabsd-svg/nota-sem-stress/blob/main/docs/06-plano-apps-nativos.md">Plano para as lojas</a></p>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="largura">
-      <span>NotaVez · licença MIT</span>
+      <span>Nota Sem Stress · licença MIT</span>
       <span>Não é um aplicativo oficial da Receita Federal nem do Comitê Gestor da NFS-e.</span>
     </div>
   </footer>

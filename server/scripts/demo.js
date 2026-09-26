@@ -1,4 +1,4 @@
-// MODO DEMONSTRAÇÃO: sobe o NotaVez com uma Receita SIMULADA local, para
+// MODO DEMONSTRAÇÃO: sobe o Nota Sem Stress com uma Receita SIMULADA local, para
 // conhecer o app e testar a interface sem certificado real. Nenhuma nota real
 // é emitida — o app mostra um aviso permanente em todas as telas.
 //   npm run demo   → http://localhost:8080
@@ -29,7 +29,7 @@ app.ctx.sefinSimulada = sefin; // permite forçar cenários: POST /api/demo/cena
 app.post('/api/demo/cenario', async (req) => { sefin.estado.cenario.push(String(req.body?.cenario)); return { fila: sefin.estado.cenario }; });
 await app.listen({ port: config.porta, host: config.host });
 console.log(`
-  NotaVez — MODO DEMONSTRAÇÃO (Receita simulada; nada é enviado à Receita)
+  Nota Sem Stress — MODO DEMONSTRAÇÃO (Receita simulada; nada é enviado à Receita)
   App:         http://localhost:${config.porta}
   CNPJ:        ${cnpj}   (use no Perfil — MEI ou ME/EPP)
   Certificado: ${arquivo}   senha: demo1234   (FICTÍCIO)

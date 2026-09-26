@@ -1,4 +1,4 @@
-"""Gera as tabelas JSON usadas pelo NotaVez a partir dos anexos OFICIAIS do
+"""Gera as tabelas JSON usadas pelo Nota Sem Stress a partir dos anexos OFICIAIS do
 Portal Nacional da NFS-e (gov.br/nfse -> Documentação técnica).
 
 Uso (requer openpyxl):
