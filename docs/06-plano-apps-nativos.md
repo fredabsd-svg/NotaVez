@@ -52,6 +52,6 @@ Na fase 2, recomendamos o **Capacitor** se o objetivo for reaproveitar as telas 
 ## 6.7 Evolução do produto que o app aproveita
 
 - Pacotes de **2027** (IBS/CBS para o Simples, CBS plena, fim do PIS/COFINS) e grupos IBS/CBS ainda não suportados (imóvel, tributação regular, diferimento). MEI, ME/EPP e Lucro Presumido/Real já emitem.
-- **DANFSe local** conforme a NT 008 (PDF gerado no servidor, com QR Code da Consulta Pública e "SEM VALIDADE JURÍDICA" em homologação).
+- Marca d'água "CANCELADA"/"SUBSTITUÍDA" no DANFSe (o gerador já aceita a marca; falta o evento). O DANFSe local conforme a NT 008 já está pronto.
 - **Eventos:** cancelamento (evento 101101) e substituição.
 - **Contadores:** vários perfis fiscais por conta, cada um com o seu certificado. O modelo `usuarios → prestadores` já está pronto para isso.

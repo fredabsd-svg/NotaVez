@@ -30,6 +30,9 @@ body {
 :focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; }
 .pular { position: absolute; left: -999px; top: 8px; background: var(--cartao); padding: 8px; z-index: 50; }
 .pular:focus { left: 8px; }
+.marca { display: block; margin: 8px auto 4px; height: 54px; width: auto; }
+.marca-escura { display: none; }
+@media (prefers-color-scheme: dark) { .marca-clara { display: none; } .marca-escura { display: block; } }
 
 .topo {
   position: sticky; top: 0; z-index: 10; height: calc(var(--topo) + env(safe-area-inset-top));

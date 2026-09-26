@@ -171,6 +171,7 @@ sequenceDiagram
 | Parâmetros municipais | Convênio do município emissor (não-MEI) e do município de incidência (ISS fora do Simples), com o mesmo certificado e cache de 12 h. Falha na consulta = "desconhecido", nunca "ativo" | `emissao.js` (`convenio`, `parametrosPara`), `sefin/cliente.js` |
 | IBS/CBS | `ibscbs.js`: opções por serviço a partir dos Anexos VII/VIII (`src/data/ibscbs-correlacao.json`), padrões só quando há opção única (ou 000001), CST derivado do cClassTrib; grupo `IBSCBS` montado depois de `valores` | `fiscal/ibscbs.js`, `dps.js` |
 | Pacotes de regras | `escolherPacote` por regime e competência: `MEI-2026`, `ME-EPP-2026`, `NAO-OPTANTE-2026`. Cada pacote informa o que precisa consultar, monta `regTrib`/`tributacao` e devolve as **exigências** (alíquota obrigatória/proibida, retenção permitida) para a tela de revisão | `regras/` |
+| DANFSe | PDF conforme a NT 008 a partir do XML oficial da NFS-e (`GET /api/notas/{id}/danfse`): A4, página única, grade do Anexo I, QR Code da Consulta Pública, descrições dos códigos, supressões do item 2.3 e "SEM VALIDADE JURÍDICA" em homologação | `server/src/fiscal/danfse/` |
 | Ambientes | URLs em JSON; homologação é o padrão; produção exige `NOTAVEZ_PRODUCAO_LIBERADA=1` | `server/src/fiscal/sefin/ambientes.json` |
 
 ## 3.6 Segurança e privacidade (LGPD)

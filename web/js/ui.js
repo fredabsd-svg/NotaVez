@@ -68,6 +68,7 @@ export const ICONES = {
   abrir: 'M14 3h7v7M10 14L21 3M21 14v7H3V3h7',
   copiar: 'M9 9h11v11H9zM5 15H4V4h11v1',
   atualizar: 'M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5',
+  documento: 'M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h5',
 };
 
 // Campo de formulário com rótulo, ajuda e mensagem de erro associadas (acessível).

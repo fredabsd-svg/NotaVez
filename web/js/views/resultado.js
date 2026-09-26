@@ -2,16 +2,42 @@ import { h, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, situaca
 import { api, ErroApi } from '../api.js';
 import { ir, estado } from '../app.js';
 
+// Baixa um documento da nota como File (para a folha de compartilhamento do celular).
+async function arquivo(n, tipo) {
+  const cfg = {
+    danfse: { url: `/api/notas/${n.id}/danfse`, nome: `DANFSe-${n.chaveAcesso}.pdf`, mime: 'application/pdf' },
+    xml: { url: `/api/notas/${n.id}/xml`, nome: `NFSe-${n.chaveAcesso}.xml`, mime: 'application/xml' },
+  }[tipo];
+  const r = await fetch(cfg.url, { credentials: 'same-origin' });
+  return r.ok ? new File([await r.blob()], cfg.nome, { type: cfg.mime }) : null;
+}
+
+// Abre o PDF numa nova aba; se o servidor recusar (ex.: XML ainda não obtido),
+// fecha a aba e mostra a mensagem aqui, em vez de uma página de erro.
+async function abrirDanfse(e, n) {
+  e.preventDefault();
+  const aba = window.open('', '_blank');
+  try {
+    const r = await fetch(`/api/notas/${n.id}/danfse`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.erro || 'Não foi possível gerar o DANFSe agora. Tente de novo em instantes.');
+    const url = URL.createObjectURL(await r.blob());
+    if (aba) aba.location.href = url; else location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    aba?.close();
+    aviso(err.message);
+  }
+}
+
 async function compartilhar(n) {
   const url = n.documentos?.consultaPublica;
-  const texto = `NFS-e nº ${n.nNfse || ''} — ${moeda(n.valor)}\nChave de acesso: ${n.chaveAcesso}${url ? `\nConsulte e baixe o DANFSe: ${url}` : ''}`;
+  const texto = `NFS-e nº ${n.nNfse || ''} — ${moeda(n.valor)}\nChave de acesso: ${n.chaveAcesso}${url ? `\nConsulta Pública: ${url}` : ''}`;
   try {
-    let arquivos;
-    if (n.documentos?.xml) {
-      const r = await fetch(`/api/notas/${n.id}/xml`, { credentials: 'same-origin' });
-      if (r.ok) arquivos = [new File([await r.blob()], `NFSe-${n.chaveAcesso}.xml`, { type: 'application/xml' })];
-    }
-    if (arquivos && navigator.canShare?.({ files: arquivos })) await navigator.share({ title: 'NFS-e', text: texto, files: arquivos });
+    const arquivos = (await Promise.all([
+      n.documentos?.danfse ? arquivo(n, 'danfse') : null,
+      n.documentos?.xml !== undefined ? arquivo(n, 'xml') : null,
+    ])).filter(Boolean);
+    if (arquivos.length && navigator.canShare?.({ files: arquivos })) await navigator.share({ title: 'NFS-e', text: texto, files: arquivos });
     else if (navigator.share) await navigator.share({ title: 'NFS-e', text: texto, url: url || undefined });
     else { await navigator.clipboard.writeText(texto); aviso('Dados da nota copiados.'); }
   } catch (e) {
@@ -28,12 +54,13 @@ function blocoEmitida(n) {
       h('div', {}, h('dt', {}, 'Emitida em'), h('dd', {}, dataHora(n.emitidaEm))),
       h('div', {}, h('dt', {}, 'Cliente'), h('dd', {}, n.clienteNome || '—')),
       h('div', {}, h('dt', {}, 'Valor'), h('dd', {}, moeda(n.valor)))),
-    n.homologacao ? h('p', { class: 'cartao cartao-alerta' }, 'Emitida no ambiente de testes: sem validade jurídica.') : null,
+    n.homologacao ? h('p', { class: 'cartao cartao-alerta' }, 'Ambiente de testes: esta nota não tem validade jurídica, e o DANFSe traz esse aviso.') : null,
     h('h3', {}, 'Documentos oficiais'),
-    h('button', { class: 'btn btn-primario', type: 'button', onclick: () => compartilhar(n) }, icone(ICONES.compartilhar), 'Compartilhar'),
+    h('button', { class: 'btn btn-primario', type: 'button', onclick: () => compartilhar(n) }, icone(ICONES.compartilhar), 'Enviar ao cliente'),
+    n.documentos?.danfse ? h('a', { class: 'btn', href: `/api/notas/${n.id}/danfse`, target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe (PDF)') : null,
     n.documentos?.xml !== undefined ? h('a', { class: 'btn', href: `/api/notas/${n.id}/xml`, download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML da NFS-e') : null,
-    n.documentos?.consultaPublica ? h('a', { class: 'btn', href: n.documentos.consultaPublica, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'DANFSe na Consulta Pública') : null,
-    h('p', { class: 'suave' }, 'O DANFSe (versão para imprimir) é gerado pelo portal oficial a partir da chave de acesso.'),
+    n.documentos?.consultaPublica ? h('a', { class: 'btn btn-texto', href: n.documentos.consultaPublica, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'Conferir na Consulta Pública') : null,
+    h('p', { class: 'suave' }, '"Enviar ao cliente" manda o DANFSe (PDF) e o XML. O DANFSe é a versão para imprimir da NFS-e: o NotaVez o gera a partir do XML oficial da Receita, no modelo da NT 008, com QR Code para conferir a nota.'),
   ];
 }
 
