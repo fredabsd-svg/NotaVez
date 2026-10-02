@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img alt="Testes" src="https://img.shields.io/badge/testes-38%20aprovados-1a7f37">
+  <img alt="Testes" src="https://img.shields.io/badge/testes-automatizados-1a7f37">
   <img alt="NFS-e" src="https://img.shields.io/badge/NFS--e-leiaute%20v1.01%20%2B%20IBS%2FCBS-0b5cab">
   <img alt="DANFSe" src="https://img.shields.io/badge/DANFSe-NT%20008-0b5cab">
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.13%2B-339933">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.16%2B-339933">
   <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-57606a">
 </p>
 
@@ -31,14 +31,14 @@
 </p>
 
 > [!IMPORTANT]
-> **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, e os 38 testes automatizados passam. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
+> **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, com testes automatizados de emissão, contas e sincronização offline. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
 
 ## Por que Nota Sem Stress
 
 | | |
 |---|---|
 | **Emitir em poucos toques** | Cliente e serviço salvos, valor sugerido, revisão em uma tela. **"Clonar última nota"** refaz a nota do mês com novos identificadores e pede para conferir competência, valor, descrição e tributação. |
-| **Sem susto com a Receita** | As regras oficiais (Anexo I) rodam **antes** do envio e aparecem em linguagem comum. Se a resposta não vier, o app **consulta antes de reenviar** e nunca gera nota em dobro. |
+| **Sem susto com a Receita** | As regras oficiais (Anexo I) rodam **antes** do envio e aparecem em linguagem comum. Se a resposta não vier, o app **consulta antes de reenviar** e mantém a mesma DPS nos reenvios. |
 | **Honesto sobre a situação** | "Emitida" só aparece com a chave de acesso oficial. Rascunho, envio pendente e simulação nunca se passam por nota fiscal. |
 | **Pronto para imprimir e enviar** | **DANFSe em PDF no modelo da NT 008**, com QR Code da Consulta Pública, gerado a partir do XML oficial. "Enviar ao cliente" manda o PDF e o XML pelo WhatsApp ou e-mail. |
 | **Funciona sem internet** | Prepara a nota offline como rascunho e avisa que ela **ainda não foi emitida**. |
@@ -67,7 +67,7 @@ A API de DANFSe da Receita foi desativada em 03/08/2026, e o documento auxiliar 
 
 ## Como experimentar
 
-Requisitos: **Node.js 22.13+** (usa `node:sqlite`).
+Requisitos: **Node.js 22.16+** (usa `node:sqlite`).
 
 ```bash
 cd server
@@ -78,7 +78,9 @@ npm run demo      # abre em http://localhost:8080 com a Receita SIMULADA
 O terminal mostra um CNPJ e um certificado **fictício** para testar o app inteiro. Uma faixa vermelha fixa avisa que nada ali é nota fiscal real.
 
 ```bash
-npm test          # 38 testes: regras dos regimes, IBS/CBS, XSD oficial, assinatura, emissão, DANFSe e segurança
+npm test          # regras fiscais, emissão, contas, offline, operação e segurança
+npx playwright install chromium
+npm run test:web  # fluxo móvel no Chromium, com Receita simulada e CSP ativa
 ```
 
 <details>
@@ -107,6 +109,10 @@ Teste no ambiente oficial: `npm run homologacao` ([roteiro](docs/05-testes-homol
 | 4 | **MVP funcional do PWA** | este repositório (`web/` + `server/`) |
 | 5 | Testes de emissão e rejeição (homologação) | [docs/05](docs/05-testes-homologacao.md) |
 | 6 | Plano para App Store e Google Play | [docs/06](docs/06-plano-apps-nativos.md) |
+| 7 | Operação, backup e critérios de liberação | [docs/07](docs/07-operacao-e-release.md) |
+| 8 | Conta, recuperação, exclusão e privacidade | [docs/08](docs/08-conta-e-privacidade.md) |
+| 9 | Estado da preparação para a Google Play | [docs/09](docs/09-preparacao-play.md) |
+| Android | Gerador TWA e roteiro de build | [android-twa](android-twa/README.md) |
 
 A página de apresentação estática fica em [`docs/index.html`](docs/index.html) e pode ser publicada pelo GitHub Pages (Settings › Pages › branch `main`, pasta `/docs`).
 

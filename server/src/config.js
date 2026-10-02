@@ -29,6 +29,14 @@ export const config = {
   demo: process.env.NOTAVEZ_DEMO === '1',
   porta: Number(process.env.PORT || 8080),
   host: process.env.HOST || '0.0.0.0',
+  // Confie somente nos endereços/CIDRs do proxy efetivamente controlado.
+  proxiesConfiaveis: process.env.NOTAVEZ_PROXIES_CONFIAVEIS?.split(',').map((s) => s.trim()).filter(Boolean) || false,
+  contaPublica: {
+    responsavel: process.env.NOTAVEZ_RESPONSAVEL || '',
+    contatoPrivacidade: process.env.NOTAVEZ_CONTATO_PRIVACIDADE || '',
+    retencao: process.env.NOTAVEZ_RETENCAO || '',
+  },
+  assetlinksArquivo: process.env.NOTAVEZ_ASSETLINKS_FILE || '',
   bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './notavez.db'),
   // 'producao_restrita' (homologação) é o padrão. Produção só com liberação explícita.
   ambientePadrao: 'producao_restrita',

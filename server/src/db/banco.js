@@ -34,10 +34,24 @@ export function abrirBanco(arquivo) {
 // Migrações aditivas para bancos criados por versões anteriores.
 const COLUNAS_NOVAS = [
   ['prestadores', 'config_fiscal', 'TEXT'],
+  ['prestadores', 'versao', 'INTEGER NOT NULL DEFAULT 1'],
+  ['notas', 'contexto_emitente_cifrado', 'TEXT'],
+  ['notas', 'processamento_token', 'TEXT'],
+  ['notas', 'processamento_ate', 'TEXT'],
+  ['notas', 'proxima_verificacao_em', 'TEXT'],
+  ['notas', 'verificacoes', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 function migrar(db) {
-  for (const [tabela, coluna, tipo] of COLUNAS_NOVAS) {
-    const existe = db.prepare(`PRAGMA table_info(${tabela})`).all().some((c) => c.name === coluna);
-    if (!existe) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
-  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const [tabela, coluna, tipo] of COLUNAS_NOVAS) {
+      const existe = db.prepare(`PRAGMA table_info(${tabela})`).all().some((c) => c.name === coluna);
+      if (!existe) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
+    }
+    // Recria também em bancos existentes: o antigo índice ignorava o ambiente.
+    db.exec(`DROP INDEX IF EXISTS ux_notas_id_dps;
+      CREATE UNIQUE INDEX ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS ix_notas_verificacao ON notas(situacao, proxima_verificacao_em);`);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); db.close(); throw e; }
 }

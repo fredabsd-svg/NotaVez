@@ -6,11 +6,11 @@ import { gerarDanfse } from '../fiscal/danfse/index.js';
 import { mascararDocumento, formatarDocumento } from '../util/documentos.js';
 import { ErroApp, naoEncontrado } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
-import { exigirPrestador } from './perfil.js';
+import { exigirPrestador, perfilPublico } from './perfil.js';
 
 const ROTULOS = {
   rascunho: { rotulo: 'Rascunho', aviso: 'Ainda não é nota fiscal.' },
-  enviando: { rotulo: 'Enviando', aviso: 'Aguardando a resposta da Receita.' },
+  enviando: { rotulo: 'Enviando', aviso: 'Aguardando confirmação da Receita. Use “Verificar situação” se a resposta demorar; não emita outra nota para o mesmo serviço.' },
   pendente: { rotulo: 'Pendente de confirmação', aviso: 'A Receita não confirmou a emissão. Não emita de novo: toque em "Verificar situação".' },
   rejeitada: { rotulo: 'Rejeitada', aviso: 'A Receita recusou. Nenhuma nota foi emitida. Corrija e envie de novo.' },
   emitida: { rotulo: 'Emitida', aviso: 'NFS-e confirmada pela Receita.' },
@@ -46,7 +46,7 @@ export function resumoNota(repo, prestador, n, completo = false) {
     rascunho: r,
     tomadorExibicao: r.tomador?.tipo && r.tomador.tipo !== 'NENHUM'
       ? { ...r.tomador, documentoExibicao: formatarDocumento(r.tomador.tipo, r.tomador.documento) } : null,
-    localPrestacao: municipio(r.localPrestacaoIbge || prestador.municipioIbge),
+    localPrestacao: municipio(r.localPrestacaoIbge || n.contextoEmitente?.municipioIbge || prestador.municipioIbge),
     servicoNacional: nac,
     dps: n.idDps ? { id: n.idDps, serie: n.serie, numero: n.nDps, tentativas: n.tentativas, ultimoEnvioEm: n.ultimoEnvioEm } : null,
     documentos: n.situacao === 'emitida' ? {
@@ -114,6 +114,7 @@ export async function rotasNotas(app) {
     const atual = repo.nota(p.id, req.params.id);
     if (!atual) throw naoEncontrado('Nota');
     if (!['rascunho', 'rejeitada'].includes(atual.situacao)) throw new ErroApp(409, 'Esta nota já foi enviada e não pode mais ser alterada. Use "Clonar" para criar outra.');
+    if (!Number.isSafeInteger(req.body?.versao) || req.body.versao < 1) throw new ErroApp(409, 'Informe a versão do rascunho para salvar. Recarregue a nota.');
     const anterior = atual.rascunho;
     let r = lerRascunho(req.body?.rascunho);
     if (r.servicoId && r.servicoId !== anterior.servicoId) r = comServico(repo, p.id, r);
@@ -136,20 +137,19 @@ export async function rotasNotas(app) {
     const p = exigirPrestador(req);
     const n = repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
-    const v = await emissao.validar(p, comTomadorAtual(repo, p.id, n.rascunho));
-    return { ok: v.ok, erros: v.erros, exigencias: v.exigencias, regime: p.opSimpNac, regApTribSN: p.regApTribSN || null };
+    const v = await emissao.validarNota(p, n.id, req.body?.versao);
+    return { perfilRevisado: perfilPublico(p), versao: v.versao, revisao: v.revisao, ok: v.ok, erros: v.erros, exigencias: v.exigencias, regime: p.opSimpNac, regApTribSN: p.regApTribSN || null };
   });
 
   app.post('/notas/:id/emitir', async (req) => {
     const p = exigirPrestador(req);
     const n = repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
-    if (['rascunho', 'rejeitada'].includes(n.situacao)) {
-      const atualizado = comTomadorAtual(repo, p.id, n.rascunho);
-      if (JSON.stringify(atualizado) !== JSON.stringify(n.rascunho)) repo.atualizarRascunho(p.id, n.id, atualizado);
+    if (['rascunho', 'rejeitada'].includes(n.situacao) && (!Number.isSafeInteger(req.body?.versao) || req.body.versao < 1 || typeof req.body?.revisao !== 'string')) {
+      throw new ErroApp(409, 'Revise a versão atual do rascunho antes de emitir.');
     }
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'emissao.solicitada', entidade: 'nota', entidadeId: n.id, ip: req.ip });
-    const resultado = await emissao.emitir(p, n.id);
+    const resultado = await emissao.emitir(p, n.id, { versao: req.body?.versao, revisao: req.body?.revisao });
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: `emissao.${resultado.situacao}`, entidade: 'nota', entidadeId: n.id, detalhes: { codigos: resultado.erros?.map((e) => e.codigo) }, ip: req.ip });
     if (n.rascunho.clienteId) repo.marcarClienteUsado(p.id, n.rascunho.clienteId);
     if (n.rascunho.servicoId) repo.marcarServicoUsado(p.id, n.rascunho.servicoId);

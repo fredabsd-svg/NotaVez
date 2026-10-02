@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Privacidade — Nota Sem Stress</title><link rel="stylesheet" href="/css/app.css"></head>
+<body><main id="conteudo">
+<h1>Privacidade do Nota Sem Stress</h1>
+<p id="configuracao" role="status">Carregando identificação do responsável. Esta página requer configuração e revisão antes de publicação comercial.</p>
+<dl><dt>Responsável pelo tratamento</dt><dd id="responsavel">Não configurado</dd><dt>Contato de privacidade</dt><dd id="contato">Não configurado</dd></dl>
+<h2>Dados e finalidades</h2>
+<p>O serviço guarda e-mail de conta, hash da senha, sessões, perfil fiscal do prestador, CPF/CNPJ e contatos, clientes e seus dados, serviços, rascunhos e documentos fiscais. O certificado A1 e sua senha são utilizados para assinar, transmitir e consultar as notas solicitadas por você.</p>
+<p>Registros técnicos incluem identificadores internos, estado e ambiente da emissão, datas, códigos e duração de chamadas, ações de auditoria e IP. Esses registros apoiam autenticação, prevenção de abuso, operação e investigação de falhas. Limites de acesso guardam índices protegidos e expiram em 15 minutos.</p>
+<h2>Armazenamento e proteção</h2>
+<p>No servidor, campos sensíveis selecionados (incluindo documentos pessoais, dados dos clientes, XML e certificado) são cifrados com AES-256-GCM. Senhas de conta são armazenadas com scrypt. E-mail, nomes do perfil, metadados e registros técnicos não são todos cifrados. A proteção depende também da configuração segura do servidor e da chave mestra.</p>
+<p>Este navegador pode guardar rascunhos e cópias auxiliares no IndexedDB para uso offline. Esses dados locais não são cifrados pelo aplicativo. Eles são separados por conta; qualquer pessoa com acesso ao seu aparelho ou perfil do navegador pode ter acesso às cópias. Não use aparelhos compartilhados para informações sensíveis.</p>
+<h2>Destinatários e terceiros</h2>
+<p>Para emitir e consultar notas, o servidor transmite os dados fiscais necessários ao Sistema Nacional da NFS-e e serviços fiscais oficiais. A hospedagem é escolhida pelo operador e precisa ser identificada na configuração operacional. A recuperação de senha envia e-mail, token temporário e validade a um serviço de entrega configurado pelo operador. Não há remetente ou fornecedor padrão presumido.</p>
+<h2>Retenção e exclusão</h2>
+<p>Você pode <a href="/excluir-conta.html">excluir sua conta pelo navegador</a> ou pela área Conta no aplicativo, confirmando a senha. A exclusão apaga conta, sessões, tokens de recuperação, perfil, certificado A1, clientes, serviços, rascunhos, notas e chamadas/auditorias associados do banco ativo. Antes, baixe seus documentos.</p>
+<p>Quando há emissão em andamento ou resultado incerto, a exclusão fica bloqueada até a verificação para evitar perda da identidade fiscal. Ela não cancela notas nem remove documentos mantidos pelos sistemas fiscais oficiais. Reservas técnicas de numeração DPS, compartilhadas por emitente, ambiente e série, são preservadas para impedir reutilização; não contêm XML, certificado ou e-mail.</p>
+<p id="retencao">A política de cópias de segurança e eventuais retenções legítimas ainda não foi configurada. Não existe aqui uma promessa de prazo fiscal universal. O responsável deve informar fundamento, dados e duração de qualquer retenção que implementar.</p>
+<p>A exclusão remove os dados locais desta conta neste navegador quando possível. Não pode apagar remotamente IndexedDB de aparelhos desconectados, arquivos baixados ou cópias que você compartilhou. Sessões revogadas impedem novos acessos ao servidor; limpe o armazenamento do site nos demais aparelhos para apagar cópias offline.</p>
+<h2>Solicitações</h2><p>Use o contato de privacidade acima para dúvidas e solicitações de acesso, correção ou exclusão. Se não estiver configurado, a identificação do responsável e a política ainda estão incompletas para publicação.</p>
+<p><a href="/">Abrir aplicativo</a> · <a href="/excluir-conta.html">Excluir conta</a></p>
+</main><script type="module" src="/js/conta-publica.js"></script></body></html>

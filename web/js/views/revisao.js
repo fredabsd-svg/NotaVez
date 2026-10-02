@@ -1,6 +1,6 @@
 import { h, moeda, data, carregando, aviso } from '../ui.js';
 import { api, ErroApi } from '../api.js';
-import { rascunhoLocal, removerLocal } from '../store.js';
+import { rascunhoLocal, removerLocal, contextoConta, conferirContexto } from '../store.js';
 import { salvarAgora } from '../rascunho.js';
 import { ir, estado } from '../app.js';
 import { pendenciasCartao } from './inicio.js';
@@ -57,24 +57,33 @@ function textoTributacao(p, r, ex, valor) {
 }
 
 export async function tela({ id }) {
-  try { await salvarAgora(id); } catch (e) { if (e instanceof ErroApi && e.status === 409) { ir(`/notas/${id}`, { substituir: true }); return null; } }
+  const ctx = contextoConta();
+  try { await salvarAgora(id); } catch (e) {
+    if (e instanceof ErroApi && e.status === 409) {
+      aviso('Sua edição foi preservada. Resolva o conflito no rascunho antes de emitir.');
+      ir(`/nota/${id}`, { substituir: true }); return null;
+    }
+    if (!(e instanceof ErroApi && e.status === 0)) throw e;
+  }
   const local = await rascunhoLocal(id);
-  if (!navigator.onLine || (local && !local.sincronizado && !local.noServidor)) {
+  if (!navigator.onLine || (local && !local.sincronizado)) {
     return {
       titulo: 'Revisão', voltar: true, aba: 'inicio',
       node: h('div', { class: 'cartao cartao-alerta', role: 'alert' },
-        h('h2', {}, 'Sem internet'),
+        h('h2', {}, navigator.onLine ? 'Rascunho ainda não sincronizado' : 'Sem internet'),
         h('p', {}, 'Esta nota ', h('strong', {}, 'ainda não foi emitida'), '. Ela está salva como rascunho neste aparelho.'),
-        h('p', {}, 'Quando a conexão voltar, abra o rascunho e toque em "Emitir nota".'),
+        h('p', {}, 'Abra o rascunho com conexão e aguarde salvar na conta antes de revisar e emitir.'),
         h('a', { class: 'btn', href: `#/nota/${id}` }, 'Voltar ao rascunho')),
     };
   }
 
-  const [{ nota }, validacao, perfil] = await Promise.all([
-    api('GET', `/api/notas/${id}`),
-    api('POST', `/api/notas/${id}/validar`, {}),
-    api('GET', '/api/perfil'),
+  const [{ nota }, perfilObtido] = await Promise.all([
+    api('GET', `/api/notas/${id}`), api('GET', '/api/perfil'),
   ]);
+  const validacao = await api('POST', `/api/notas/${id}/validar`, { versao: nota.versao });
+  conferirContexto(ctx);
+  const perfil = { ...perfilObtido, perfil: validacao.perfilRevisado };
+  if (validacao.versao !== nota.versao) throw new ErroApi(409, { erro: 'O rascunho mudou. Abra a revisão novamente.' });
   if (!['rascunho', 'rejeitada'].includes(nota.situacao)) { ir(`/notas/${id}`, { substituir: true }); return null; }
   const r = nota.rascunho;
   const t = nota.tomadorExibicao;
@@ -116,11 +125,13 @@ export async function tela({ id }) {
       !pode ? h('p', { class: 'suave centro' }, 'O rascunho continua salvo. Nada foi enviado à Receita.') : null));
 
   botao.addEventListener('click', async () => {
+    conferirContexto(ctx);
     botao.disabled = true;
     const espera = h('div', { role: 'alert', 'aria-busy': 'true' }, carregando('Enviando para a Receita… Não feche o aplicativo.'));
     corpo.replaceChildren(espera);
     try {
-      const res = await api('POST', `/api/notas/${id}/emitir`, {});
+      const res = await api('POST', `/api/notas/${id}/emitir`, { versao: nota.versao, revisao: validacao.revisao });
+      conferirContexto(ctx);
       estado.ultimoResultado = res.nota;
       if (res.nota.situacao !== 'rascunho' && res.nota.situacao !== 'rejeitada') await removerLocal(id);
     } catch (e) {

@@ -12,7 +12,7 @@ export function exigirPrestador(req) {
   return req.prestador;
 }
 
-const perfilPublico = (p) => p && {
+export const perfilPublico = (p) => p && {
   tipoDocumento: p.tipoDocumento, documento: p.documento, documentoFormatado: formatarDocumento(p.tipoDocumento, p.documento),
   nome: p.nome, municipioIbge: p.municipioIbge, municipio: municipio(p.municipioIbge), opSimpNac: p.opSimpNac,
   inscricaoMunicipal: p.inscricaoMunicipal, email: p.email, fone: p.fone, serieDps: p.serieDps, ambiente: p.ambiente,
@@ -120,6 +120,7 @@ export async function rotasPerfil(app) {
     const problemas = verificarParaEmitente(info, p.documento);
     if (problemas.length) throw new ErroApp(422, 'Este certificado não pode ser usado para emitir.', { problemas });
     repo.salvarCertificado(p.id, { pfx, senha: String(b.senha), info });
+    emissao.fecharClientesDoPrestador(p.id);
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
     const cert = repo.certificadoAtivo(p.id);
     return { certificado: certPublico(cert), elegibilidade: await elegibilidadeDe(emissao, p, cert) };
@@ -128,6 +129,7 @@ export async function rotasPerfil(app) {
   app.delete('/certificado', async (req) => {
     const p = exigirPrestador(req);
     repo.removerCertificado(p.id);
+    emissao.fecharClientesDoPrestador(p.id);
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
     return { elegibilidade: avaliarElegibilidade(p, null) };
   });
@@ -146,7 +148,7 @@ export async function rotasPerfil(app) {
       ultima: ultima && resumoNota(repo, p, ultima),
       podeClonar: !!ultimaEmitida,
       rascunhos: todas.filter((n) => n.situacao === 'rascunho').length,
-      pendentes: todas.filter((n) => n.situacao === 'pendente').length,
+      pendentes: todas.filter((n) => ['pendente', 'enviando'].includes(n.situacao)).length,
     };
   });
 }

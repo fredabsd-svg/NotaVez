@@ -20,7 +20,11 @@
   }
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: contain; }
+/* Controles respondem ao toque sem selecionar seus rótulos; conteúdo segue copiável. */
+button, .btn, .abas a { touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+button:active:not(:disabled), .btn:active, .abas a:active { filter: brightness(.9); }
 body {
   margin: 0; font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--texto); background: var(--fundo);

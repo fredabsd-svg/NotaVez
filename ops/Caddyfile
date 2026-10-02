@@ -1,0 +1,5 @@
+# Defina NOTAVEZ_DOMAIN no ambiente do Caddy com o domínio real controlado.
+{$NOTAVEZ_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
