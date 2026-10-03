@@ -1,6 +1,6 @@
 import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES } from '../ui.js';
 import { api, ErroApi } from '../api.js';
-import { salvarLocal, removerLocal, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
+import { salvarLocal, removerLocal, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
 import { usarNaNota } from './servicos.js';
 import { ir, estado } from '../app.js';
@@ -17,7 +17,7 @@ export async function clonarUltima() {
   try {
     const { nota } = await api('POST', '/api/notas/clonar-ultima', {});
     await salvarLocal(nota.id, nota.rascunho, {
-      noServidor: true, sincronizado: true,
+      noServidor: true, versao: nota.versao, sincronizado: true,
       meta: { cliente: nota.tomadorExibicao && { nome: nota.tomadorExibicao.nome, documentoExibicao: nota.tomadorExibicao.documentoExibicao, tipo: nota.tomadorExibicao.tipo }, servicoNacional: nota.servicoNacional, clonadaDe: nota.origemId },
     });
     aviso('Nova nota criada a partir da última. Confira os campos destacados.');
@@ -34,6 +34,7 @@ export async function clonarUltima() {
 const REVISAO = { competencia: 'a data da competência', valor: 'o valor', descricao: 'a descrição', tributacao: 'a tributação' };
 
 export async function tela({ id }) {
+  const ctx = contextoConta();
   const dados = await carregar(id);
   if (!['rascunho', 'rejeitada'].includes(dados.situacao)) { ir(`/notas/${id}`, { substituir: true }); return null; }
   const r = { ...rascunhoVazio(), ...dados.rascunho };
@@ -45,12 +46,13 @@ export async function tela({ id }) {
 
   const status = h('p', { class: 'salvo', role: 'status', 'aria-live': 'polite' }, dados.local ? 'Salvo neste aparelho' : 'Salvo');
   const persistir = () => {
+    conferirContexto(ctx);
     status.textContent = 'Salvando…';
     salvar(id, r, meta, (onde, _n, erro) => {
       if (onde === 'conta') status.textContent = 'Salvo na sua conta';
       else if (onde === 'aparelho') status.textContent = 'Salvo neste aparelho (sem internet) — ainda não emitida';
-      else if (erro?.status === 409) { aviso(erro.message); ir(`/notas/${id}`, { substituir: true }); } else status.textContent = 'Salvo neste aparelho';
-    });
+      else if (erro?.status === 409) { status.textContent = 'Conflito: sua cópia foi preservada. Abra novamente este rascunho para escolher qual versão manter.'; } else status.textContent = 'Salvo neste aparelho';
+    }, ctx).catch((e) => { status.textContent = e.message || 'Não foi possível salvar. Sua conta mudou.'; });
   };
   const revisado = (campoNome) => {
     if (!r.revisar.includes(campoNome)) return;
@@ -311,19 +313,34 @@ export async function tela({ id }) {
     titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', voltar: true, aba: 'inicio',
     node: h('div', {},
       rejeitada,
+      dados.conflito ? h('div', { class: 'cartao cartao-alerta', role: 'alert' },
+        h('h2', {}, 'Rascunho alterado em outro aparelho'),
+        h('p', {}, 'Sua edição neste aparelho foi preservada. Escolha qual versão manter antes de revisar e emitir.'),
+        dados.conflito.rascunho ? h('p', {}, 'Na conta: ', moeda(dados.conflito.rascunho.valor), ' · ', dados.conflito.rascunho.descricao || 'Sem descrição') : null,
+        h('a', { class: 'btn btn-texto', href: `#/notas/${id}` }, 'Consultar a situação na conta'),
+        h('button', { class: 'btn', type: 'button', onclick: async () => {
+          try { conferirContexto(ctx); await resolverConflito(id, true); window.dispatchEvent(new HashChangeEvent('hashchange')); }
+          catch (e) { aviso(e.message); }
+        } }, 'Manter minha edição deste aparelho'),
+        h('button', { class: 'btn btn-texto', type: 'button', onclick: async () => {
+          if (!confirm('Substituir a edição deste aparelho pela versão atual da conta?')) return;
+          try { conferirContexto(ctx); await resolverConflito(id, false); window.dispatchEvent(new HashChangeEvent('hashchange')); }
+          catch (e) { aviso(e.message); }
+        } }, 'Usar versão da conta')) : null,
       h('p', { class: 'suave' }, 'Rascunho: tudo é salvo automaticamente. Você pode sair e continuar depois.'),
       blocoCliente, blocoServico, blocoQuando, blocoTrib, blocoLocal,
       h('div', { class: 'rodape-fixo' }, status,
         h('button', {
           class: 'btn btn-primario', type: 'button',
           onclick: async () => {
-            try { await salvarAgora(id); } catch { /* segue */ }
+            try { conferirContexto(ctx); await salvarAgora(id); } catch (e) { if (e.status !== 0) { aviso(e.message); window.dispatchEvent(new HashChangeEvent('hashchange')); return; } }
             ir(`/nota/${id}/revisao`);
           },
         }, 'Revisar nota')),
       h('button', {
         class: 'btn btn-texto btn-perigo', type: 'button',
         onclick: async () => {
+          conferirContexto(ctx);
           if (!confirm('Descartar este rascunho?')) return;
           await removerLocal(id);
           try { await api('DELETE', `/api/notas/${id}`); } catch { /* pode não existir no servidor */ }

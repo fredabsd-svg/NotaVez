@@ -1,11 +1,26 @@
 // Acesso a dados com cifragem transparente dos campos sensíveis.
 import { agora, novoId } from './banco.js';
+import { ErroApp } from '../util/erros.js';
+import { XMLParser } from 'fast-xml-parser';
 import { cifrar, decifrar, decifrarJson, indiceCego } from '../security/cripto.js';
+
+// Bancos anteriores não tinham snapshot. A identidade só pode vir da DPS
+// persistida, nunca do perfil atual (que pode ter mudado desde o envio).
+function contextoLegado(row) {
+  if (!row.dps_xml_cifrado || !row.ambiente) return null;
+  try {
+    const inf = new XMLParser({ removeNSPrefix: true, parseTagValue: false }).parse(decifrar(row.dps_xml_cifrado))?.DPS?.infDPS;
+    const documento = inf?.prest?.CNPJ || inf?.prest?.CPF;
+    if (!documento || String(inf.tpAmb) !== (row.ambiente === 'producao' ? '1' : '2')) return null;
+    return { id: row.prestador_id, documento: String(documento), tipoDocumento: inf.prest.CNPJ ? 'CNPJ' : 'CPF', ambiente: row.ambiente, municipioIbge: String(inf.cLocEmi) };
+  } catch { return null; }
+}
 
 export function criarRepositorio(db) {
   const prestadorDe = (row) => row && {
     id: row.id,
     usuarioId: row.usuario_id,
+    versao: row.versao,
     tipoDocumento: row.tipo_documento,
     documento: decifrar(row.documento_cifrado),
     nome: row.nome,
@@ -35,6 +50,11 @@ export function criarRepositorio(db) {
     valor: row.valor,
     competencia: row.competencia,
     ambiente: row.ambiente,
+    contextoEmitente: row.contexto_emitente_cifrado ? decifrarJson(row.contexto_emitente_cifrado) : contextoLegado(row),
+    processamentoToken: row.processamento_token,
+    processamentoAte: row.processamento_ate,
+    proximaVerificacaoEm: row.proxima_verificacao_em,
+    verificacoes: row.verificacoes,
     serie: row.serie,
     nDps: row.n_dps,
     idDps: decifrar(row.id_dps_cifrado),
@@ -56,7 +76,10 @@ export function criarRepositorio(db) {
     prestadorDoUsuario: (usuarioId) => prestadorDe(db.get('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId)),
     prestador: (id) => prestadorDe(db.get('SELECT * FROM prestadores WHERE id = ?', id)),
     salvarPrestador(usuarioId, p) {
-      const atual = db.get('SELECT id FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId);
+      const atual = db.get('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId);
+      if (atual && prestadorDe(atual).documento !== p.documento && db.all("SELECT * FROM notas WHERE prestador_id = ? AND situacao IN ('pendente','enviando')", atual.id).some((n) => notaDe(n).contextoEmitente?.documento !== p.documento)) {
+        throw new ErroApp(409, 'Verifique as notas pendentes antes de mudar o CNPJ do perfil.');
+      }
       const campos = [
         p.tipoDocumento, cifrar(p.documento), indiceCego(p.documento), p.nome, p.municipioIbge, p.opSimpNac, p.regEspTrib ?? '0',
         p.inscricaoMunicipal || null, cifrar({ email: p.email || null, fone: p.fone || null }), p.serieDps || '1', p.ambiente || 'producao_restrita',
@@ -64,7 +87,7 @@ export function criarRepositorio(db) {
       ];
       if (atual) {
         db.run(`UPDATE prestadores SET tipo_documento=?, documento_cifrado=?, documento_indice=?, nome=?, municipio_ibge=?, op_simp_nac=?, reg_esp_trib=?,
-          inscricao_municipal=?, contato_cifrado=?, serie_dps=?, ambiente=?, config_fiscal=?, atualizado_em=? WHERE id=?`, ...campos, atual.id);
+          inscricao_municipal=?, contato_cifrado=?, serie_dps=?, ambiente=?, config_fiscal=?, atualizado_em=?, versao=versao+1 WHERE id=?`, ...campos, atual.id);
         return atual.id;
       }
       const id = novoId();
@@ -137,7 +160,10 @@ export function criarRepositorio(db) {
     // "Última nota" para clonar: a emissão confirmada mais recente.
     ultimaEmitida: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao = 'emitida' ORDER BY emitida_em DESC LIMIT 1", prestadorId)),
     ultimaEnviada: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao IN ('emitida','rejeitada','pendente','enviando') ORDER BY COALESCE(ultimo_envio_em, atualizado_em) DESC LIMIT 1", prestadorId)),
-    pendentes: () => db.all("SELECT * FROM notas WHERE situacao = 'pendente' ORDER BY ultimo_envio_em LIMIT 100").map(notaDe),
+    pendentes: () => db.all(`SELECT * FROM notas WHERE situacao IN ('pendente','enviando')
+      AND (processamento_ate IS NULL OR processamento_ate <= ?)
+      AND (proxima_verificacao_em IS NULL OR proxima_verificacao_em <= ?)
+      ORDER BY COALESCE(proxima_verificacao_em, ultimo_envio_em, criado_em), id LIMIT 100`, agora(), agora()).map(notaDe),
     criarNota(prestadorId, rascunho, { origemId = null, id = null } = {}) {
       const novo = id || novoId();
       db.run(`INSERT INTO notas (id, prestador_id, situacao, origem_id, rascunho_cifrado, valor, competencia, criado_em, atualizado_em)
@@ -146,9 +172,10 @@ export function criarRepositorio(db) {
     },
     // Só rascunhos (ou rejeitadas, que voltam a rascunho) podem ser editados.
     atualizarRascunho(prestadorId, id, rascunho, versao) {
+      if (!Number.isSafeInteger(versao) || versao < 1) return false;
       const r = db.run(`UPDATE notas SET rascunho_cifrado = ?, valor = ?, competencia = ?, atualizado_em = ?, versao = versao + 1
-        WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada') ${versao ? 'AND versao = ?' : ''}`,
-      cifrar(rascunho), rascunho.valor ?? null, rascunho.competencia ?? null, agora(), prestadorId, id, ...(versao ? [versao] : []));
+        WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada') AND versao = ?`,
+      cifrar(rascunho), rascunho.valor ?? null, rascunho.competencia ?? null, agora(), prestadorId, id, versao);
       return r.changes === 1;
     },
     removerRascunho: (prestadorId, id) => db.run("DELETE FROM notas WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')", prestadorId, id).changes === 1,
@@ -156,8 +183,10 @@ export function criarRepositorio(db) {
     xmlNfse: (id) => decifrar(db.get('SELECT nfse_xml_cifrado x FROM notas WHERE id = ?', id)?.x),
 
     // Transição atômica de estado (compare-and-set). Retorna true se aplicou.
-    transicionar(id, de, para, campos = {}) {
+    transicionar(id, de, para, campos = {}, esperado = {}) {
       const mapa = {
+        contextoEmitente: 'contexto_emitente_cifrado', processamentoToken: 'processamento_token', processamentoAte: 'processamento_ate',
+        proximaVerificacaoEm: 'proxima_verificacao_em', verificacoes: 'verificacoes',
         ambiente: 'ambiente', serie: 'serie', nDps: 'n_dps', nNfse: 'n_nfse',
         erros: 'erros_json', alertas: 'alertas_json', ultimoEnvioEm: 'ultimo_envio_em', emitidaEm: 'emitida_em',
         dpsXml: 'dps_xml_cifrado', nfseXml: 'nfse_xml_cifrado', tentativas: 'tentativas',
@@ -173,11 +202,18 @@ export function criarRepositorio(db) {
         }
         if (!mapa[k]) throw new Error(`campo desconhecido ${k}`);
         sets.push(`${mapa[k]} = ?`);
-        vals.push(k === 'dpsXml' || k === 'nfseXml' ? cifrar(v) : (k === 'erros' || k === 'alertas') && v !== null ? JSON.stringify(v) : v);
+        vals.push(['dpsXml', 'nfseXml', 'contextoEmitente'].includes(k) ? (v === null ? null : cifrar(v)) : (k === 'erros' || k === 'alertas') && v !== null ? JSON.stringify(v) : v);
       }
       const origem = Array.isArray(de) ? de : [de];
-      return db.run(`UPDATE notas SET ${sets.join(', ')} WHERE id = ? AND situacao IN (${origem.map(() => '?').join(',')})`, ...vals, id, ...origem).changes === 1;
+      const condicoes = []; const parametros = [];
+      if (esperado.versao !== undefined) { condicoes.push('versao = ?'); parametros.push(esperado.versao); }
+      if (esperado.token !== undefined) { condicoes.push('processamento_token = ?'); parametros.push(esperado.token); }
+      if (esperado.prestadorVersao !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM prestadores p WHERE p.id = notas.prestador_id AND p.versao = ?)'); parametros.push(esperado.prestadorVersao); }
+      if (esperado.certificadoId !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM certificados c WHERE c.id = ? AND c.prestador_id = notas.prestador_id AND c.removido_em IS NULL)'); parametros.push(esperado.certificadoId); }
+      return db.run(`UPDATE notas SET ${sets.join(', ')} WHERE id = ? AND situacao IN (${origem.map(() => '?').join(',')}) ${condicoes.length ? `AND ${condicoes.join(' AND ')}` : ''}`, ...vals, id, ...origem, ...parametros).changes === 1;
     },
+
+    liberarProcessamento: (id, token) => db.run('UPDATE notas SET processamento_token = NULL, processamento_ate = NULL WHERE id = ? AND processamento_token = ?', id, token),
 
     proximoNumeroDps(documentoEmitente, ambiente, serie) {
       const e = indiceCego(`emitente:${documentoEmitente}`);

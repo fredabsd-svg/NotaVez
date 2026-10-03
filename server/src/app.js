@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { config } from './config.js';
 import { abrirBanco } from './db/banco.js';
 import { criarRepositorio } from './db/repositorio.js';
@@ -16,17 +17,22 @@ import { rotasClientes } from './routes/clientes.js';
 import { rotasServicos } from './routes/servicos.js';
 import { rotasNotas } from './routes/notas.js';
 import { rotasTabelas } from './routes/tabelas.js';
+import { criarLimites } from './security/limites.js';
+import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
-export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb } = {}) {
+export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
+  entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
+  assetlinksArquivo = config.assetlinksArquivo } = {}) {
   const db = abrirBanco(banco);
   const repo = criarRepositorio(db);
-  const auth = criarAutenticacao(db);
+  const auth = criarAutenticacao(db, { entregarRecuperacao });
   const emissao = criarServicoEmissao({ repo, fabricaCliente });
+  const limites = criarLimites(db);
 
-  const app = Fastify({ logger: logger && { level: 'info', redact: ['req.headers.cookie'] }, bodyLimit: 1024 * 1024, trustProxy: true });
+  const app = Fastify({ logger: logger && { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body'] }, bodyLimit: 1024 * 1024, trustProxy: proxiesConfiaveis });
   await app.register(cookie);
 
-  app.decorate('ctx', { db, repo, auth, emissao });
+  app.decorate('ctx', { db, repo, auth, emissao, contaPublica });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador
   // decodifica o caminho (ex.: "/%61pi/notas" cai em "/api/notas"), então checar
@@ -57,10 +63,21 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   app.addHook('preHandler', async (req) => {
     if (!rotaApi(req)) return;
     const rota = req.routeOptions.url;
-    const livre = /^\/api\/(conta\/(entrar|cadastrar)$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
+    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia)$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
     req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);
     if (!req.usuario && !livre) throw new ErroApp(401, 'Entre na sua conta para continuar.');
     if (req.usuario) req.prestador = repo.prestadorDoUsuario(req.usuario.id);
+    // A sessão pode ter sido trocada em outra aba depois que a tela foi aberta.
+    // A identidade esperada é uma precondição, nunca uma fonte de autorização.
+    if (req.usuario && !livre && !(req.method === 'GET' && rota === '/api/conta')) {
+      const usuario = req.headers['x-notavez-usuario'];
+      const prestador = req.headers['x-notavez-prestador'];
+      if ((usuario !== undefined && usuario !== req.usuario.id)
+        || (prestador !== undefined && prestador !== (req.prestador?.id || ''))) {
+        throw new ErroApp(409, 'A conta mudou. Entre novamente antes de continuar.', { codigo: 'CONTA_ALTERADA' });
+      }
+    }
+    limites.requisicao(req);
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -72,8 +89,18 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
       return reply.code(err.statusCode).send({ erro: { 403: 'Acesso negado.', 404: 'Não encontrado.' }[err.statusCode] || 'Requisição inválida.' });
     }
     req.log?.error(err);
-    return reply.code(500).send({ erro: 'Algo deu errado do nosso lado. Nada foi emitido por causa deste erro. Tente novamente.' });
+    return reply.code(500).send({ erro: 'Não foi possível concluir a operação. Se você solicitou uma emissão, consulte a situação da nota antes de tentar novamente.', codigo: 'RESULTADO_NAO_CONFIRMADO' });
   });
+
+  // Sem configuração, responde 404 real: nunca devolve index.html como DAL.
+  let assetlinks = null;
+  if (assetlinksArquivo) {
+    assetlinks = JSON.parse(readFileSync(assetlinksArquivo, 'utf8'));
+    if (!Array.isArray(assetlinks) || !assetlinks.length) throw new Error('Digital Asset Links inválido.');
+  }
+  app.get('/.well-known/assetlinks.json', async (_req, reply) => assetlinks
+    ? reply.header('Cache-Control', 'public, max-age=300').send(assetlinks)
+    : reply.code(404).send({ erro: 'Associação Android ainda não configurada.' }));
 
   app.get('/api/saude', async () => ({ ok: true, demo: config.demo }));
   await app.register(rotasConta, { prefix: '/api/conta' });

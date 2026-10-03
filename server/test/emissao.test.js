@@ -30,10 +30,16 @@ before(async () => {
 });
 after(async () => { await app.close(); await sefin.fechar(); });
 
+let contadorSessoes = 0;
 function sessao() {
+  const remoteAddress = `192.0.2.${++contadorSessoes}`;
   let cookie = '';
   const chamar = async (method, url, payload) => {
-    const r = await app.inject({ method, url, payload, headers: { cookie, ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
+    if (method === 'POST' && url.endsWith('/emitir') && payload === undefined) {
+      const v = await chamar('POST', url.replace(/emitir$/, 'validar'));
+      payload = { versao: v.body.versao, revisao: v.body.revisao };
+    }
+    const r = await app.inject({ method, url, payload, remoteAddress, headers: { cookie, ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
     const sc = r.headers['set-cookie'];
     if (sc) cookie = (Array.isArray(sc) ? sc : [sc]).map((c) => c.split(';')[0]).join('; ');
     return { status: r.statusCode, body: r.headers['content-type']?.includes('json') ? r.json() : r.body, headers: r.headers, rawPayload: r.rawPayload };
@@ -248,7 +254,7 @@ test('segurança: login, CSRF, isolamento entre contas e dados cifrados em repou
   assert.ok(!certRow.includes(cert.senha + '"'), 'senha do certificado não aparece em claro');
 
   const tentativas = [];
-  for (let i = 0; i < 6; i++) tentativas.push((await anon('POST', '/api/conta/entrar', { email: 'seguro@exemplo.com', senha: 'errada' })).status);
+  for (let i = 0; i < 16; i++) tentativas.push((await anon('POST', '/api/conta/entrar', { email: 'seguro@exemplo.com', senha: 'errada' })).status);
   assert.equal(tentativas.at(-1), 429, 'limite de tentativas de login');
 });
 
@@ -339,7 +345,7 @@ test('ME/EPP com ISS fora do Simples: alíquota só quando o município de incid
   const v = await u.api('POST', `/api/notas/${n.id}/validar`);
   assert.equal(v.body.exigencias.aliquota.modo, 'obrigatoria');
   assert.equal((await u.api('POST', `/api/notas/${n.id}/emitir`)).status, 422, 'sem alíquota → E0640 antes do envio');
-  await u.api('PUT', `/api/notas/${n.id}`, { rascunho: { ...n.rascunho, pAliq: '3,00' } });
+  await u.api('PUT', `/api/notas/${n.id}`, { versao: n.versao, rascunho: { ...n.rascunho, pAliq: '3,00' } });
   const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
   assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
   assert.match(sefin.estado.recebidas.at(-1), /<pAliq>3.00<\/pAliq>/);
@@ -368,7 +374,7 @@ test('Lucro Presumido: emite com PIS/COFINS, retenções federais e grupo IBS/CB
   assert.equal(v.body.exigencias.ibscbs.opcoes.length, 23);
   assert.equal((await u.api('POST', `/api/notas/${n.id}/emitir`)).status, 422);
 
-  await u.api('PUT', `/api/notas/${n.id}`, { rascunho: { ...n.rascunho, cNBS: '110014000' } });
+  await u.api('PUT', `/api/notas/${n.id}`, { versao: n.versao, rascunho: { ...n.rascunho, cNBS: '110014000' } });
   const v2 = await u.api('POST', `/api/notas/${n.id}/validar`);
   assert.deepEqual(v2.body.erros, []);
   assert.equal(v2.body.exigencias.aliquota.modo, 'proibida', 'São Paulo conveniado: E0617');
@@ -435,4 +441,17 @@ test('Lucro Presumido: retenções federais só com cliente CNPJ e valores coere
     const v = await u.api('POST', `/api/notas/${n.id}/validar`);
     assert.ok(v.body.erros.some((x) => x.regra === regra), `${regra}: ${JSON.stringify(v.body.erros)}`);
   }
+});
+
+test('API exige versão no PUT e revisão aprovada no emitir; cadastro posterior do cliente não muda snapshot revisado', async () => {
+  const u = await usuarioPronto('revisao-cas@exemplo.com');
+  const n = await novoRascunho(u);
+  assert.equal((await u.api('PUT', `/api/notas/${n.id}`, { rascunho: { ...n.rascunho, valor: '999,00' } })).status, 409);
+  assert.equal((await u.api('POST', `/api/notas/${n.id}/emitir`, {})).status, 409);
+  const revisao = await u.api('POST', `/api/notas/${n.id}/validar`, { versao: n.versao });
+  await u.api('PUT', `/api/clientes/${u.clienteId}`, { documento: '529.982.247-25', nome: 'Nome atualizado depois da revisão' });
+  const e = await u.api('POST', `/api/notas/${n.id}/emitir`, { versao: revisao.body.versao, revisao: revisao.body.revisao });
+  assert.equal(e.status, 200, JSON.stringify(e.body));
+  assert.equal(e.body.nota.rascunho.tomador.nome, 'Maria da Silva');
+  assert.match(sefin.estado.recebidas.at(-1), /<xNome>Maria da Silva<\/xNome>/);
 });

@@ -1,0 +1,11 @@
+node_modules/
+generated/
+android-config.json
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.aab
+*.apk
+.gradle/
+local.properties

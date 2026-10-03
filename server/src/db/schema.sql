@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS prestadores (
   inscricao_municipal TEXT,
   contato_cifrado TEXT,             -- {email, fone}
   serie_dps TEXT NOT NULL DEFAULT '1',
+  versao INTEGER NOT NULL DEFAULT 1,
   config_fiscal TEXT,               -- parâmetros do regime (ME/EPP: regApTribSN, pTotTribSN, aliqIssSN; não optante: PIS/COFINS, pTotTrib, aliqIss)
   ambiente TEXT NOT NULL DEFAULT 'producao_restrita',
   criado_em TEXT NOT NULL,
@@ -88,6 +89,11 @@ CREATE TABLE IF NOT EXISTS notas (
   valor TEXT,
   competencia TEXT,
   ambiente TEXT,
+  contexto_emitente_cifrado TEXT,   -- snapshot imutável do perfil aprovado
+  processamento_token TEXT,
+  processamento_ate TEXT,
+  proxima_verificacao_em TEXT,
+  verificacoes INTEGER NOT NULL DEFAULT 0,
   serie TEXT,
   n_dps TEXT,
   id_dps_cifrado TEXT,              -- o Id da DPS e a chave contêm o CNPJ/CPF do emitente
@@ -107,7 +113,7 @@ CREATE TABLE IF NOT EXISTS notas (
   versao INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS ix_notas_prestador ON notas(prestador_id, atualizado_em);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_id_dps ON notas(id_dps_indice) WHERE id_dps_indice IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(chave_indice) WHERE chave_indice IS NOT NULL;
 
 -- Numeração da DPS por EMITENTE (índice cego do CNPJ/CPF), ambiente e série.

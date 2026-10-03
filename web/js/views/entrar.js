@@ -1,4 +1,5 @@
 import { h, campo, aviso } from '../ui.js';
+import { definirConta, sincronizarTodos } from '../store.js';
 import { api, ErroApi } from '../api.js';
 import { carregarConta, ir } from '../app.js';
 
@@ -21,8 +22,10 @@ export async function tela(_, query) {
         erro.hidden = true;
         botao.disabled = true;
         try {
-          await api('POST', `/api/conta/${modo === 'cadastro' ? 'cadastrar' : 'entrar'}`, { email: email.entrada.value, senha: senha.entrada.value });
-          await carregarConta();
+          await definirConta(null);
+          const entrada = await api('POST', `/api/conta/${modo === 'cadastro' ? 'cadastrar' : 'entrar'}`, { email: email.entrada.value, senha: senha.entrada.value });
+          await carregarConta({ permitirOffline: false, substituirTitular: true, usuarioEsperado: entrada.usuarioId });
+          sincronizarTodos().catch(() => {});
           if (modo === 'cadastro') aviso('Conta criada. Agora preencha seu perfil fiscal.');
           ir(modo === 'cadastro' ? '/perfil' : '/', { substituir: true });
         } catch (err) {
@@ -42,6 +45,7 @@ export async function tela(_, query) {
         h('button', { class: 'chip', type: 'button', role: 'tab', 'aria-pressed': String(modo === 'entrar'), 'aria-selected': String(modo === 'entrar'), onclick: () => { modo = 'entrar'; montar(); } }, 'Já tenho conta'),
         h('button', { class: 'chip', type: 'button', role: 'tab', 'aria-pressed': String(modo === 'cadastro'), 'aria-selected': String(modo === 'cadastro'), onclick: () => { modo = 'cadastro'; montar(); } }, 'Criar conta')),
       form,
+      h('a', { class: 'btn btn-texto', href: '/recuperar-conta.html' }, 'Esqueci minha senha'),
       h('div', { class: 'cartao' },
         h('p', { class: 'suave' }, 'Importante: o Nota Sem Stress nunca pede nem guarda sua senha gov.br. Para emitir, a Receita exige o certificado digital A1 do seu CNPJ, que você envia depois, com segurança.')),
       h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Como instalar no celular'),

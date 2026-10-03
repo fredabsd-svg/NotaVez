@@ -1,0 +1,28 @@
+[Unit]
+Description=Nota Sem Stress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=notavez
+Group=notavez
+WorkingDirectory=/opt/notavez/server
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=NOTAVEZ_DB=/var/lib/notavez/notavez.db
+EnvironmentFile=/etc/notavez/notavez.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+StateDirectory=notavez
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/notavez
+
+[Install]
+WantedBy=multi-user.target

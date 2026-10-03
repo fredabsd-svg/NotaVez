@@ -1,0 +1,39 @@
+name: Verificar Nota Sem Stress
+on:
+  push:
+    branches: [main, 'fix/**', 'feat/**']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verificar-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22', '24']
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Verificar gerador Android
+        working-directory: android-twa
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Instalar navegador para teste com CSP
+        if: matrix.node == '24'
+        run: npx playwright install --with-deps chromium
+      - name: Fluxo web com Receita simulada
+        if: matrix.node == '24'
+        run: npm run test:web

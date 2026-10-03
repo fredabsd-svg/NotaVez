@@ -6,3 +6,15 @@ node_modules/
 *.p12
 server/homologacao-saida/
 .env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.aab
+*.apk
+*.pem
+backups/
+server/test-results/
+server/playwright-report/
+android-twa/android-config.json
+android-twa/generated*/
