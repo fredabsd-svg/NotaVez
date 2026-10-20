@@ -42,7 +42,8 @@
 | **Honesto sobre a situação** | "Emitida" só aparece com a chave de acesso oficial. Rascunho, envio pendente e simulação nunca se passam por nota fiscal. |
 | **Pronto para imprimir e enviar** | **DANFSe em PDF no modelo da NT 008**, com QR Code da Consulta Pública, gerado a partir do XML oficial. "Enviar ao cliente" manda o PDF e o XML pelo WhatsApp ou e-mail. |
 | **Funciona sem internet** | Prepara a nota offline como rascunho e avisa que ela **ainda não foi emitida**. |
-| **Dados protegidos** | Não pede nem guarda a senha gov.br. Certificado A1, CPF, CNPJ e dados dos clientes ficam cifrados (AES-256-GCM), e toda operação fica registrada. |
+| **Entre do jeito do site oficial** | Com **gov.br**, com **certificado digital** (e-CPF/e-CNPJ, A1 ou A3) ou com e-mail e senha. A senha do gov.br é digitada só no site do gov.br. |
+| **Seus dados separados dos outros** | Cada conta tem **o seu próprio banco de dados**, cifrado (AES-256-GCM) com **uma chave só dela**. Se dez pessoas usam o sistema, são dez bancos e dez chaves. Excluir a conta destrói a chave. Toda operação fica registrada. |
 
 ## Para quem
 
@@ -112,6 +113,7 @@ Teste no ambiente oficial: `npm run homologacao` ([roteiro](docs/05-testes-homol
 | 7 | Operação, backup e critérios de liberação | [docs/07](docs/07-operacao-e-release.md) |
 | 8 | Conta, recuperação, exclusão e privacidade | [docs/08](docs/08-conta-e-privacidade.md) |
 | 9 | Estado da preparação para a Google Play | [docs/09](docs/09-preparacao-play.md) |
+| 10 | Banco separado por conta, criptografia e formas de entrar (gov.br, certificado, senha) | [docs/10](docs/10-contas-separadas-e-entradas.md) |
 | Android | Gerador TWA e roteiro de build | [android-twa](android-twa/README.md) |
 
 A página de apresentação estática fica em [`docs/index.html`](docs/index.html) e pode ser publicada pelo GitHub Pages (Settings › Pages › branch `main`, pasta `/docs`).
@@ -123,7 +125,8 @@ A página de apresentação estática fica em [`docs/index.html`](docs/index.htm
 - Resposta incerta → **consulta a Receita antes** de qualquer reenvio; o reenvio usa a **mesma DPS assinada**.
 - Clonar gera **novos identificadores**: nunca reaproveita número, chave ou situação, e exige revisar competência, valor, descrição e tributação.
 - O DANFSe sai **só do XML oficial** da NFS-e, nunca do rascunho.
-- **Não pede nem guarda a senha gov.br.** A emissão pela API exige o certificado A1 do próprio CNPJ.
+- **Não pede nem guarda a senha gov.br.** Entrar com gov.br ou certificado só abre a conta aqui: a emissão pela API exige o certificado A1 do próprio CNPJ.
+- **Uma conta nunca alcança os dados de outra:** banco, chave e serviço de emissão próprios por conta.
 
 <details>
 <summary><strong>Estrutura do código</strong></summary>

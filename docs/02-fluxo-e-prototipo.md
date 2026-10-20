@@ -114,3 +114,13 @@ O DANFSe é gerado pelo servidor a partir do XML oficial da NFS-e. Abaixo, o do 
 - **Logo:** um documento com um "✓" verde que sai da folha: a nota pronta, sem stress. O check é o mesmo sinal de "Emitida" dentro do app. Funciona de 16 px (favicon) a 512 px e tem versão *maskable* para Android. Logotipo em Inter ExtraBold convertida em curvas: "Nota" em tinta escura e "Sem Stress" em azul, com versão para fundo escuro. No ícone instalado, o nome curto é "Sem Stress", porque "Nota Sem Stress" é cortado nas telas iniciais do Android e do iPhone.
 - **Tokens:** azul `#0b5cab`, verde `#1a7f37`, vermelho `#b42318`, âmbar `#8a5300`, tinta `#0f2744`; fonte do sistema; espaçamento em múltiplos de 4 e 8 px; raio de 14 px. Os mesmos tokens valem para o app (`web/css/app.css`) e para a página de apresentação (`docs/index.html`).
 - **Arquivos:** `web/icons/` (logo.svg, logo-escuro.svg, icone.svg, icone-maskable.svg, PNG 180/192/512, favicon de 32 px) e cópias em `docs/assets/`.
+
+### Formas de entrar (gov.br, certificado digital, e-mail e senha)
+
+As opções de gov.br e certificado só aparecem quando o servidor está configurado (`docs/10`). Imagens com o gov.br simulado.
+
+| # | Tela | Imagem |
+|---|---|---|
+| 30 | Entrar: gov.br, certificado digital ou e-mail e senha | ![](prototipo/30-entrar-tres-opcoes.png) |
+| 31 | Certificado recusado, com o motivo em linguagem comum | ![](prototipo/31-entrar-erro-certificado.png) |
+| 32 | Conta: formas de entrar vinculadas, proteção dos dados e exclusão | ![](prototipo/32-conta-formas-de-entrar.png) |

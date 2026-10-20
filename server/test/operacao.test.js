@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const { abrirBanco } = await import('../src/db/banco.js');
+const { abrirCentral: abrirBanco } = await import('../src/db/banco.js');
 const { criarLimites } = await import('../src/security/limites.js');
 const { criarBackup } = await import('../scripts/backup.mjs');
 const { cifrar, decifrar } = await import('../src/security/cripto.js');
@@ -27,21 +27,34 @@ test('limites persistem após reabrir banco, expiram e não guardam chave litera
   } finally { db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
 });
 
-test('backup captura WAL e restaura dados cifrados sem incluir a chave', async () => {
+test('backup copia catálogo e banco de cada conta, íntegros e cifrados, sem incluir a chave', async () => {
   const pasta = await mkdtemp(join(tmpdir(), 'nv-backup-'));
-  let db; let restaurado;
+  let app; let restaurado;
   try {
-    db = abrirBanco(join(pasta, 'origem.db'));
-    db.raw.exec('CREATE TABLE exemplo (segredo TEXT)');
-    db.run('INSERT INTO exemplo VALUES (?)', cifrar({ documento: 'somente-teste' }));
+    app = await criarApp({ banco: join(pasta, 'notavez.db'), logger: false, servirWeb: false });
+    const r = await app.inject({ method: 'POST', url: '/api/conta/cadastrar', headers: { 'x-notavez': '1' }, payload: { email: 'bk@example.com', senha: 'senha-segura' } });
+    const cookie = r.headers['set-cookie'].split(';')[0];
+    await app.inject({ method: 'PUT', url: '/api/perfil', headers: { 'x-notavez': '1', cookie }, payload: { documento: '11.222.333/0001-81', nome: 'Empresa Backup', municipioIbge: '3550308', opSimpNac: '2' } });
+    const { usuarioId } = r.json();
     const destino = join(pasta, 'snapshot');
-    const manifesto = await criarBackup(join(pasta, 'origem.db'), destino);
+    const manifesto = await criarBackup(join(pasta, 'notavez.db'), destino);
     assert.equal(manifesto.chaveIncluida, false);
+    assert.deepEqual(manifesto.arquivos.map((a) => a.arquivo), ['notavez.db', `contas/${usuarioId}.db`]);
+    assert.ok(manifesto.arquivos.every((a) => /^[0-9a-f]{64}$/.test(a.sha256)));
+    // O banco copiado da conta está cifrado com a chave da conta (envelopada no catálogo).
     restaurado = abrirBanco(join(destino, 'notavez.db'));
-    assert.deepEqual(JSON.parse(decifrar(restaurado.get('SELECT segredo FROM exemplo').segredo)), { documento: 'somente-teste' });
+    const { abrirChaveConta, criarCriptoConta } = await import('../src/security/cripto.js');
+    const { DatabaseSync } = await import('node:sqlite');
+    const copia = new DatabaseSync(join(destino, 'contas', `${usuarioId}.db`), { readOnly: true });
+    const nomeCifrado = copia.prepare('SELECT nome_cifrado FROM prestadores').get().nome_cifrado;
+    copia.close();
+    assert.doesNotMatch(await readFile(join(destino, 'contas', `${usuarioId}.db`), 'latin1'), /Empresa Backup/);
+    const chave = abrirChaveConta(usuarioId, restaurado.get('SELECT chave_conta FROM usuarios WHERE id = ?', usuarioId).chave_conta);
+    assert.equal(criarCriptoConta(usuarioId, chave).decifrar(nomeCifrado), 'Empresa Backup');
+    assert.equal(decifrar(cifrar('ok')), 'ok');
     assert.doesNotMatch(await readFile(join(destino, 'manifesto.json'), 'utf8'), /MASTER_KEY/);
-    await assert.rejects(criarBackup(join(pasta, 'origem.db'), destino), { code: 'EEXIST' });
-  } finally { restaurado?.fechar(); db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
+    await assert.rejects(criarBackup(join(pasta, 'notavez.db'), destino), { code: 'EEXIST' });
+  } finally { restaurado?.fechar(); await app?.close(); await rm(pasta, { recursive: true, force: true }); }
 });
 
 test('IP encaminhado não contorna limite quando proxy não é confiado', async () => {
@@ -67,7 +80,8 @@ test('identidade esperada recusa mutação após troca de cookie', async () => {
     const r = await app.inject({ method: 'PUT', url: '/api/perfil', headers: { cookie, 'x-notavez': '1', 'x-notavez-usuario': idA }, payload: {} });
     assert.equal(r.statusCode, 409);
     assert.equal(r.json().codigo, 'CONTA_ALTERADA');
-    assert.equal(app.ctx.db.get('SELECT count(*) n FROM prestadores').n, 0);
+    const idB = app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'b@example.com').id;
+    for (const id of [idA, idB]) assert.equal(app.ctx.contas.abrir(id).db.get('SELECT count(*) n FROM prestadores').n, 0);
     const del = await app.inject({ method: 'DELETE', url: '/api/conta', headers: { cookie, 'x-notavez': '1', 'x-notavez-usuario': idA }, payload: { senha: 'senha-segura' } });
     assert.equal(del.statusCode, 409, 'DELETE conta também confere identidade, mesmo quando as senhas coincidem');
     assert.equal(app.ctx.db.get('SELECT count(*) n FROM usuarios').n, 2);

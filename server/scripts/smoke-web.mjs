@@ -77,7 +77,11 @@ try {
   await page.getByLabel('CNPJ da empresa').waitFor();
   const draftsB = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsB.length, 0, 'B não pode ver o draft de A');
-  assert.equal(app.ctx.db.get('SELECT id FROM notas WHERE id = ?', idLocal), undefined);
+  // Nenhum banco de conta tem a nota local de A (B tem o próprio banco, sem ela).
+  for (const id of app.ctx.contas.abertas()) {
+    const { db } = app.ctx.contas.abrir(id);
+    assert.equal(db.get('SELECT id FROM notas WHERE id = ?', idLocal), undefined);
+  }
   await page.goto(`${base}/#/conta`);
   await page.getByLabel('Confirme sua senha para excluir').fill('senha-segura-1');
   await page.locator('#exclusao-confirmada').check();

@@ -17,7 +17,7 @@ Os limites do aplicativo são persistidos em SQLite e sobrevivem ao restart, mas
 
 `cd server && npm run backup -- /var/lib/notavez/notavez.db /destino/backup-NOVO`
 
-A rotina usa a API de backup SQLite (inclui transações em WAL), verifica integridade e gera manifesto SHA-256. Exige uma pasta de destino nova. O backup contém dados pessoais/metadados e precisa de armazenamento cifrado e controle de acesso. A chave mestra não acompanha o arquivo: preserve-a separadamente com recuperação controlada.
+A rotina copia o catálogo e o banco de **cada conta** (`contas/*.db`) pela API de backup SQLite (inclui transações em WAL), verifica a integridade de cada arquivo e gera um manifesto SHA-256. Exige uma pasta de destino nova. O backup contém dados pessoais/metadados e precisa de armazenamento cifrado e controle de acesso. A chave mestra não acompanha o arquivo: preserve-a separadamente com recuperação controlada.
 
 Antes de liberar produção: parar o serviço de um ambiente isolado, restaurar uma cópia para disco novo, conferir hash e `PRAGMA integrity_check`, carregar a mesma chave e validar leitura de amostras cifradas. Nunca testar restauração substituindo o banco ativo. Definir frequência, retenção, RPO/RTO e expiração das cópias conforme a operação; não há prazo fictício configurado.
 

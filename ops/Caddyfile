@@ -1,5 +1,33 @@
 # Defina NOTAVEZ_DOMAIN no ambiente do Caddy com o domínio real controlado.
 {$NOTAVEZ_DOMAIN} {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+        # Só o host do certificado (abaixo) pode repassar certificado ao app.
+        header_up -X-Certificado-Cliente
+        header_up -X-NotaVez-Proxy
+    }
+}
+
+# Entrar com certificado digital (opcional). Host próprio, porque o navegador só
+# apresenta o certificado durante o TLS. O Caddy pede o certificado (A1 instalado
+# ou A3 em token/cartão), o TLS prova a posse da chave privada e o app confere a
+# cadeia ICP-Brasil, a validade e o CPF/CNPJ. Defina NOTAVEZ_CERT_DOMAIN
+# (ex.: certificado.seudominio.com.br) e NOTAVEZ_CERT_PROXY_SEGREDO (o mesmo
+# valor do .env do app, 32+ caracteres aleatórios).
+{$NOTAVEZ_CERT_DOMAIN} {
+    tls {
+        client_auth {
+            mode request
+        }
+    }
+    @entrar path /api/conta/certificado/entrar
+    handle @entrar {
+        reverse_proxy 127.0.0.1:8080 {
+            header_up X-Certificado-Cliente {http.request.tls.client.certificate_der_base64}
+            header_up X-NotaVez-Proxy {$NOTAVEZ_CERT_PROXY_SEGREDO}
+        }
+    }
+    handle {
+        respond 404
+    }
 }

@@ -37,6 +37,25 @@ export const config = {
     retencao: process.env.NOTAVEZ_RETENCAO || '',
   },
   assetlinksArquivo: process.env.NOTAVEZ_ASSETLINKS_FILE || '',
+  // Origem pública do app (https://...). Usada nos retornos do gov.br e do certificado.
+  appOrigem: process.env.NOTAVEZ_APP_ORIGEM || '',
+  // Entrar com gov.br (Login Único, OpenID Connect). Só ativo com credenciais
+  // concedidas pelo gov.br a ESTE serviço (credenciamento no Login Único).
+  govbr: process.env.NOTAVEZ_GOVBR_CLIENT_ID ? {
+    clientId: process.env.NOTAVEZ_GOVBR_CLIENT_ID,
+    clientSecret: process.env.NOTAVEZ_GOVBR_CLIENT_SECRET || '',
+    // staging (homologação do gov.br) | producao | URL de um emissor de testes
+    emissor: { staging: 'https://sso.staging.acesso.gov.br', producao: 'https://sso.acesso.gov.br' }[process.env.NOTAVEZ_GOVBR_AMBIENTE || 'staging']
+      || process.env.NOTAVEZ_GOVBR_AMBIENTE,
+    redirectUri: process.env.NOTAVEZ_GOVBR_REDIRECT_URI || `${process.env.NOTAVEZ_APP_ORIGEM || ''}/api/conta/govbr/retorno`,
+  } : null,
+  // Entrar com certificado digital ICP-Brasil. O proxy HTTPS pede o certificado
+  // ao navegador num host próprio e repassa o certificado ao app com um segredo.
+  certificadoLogin: process.env.NOTAVEZ_CERT_LOGIN_ORIGEM ? {
+    origem: process.env.NOTAVEZ_CERT_LOGIN_ORIGEM,
+    segredoProxy: process.env.NOTAVEZ_CERT_PROXY_SEGREDO || '',
+    cadeiasArquivo: process.env.NOTAVEZ_ICP_CADEIAS || '',
+  } : null,
   bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './notavez.db'),
   // 'producao_restrita' (homologação) é o padrão. Produção só com liberação explícita.
   ambientePadrao: 'producao_restrita',

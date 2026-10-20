@@ -6,8 +6,13 @@ Alterações exigem `X-NotaVez: 1`, mesma origem e cookie HttpOnly. A API tem no
 
 | Endpoint | Acesso | Corpo / retorno |
 | --- | --- | --- |
-| GET `/api/conta` | sessão | `{usuarioId, prestadorId: string|null, email, temPerfil}` |
-| DELETE `/api/conta` | sessão + senha atual | `{senha}`; `200 {ok:true}`; `401` senha incorreta; `409 CONTA_COM_EMISSAO_PENDENTE` com `notaId` |
+| GET `/api/conta` | sessão | `{usuarioId, prestadorId: string|null, email: string|null, temPerfil, metodo: 'senha'|'govbr'|'certificado', temSenha}` |
+| GET `/api/conta/metodos` | público | `{senha, govbr, certificado}`: formas de entrar ligadas neste servidor |
+| GET `/api/conta/identidades` | sessão | CPF/CNPJ comprovados (mascarados) e por onde entram |
+| DELETE `/api/conta/identidades/:id` | sessão + confirmação | não remove a única forma de entrar de conta sem senha |
+| GET `/api/conta/govbr/entrar` → `/govbr/retorno` | público (`?vincular=1` com sessão) | Login Único gov.br (OIDC + PKCE); ver `docs/10` |
+| GET `/api/conta/certificado/iniciar` → `/certificado/entrar` (host do certificado) → `/certificado/concluir` | público (`?vincular=1` com sessão) | certificado ICP-Brasil via proxy; ver `docs/10` |
+| DELETE `/api/conta` | sessão + senha atual (ou, sem senha, entrada por gov.br/certificado há menos de 10 min: `401 REAUTENTICAR`) | `{senha}`; `200 {ok:true}`; `401` senha incorreta; `409 CONTA_COM_EMISSAO_PENDENTE` com `notaId` |
 | POST `/api/conta/recuperar` | público | `{email}`; mensagem genérica; `503` sem entrega; não retorna token |
 | POST `/api/conta/redefinir` | público | `{token, senha}`; revoga sessões/tokens; `422` inválido, expirado ou usado |
 | GET `/api/conta/transparencia` | público | `{responsavel, contatoPrivacidade, retencao, configurada}` |
@@ -29,6 +34,9 @@ O serviço deve enviar ao e-mail cadastrado um link na origem controlada: `/recu
 Falha de entrega invalida token e mantém resposta genérica para não revelar existência da conta. `relatarFalhaEntrega` opcional em `criarAutenticacao` permite alerta sem identificadores/segredos. O operador precisa monitorar/testar entrega completa antes do lançamento.
 
 ## Exclusão e integridade fiscal
+
+> Desde a separação por conta (`docs/10`): a exclusão marca o banco da conta como encerrado na mesma transação que confere as pendências (nenhum envio começa depois), apaga o usuário no catálogo, o que **destrói a chave da conta**, e depois apaga o arquivo da conta.
+
 
 A transação SQLite rejeita contas com notas `enviando`/`pendente` antes de remover dados. O claim fiscal exige nota, versão, perfil e certificado existentes antes da chamada externa. Se exclusão vence preparação anterior ao claim, emissão não transmite; se claim vence, exclusão fica bloqueada. Não apagar notas incertas para liberar o fluxo.
 

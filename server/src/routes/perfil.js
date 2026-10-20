@@ -37,14 +37,14 @@ const pct = (v) => {
 const certPublico = (c) => c && { titular: c.titular, emissor: c.emissor, validoDe: c.validoDe, validoAte: c.validoAte, enviadoEm: c.criadoEm };
 
 export async function rotasPerfil(app) {
-  const { repo, db, emissao } = app.ctx;
+  // Dados, chave e serviço de emissão da conta da sessão (req.conta): nunca de outra.
 
   app.get('/perfil', async (req) => {
-    const cert = req.prestador ? repo.certificadoAtivo(req.prestador.id) : null;
+    const cert = req.prestador ? req.conta.repo.certificadoAtivo(req.prestador.id) : null;
     return {
       perfil: perfilPublico(req.prestador),
       certificado: certPublico(cert),
-      elegibilidade: await elegibilidadeDe(emissao, req.prestador, cert),
+      elegibilidade: await elegibilidadeDe(req.conta.emissao, req.prestador, cert),
       producaoLiberada: config.producaoLiberada,
     };
   });
@@ -92,7 +92,7 @@ export async function rotasPerfil(app) {
       fiscalNO.aliqIss = iss !== null && !Number.isNaN(iss) ? iss.toFixed(2) : null;
     }
     if (Object.keys(erros).length) throw invalido('Confira os dados do perfil.', erros);
-    const id = repo.salvarPrestador(req.usuario.id, {
+    const id = req.conta.repo.salvarPrestador(req.usuario.id, {
       tipoDocumento: doc.tipo, documento: doc.numero, nome: String(b.nome || '').trim().slice(0, 300), municipioIbge: String(b.municipioIbge),
       opSimpNac: String(b.opSimpNac), regEspTrib: '0', inscricaoMunicipal: String(b.inscricaoMunicipal || '').trim().slice(0, 15) || null,
       email: String(b.email || '').trim().slice(0, 80) || null, fone: somenteDigitos(b.fone).slice(0, 20) || null, serieDps: serie, ambiente,
@@ -100,9 +100,9 @@ export async function rotasPerfil(app) {
         ? { regApTribSN: String(b.regApTribSN), pTotTribSN: pTot.toFixed(2), aliqIssSN: aliq !== null ? aliq.toFixed(2) : null }
         : naoOptante ? fiscalNO : {},
     });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
-    const p = repo.prestador(id);
-    return { perfil: perfilPublico(p), elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoAtivo(id)) };
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
+    const p = req.conta.repo.prestador(id);
+    return { perfil: perfilPublico(p), elegibilidade: await elegibilidadeDe(req.conta.emissao, p, req.conta.repo.certificadoAtivo(id)) };
   });
 
   // Envio do certificado A1: chega por HTTPS, é verificado e guardado cifrado.
@@ -119,18 +119,18 @@ export async function rotasPerfil(app) {
     }
     const problemas = verificarParaEmitente(info, p.documento);
     if (problemas.length) throw new ErroApp(422, 'Este certificado não pode ser usado para emitir.', { problemas });
-    repo.salvarCertificado(p.id, { pfx, senha: String(b.senha), info });
-    emissao.fecharClientesDoPrestador(p.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
-    const cert = repo.certificadoAtivo(p.id);
-    return { certificado: certPublico(cert), elegibilidade: await elegibilidadeDe(emissao, p, cert) };
+    req.conta.repo.salvarCertificado(p.id, { pfx, senha: String(b.senha), info });
+    req.conta.emissao.fecharClientesDoPrestador(p.id);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
+    const cert = req.conta.repo.certificadoAtivo(p.id);
+    return { certificado: certPublico(cert), elegibilidade: await elegibilidadeDe(req.conta.emissao, p, cert) };
   });
 
   app.delete('/certificado', async (req) => {
     const p = exigirPrestador(req);
-    repo.removerCertificado(p.id);
-    emissao.fecharClientesDoPrestador(p.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
+    req.conta.repo.removerCertificado(p.id);
+    req.conta.emissao.fecharClientesDoPrestador(p.id);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
     return { elegibilidade: avaliarElegibilidade(p, null) };
   });
 
@@ -138,14 +138,14 @@ export async function rotasPerfil(app) {
   app.get('/inicio', async (req) => {
     const p = req.prestador;
     if (!p) return { perfil: null, elegibilidade: avaliarElegibilidade(null, null) };
-    const cert = repo.certificadoAtivo(p.id);
-    const ultima = repo.ultimaEnviada(p.id);
-    const ultimaEmitida = repo.ultimaEmitida(p.id);
-    const todas = repo.listarNotas(p.id, { limite: 500 });
+    const cert = req.conta.repo.certificadoAtivo(p.id);
+    const ultima = req.conta.repo.ultimaEnviada(p.id);
+    const ultimaEmitida = req.conta.repo.ultimaEmitida(p.id);
+    const todas = req.conta.repo.listarNotas(p.id, { limite: 500 });
     return {
       perfil: perfilPublico(p),
-      elegibilidade: await elegibilidadeDe(emissao, p, cert),
-      ultima: ultima && resumoNota(repo, p, ultima),
+      elegibilidade: await elegibilidadeDe(req.conta.emissao, p, cert),
+      ultima: ultima && resumoNota(req.conta.repo, p, ultima),
       podeClonar: !!ultimaEmitida,
       rascunhos: todas.filter((n) => n.situacao === 'rascunho').length,
       pendentes: todas.filter((n) => ['pendente', 'enviando'].includes(n.situacao)).length,

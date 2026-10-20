@@ -27,6 +27,9 @@ flowchart LR
 
 ## 3.2 Modelo de dados
 
+> **Atualização:** os dados agora ficam num **banco SQLite separado por conta**, cifrado com uma **chave própria da conta**. O catálogo central guarda só login, sessões, chaves envelopadas e a numeração da DPS. As tabelas abaixo continuam as mesmas, divididas entre os dois bancos; o desenho completo está em `docs/10`.
+
+
 ```mermaid
 erDiagram
   usuarios ||--o{ sessoes : tem
@@ -176,7 +179,8 @@ sequenceDiagram
 
 ## 3.6 Segurança e privacidade (LGPD)
 
-- **Senha gov.br:** nunca é pedida nem armazenada.
+- **Senha gov.br:** nunca é pedida nem armazenada. A entrada por gov.br usa o Login Único (OpenID Connect) e só guarda o CPF comprovado, cifrado (`docs/10`).
+- **Separação por conta:** um arquivo de banco e uma chave de dados por conta (criptografia em envelope); excluir a conta destrói a chave (`docs/10`).
 - **Certificado A1:** chega por HTTPS com consentimento explícito e é verificado na hora (senha, CNPJ igual ao do perfil, validade, ICP-Brasil). Fica guardado com **AES-256-GCM**, junto com a senha, usando chave derivada (HKDF) da chave mestra `NOTAVEZ_MASTER_KEY`, que em produção deve vir de um **KMS/HSM**. Nunca volta para o aplicativo. "Remover" apaga o material criptográfico, não só marca como removido.
 - **Dados de clientes:** CPF/CNPJ, nome, contato e endereço ficam cifrados. A busca por documento usa HMAC; a busca por nome é feita em memória, só com os clientes do próprio usuário. Nas listas, o CPF aparece mascarado.
 - **Rascunho, DPS e XML:** cifrados em repouso. O teste automatizado confere que CPF, CNPJ e nome não aparecem em claro no banco.

@@ -7,20 +7,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { gerarCertificadoTeste } from './apoio/certificado-teste.js';
-const { abrirBanco } = await import('../src/db/banco.js');
-const { criarRepositorio } = await import('../src/db/repositorio.js');
+const { abrirCentral } = await import('../src/db/banco.js');
+const { criarContas } = await import('../src/db/contas.js');
+const { novaChaveConta, cifrar, indiceCego } = await import('../src/security/cripto.js');
+const { randomUUID } = await import('node:crypto');
 const { criarServicoEmissao } = await import('../src/fiscal/emissao.js');
 const { lerCertificado } = await import('../src/fiscal/certificado.js');
 const { ambientesSefin } = await import('../src/config.js');
 const cert = gerarCertificadoTeste();
 const rascunho = { competencia: '2026-09-01', cTribNac: '010101', descricao: 'Serviço de teste', valor: '150.00', tomador: { tipo: 'NENHUM' } };
 function fixture(t, cliente = {}) {
-  const db = abrirBanco(':memory:');
-  t.after(() => db.fechar());
-  db.run("INSERT INTO usuarios VALUES ('u','teste@example.test','irrelevante','2026-01-01')");
-  const repo = criarRepositorio(db);
+  const central = abrirCentral(':memory:');
+  const u = randomUUID();
+  central.run('INSERT INTO usuarios (id, email, senha_hash, chave_conta, criado_em) VALUES (?,?,?,?,?)', u, 'teste@example.test', 'irrelevante', novaChaveConta(u), '2026-01-01');
+  const contas = criarContas({ central, pasta: null });
+  t.after(() => { contas.fechar(); central.fechar(); });
+  const { db, repo } = contas.abrir(u);
   const p = { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: 'Teste', municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' };
-  const id = repo.salvarPrestador('u', p);
+  const id = repo.salvarPrestador(u, p);
   repo.salvarCertificado(id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
   const chamadas = [];
   const service = criarServicoEmissao({ repo, fabricaCliente: (o) => {
@@ -30,7 +34,7 @@ function fixture(t, cliente = {}) {
       consultarNfse: async () => ({ tipo: 'incerta' }), ...cliente };
   } });
   t.after(() => service.fecharClientes());
-  return { db, repo, service, p: repo.prestador(id), perfil: p, chamadas, notaId: repo.criarNota(id, rascunho) };
+  return { db, repo, service, u, central, p: repo.prestador(id), perfil: p, chamadas, notaId: repo.criarNota(id, rascunho) };
 }
 function abandonar(f, id = f.notaId, estado = 'enviando', idDps = 'DPSORIGINAL') {
   assert.ok(f.repo.transicionar(id, 'rascunho', estado, { ambiente: f.p.ambiente, contextoEmitente: f.p, idDps, dpsXml: '<original/>', tentativas: 1, ultimoEnvioEm: '2026-01-01T00:00:00.000Z', processamentoToken: 'processo-encerrado', processamentoAte: '2026-01-01T00:00:00.000Z' }));
@@ -54,7 +58,7 @@ test('perfil muda ambiente e certificado renova: consulta e reenvio mantêm cont
   let enviado;
   const f = fixture(t, { consultarDps: async () => ({ tipo: 'nao_encontrada' }), enviarDps: async xml => { enviado = xml; return { tipo: 'incerta' }; } });
   abandonar(f, f.notaId, 'pendente');
-  f.repo.salvarPrestador('u', { ...f.perfil, ambiente: 'producao' });
+  f.repo.salvarPrestador(f.u, { ...f.perfil, ambiente: 'producao' });
   const renovado = gerarCertificadoTeste({ nome: 'RENOVADO' });
   f.repo.salvarCertificado(f.p.id, { ...renovado, info: lerCertificado(renovado.pfx, renovado.senha) });
   await f.service.verificar(f.repo.prestador(f.p.id), f.notaId);
@@ -62,7 +66,7 @@ test('perfil muda ambiente e certificado renova: consulta e reenvio mantêm cont
   assert.equal(f.chamadas[0].certPem, renovado.certPem);
   assert.equal(enviado, '<original/>');
   assert.equal(f.repo.notaPorId(f.notaId).ambiente, 'producao_restrita');
-  assert.throws(() => f.repo.salvarPrestador('u', { ...f.perfil, documento: '11444777000161' }), /pendentes/);
+  assert.throws(() => f.repo.salvarPrestador(f.u, { ...f.perfil, documento: '11444777000161' }), /pendentes/);
 });
 test('certificado incompatível ou vencido nunca consulta nem reenvia uma pendência', async (t) => {
   const f = fixture(t); abandonar(f);
@@ -91,7 +95,7 @@ test('revisão aprovada é invalidada por edição e por mudança de perfil', as
   f.repo.atualizarRascunho(f.p.id, f.notaId, { ...rascunho, valor: '999.00' }, 1);
   await assert.rejects(f.service.emitir(f.p, f.notaId, revisado), e => e.status === 409);
   const novo = await f.service.validarNota(f.p, f.notaId, 2);
-  f.repo.salvarPrestador('u', { ...f.perfil, nome: 'Outra revisão' });
+  f.repo.salvarPrestador(f.u, { ...f.perfil, nome: 'Outra revisão' });
   await assert.rejects(f.service.emitir(f.repo.prestador(f.p.id), f.notaId, novo), e => e.status === 409);
   assert.equal(f.chamadas.length, 0);
 });
@@ -119,42 +123,88 @@ test('worker avança além das primeiras 100 pendências sem certificado', async
   await f.service.verificarPendentes();
   assert.equal(f.db.get('SELECT COUNT(*) n FROM notas WHERE verificacoes = 1').n, 101);
 });
-test('migração preserva banco antigo, recupera contexto da DPS e separa unicidade por ambiente', (t) => {
+test('migração do banco único: cada usuário ganha banco e chave próprios, sem perder notas incertas', async (t) => {
   const pasta = mkdtempSync(join(tmpdir(), 'notavez-migracao-'));
   t.after(() => rmSync(pasta, { recursive: true, force: true }));
-  const arquivo = join(pasta, 'existente.db');
+  const arquivo = join(pasta, 'notavez.db');
+  // Banco no formato antigo (um só arquivo, chave do servidor), sem as colunas mais novas.
   const antigo = new DatabaseSync(arquivo);
-  const schemaAntigo = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8')
+  antigo.exec(readFileSync(new URL('./apoio/schema-banco-unico.sql', import.meta.url), 'utf8')
     .replace('  versao INTEGER NOT NULL DEFAULT 1,\n', '')
     .replace(/^  (contexto_emitente_cifrado|processamento_token|processamento_ate|proxima_verificacao_em|verificacoes).*\n/gm, '')
-    .replace('ON notas(ambiente, id_dps_indice)', 'ON notas(id_dps_indice)');
-  antigo.exec(schemaAntigo);
-  const adapter = { get: (sql, ...p) => antigo.prepare(sql).get(...p), run: (sql, ...p) => antigo.prepare(sql).run(...p) };
-  adapter.run("INSERT INTO usuarios VALUES ('u','teste@example.test','hash','2026-01-01')");
-  const repoAntigo = criarRepositorio(adapter);
-  const idP = repoAntigo.salvarPrestador('u', { tipoDocumento: 'CNPJ', documento: '11444777000161', nome: 'Legado', municipioIbge: '3304557', opSimpNac: '2' });
-  const idNota = repoAntigo.criarNota(idP, rascunho);
-  repoAntigo.transicionar(idNota, 'rascunho', 'enviando', { ambiente: 'producao_restrita', idDps: 'DPSLEGADA', dpsXml: '<DPS><infDPS><tpAmb>2</tpAmb><cLocEmi>3550308</cLocEmi><prest><CNPJ>11222333000181</CNPJ></prest></infDPS></DPS>' });
+    .replace('ON notas(ambiente, id_dps_indice)', 'ON notas(id_dps_indice)'));
+  const [u1, u2] = [randomUUID(), randomUUID()];
+  const run = (sql, ...p) => antigo.prepare(sql).run(...p);
+  const agora = '2026-01-01T00:00:00.000Z';
+  for (const [u, email, cnpj, nome] of [[u1, 'um@example.test', '11444777000161', 'Legado Um'], [u2, 'dois@example.test', '11222333000181', 'Legado Dois']]) {
+    run('INSERT INTO usuarios VALUES (?,?,?,?)', u, email, 'hash', agora);
+    run(`INSERT INTO prestadores (id, usuario_id, documento_cifrado, documento_indice, tipo_documento, nome, municipio_ibge, op_simp_nac, contato_cifrado, criado_em, atualizado_em)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`, `p-${u}`, u, cifrar(cnpj), indiceCego(cnpj), 'CNPJ', nome, '3304557', '2', cifrar({ email: null, fone: null }), agora, agora);
+    run('INSERT INTO clientes (id, prestador_id, dados_cifrados, documento_indice, criado_em, atualizado_em) VALUES (?,?,?,?,?,?)', `c-${u}`, `p-${u}`, cifrar({ tipo: 'CPF', documento: '52998224725', nome: `Cliente de ${nome}` }), indiceCego('52998224725'), agora, agora);
+    run('INSERT INTO servicos (id, prestador_id, apelido, c_trib_nac, descricao, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?)', `s-${u}`, `p-${u}`, 'Site', '010101', 'Criação de site', agora, agora);
+    run('INSERT INTO certificados (id, prestador_id, pfx_cifrado, senha_cifrada, titular, documento_cifrado, emissor, valido_de, valido_ate, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      `k-${u}`, `p-${u}`, cifrar(cert.pfx), cifrar(cert.senha), 'TITULAR', cifrar(cnpj), 'AC', agora, '2099-01-01T00:00:00.000Z', agora);
+  }
+  // Nota do usuário 1 com envio incerto: a identidade vem da DPS gravada.
+  run(`INSERT INTO notas (id, prestador_id, situacao, rascunho_cifrado, valor, competencia, ambiente, serie, n_dps, id_dps_cifrado, id_dps_indice, dps_xml_cifrado, tentativas, criado_em, atualizado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, 'n-1', `p-${u1}`, 'enviando', cifrar(rascunho), '150.00', '2026-09-01', 'producao_restrita', '1', '7',
+  cifrar('DPSLEGADA'), indiceCego('DPSLEGADA'), cifrar('<DPS><infDPS><tpAmb>2</tpAmb><cLocEmi>3550308</cLocEmi><prest><CNPJ>11222333000181</CNPJ></prest></infDPS></DPS>'), 1, agora, agora);
+  run('INSERT INTO chamadas_api (nota_id, operacao, resultado, criado_em) VALUES (?,?,?,?)', 'n-1', 'envio', 'incerta', agora);
+  run('INSERT INTO auditoria (usuario_id, prestador_id, acao, ip, criado_em) VALUES (?,?,?,?,?)', u1, `p-${u1}`, 'rascunho.criado', '203.0.113.9', agora);
+  run('INSERT INTO sessoes (token_hash, usuario_id, criado_em, expira_em) VALUES (?,?,?,?)', 'sessao-antiga', u1, agora, '2099-01-01T00:00:00.000Z');
   antigo.close();
-  const db = abrirBanco(arquivo); const repo = criarRepositorio(db);
-  assert.equal(repo.notaPorId(idNota).valor, '150.00');
-  assert.equal(repo.notaPorId(idNota).contextoEmitente.documento, '11222333000181', 'identidade vem da DPS, não do perfil atual');
-  assert.equal(repo.prestador(idP).versao, 1);
-  const prod = repo.criarNota(idP, rascunho);
-  assert.ok(repo.transicionar(prod, 'rascunho', 'enviando', { ambiente: 'producao', idDps: 'DPSLEGADA' }));
-  const duplicate = repo.criarNota(idP, rascunho);
-  assert.throws(() => repo.transicionar(duplicate, 'rascunho', 'enviando', { ambiente: 'producao', idDps: 'DPSLEGADA' }), /UNIQUE/);
-  db.fechar();
-  const reaberto = abrirBanco(arquivo);
-  assert.equal(reaberto.get('SELECT COUNT(*) n FROM notas').n, 3);
-  reaberto.fechar();
+
+  const central = abrirCentral(arquivo);
+  const contas = criarContas({ central, pasta: join(pasta, 'contas') });
+  t.after(() => { contas.fechar(); central.fechar(); });
+  contas.preparar();
+  // O catálogo central não guarda mais dados das contas; login e sessões continuam.
+  for (const tabela of ['prestadores', 'notas', 'clientes', 'servicos', 'certificados', 'chamadas_api']) {
+    assert.equal(central.get("SELECT count(*) n FROM sqlite_master WHERE type = 'table' AND name = ?", tabela).n, 0, tabela);
+  }
+  assert.equal(central.get('SELECT count(*) n FROM sessoes').n, 1);
+  assert.equal(central.get('SELECT count(*) n FROM auditoria').n, 0, 'auditoria das contas foi para o banco de cada conta');
+  assert.ok(central.get('SELECT chave_conta FROM usuarios WHERE id = ?', u1).chave_conta.startsWith('k1.'));
+  assert.deepEqual(contas.catalogo.contasPendentes(), [u1], 'nota incerta continua na verificação periódica');
+
+  const um = contas.abrir(u1);
+  const dois = contas.abrir(u2);
+  const nota = um.repo.notaPorId('n-1');
+  assert.equal(nota.valor, '150.00');
+  assert.equal(nota.idDps, 'DPSLEGADA');
+  assert.equal(nota.contextoEmitente.documento, '11222333000181', 'identidade vem da DPS, não do perfil atual');
+  assert.equal(um.repo.prestador(`p-${u1}`).nome, 'Legado Um');
+  assert.equal(um.repo.cliente(`p-${u1}`, `c-${u1}`).nome, 'Cliente de Legado Um');
+  assert.equal(um.repo.clientePorDocumento(`p-${u1}`, '52998224725').id, `c-${u1}`, 'índice cego recalculado com a chave da conta');
+  assert.equal(um.repo.servico(`p-${u1}`, `s-${u1}`).descricao, 'Criação de site');
+  assert.deepEqual(um.repo.materialCertificado(um.repo.certificadoAtivo(`p-${u1}`)).pfx, cert.pfx, 'PFX binário preservado');
+  assert.equal(um.repo.chamadas('n-1').length, 1);
+  assert.equal(um.db.cripto.decifrar(um.db.get('SELECT ip FROM auditoria').ip), '203.0.113.9');
+  // Separação: cada banco só tem a própria conta.
+  assert.equal(dois.repo.notaPorId('n-1') ?? null, null);
+  assert.equal(dois.repo.prestador(`p-${u1}`) ?? null, null);
+  assert.equal(dois.repo.prestador(`p-${u2}`).nome, 'Legado Dois');
+  assert.equal(um.db.get('SELECT count(*) n FROM prestadores').n, 1);
+  // Unicidade do Id da DPS agora é por ambiente.
+  const prod = um.repo.criarNota(`p-${u1}`, rascunho);
+  assert.ok(um.repo.transicionar(prod, 'rascunho', 'enviando', { ambiente: 'producao', idDps: 'DPSLEGADA' }));
+  const duplicada = um.repo.criarNota(`p-${u1}`, rascunho);
+  assert.throws(() => um.repo.transicionar(duplicada, 'rascunho', 'enviando', { ambiente: 'producao', idDps: 'DPSLEGADA' }), /UNIQUE/);
+  // Reabrir não migra de novo nem perde nada.
+  contas.fechar(); central.fechar();
+  const central2 = abrirCentral(arquivo);
+  const contas2 = criarContas({ central: central2, pasta: join(pasta, 'contas') });
+  contas2.preparar();
+  assert.equal(contas2.abrir(u1).db.get('SELECT count(*) n FROM notas').n, 3);
+  contas2.fechar(); central2.fechar();
 });
+
 test('certificado renovado ou perfil modificado durante preparação impede claim de dados antigos', async (t) => {
   for (const alterar of ['perfil', 'certificado']) {
     const f = fixture(t);
     const original = f.repo.proximoNumeroDps;
     f.repo.proximoNumeroDps = (...args) => {
-      if (alterar === 'perfil') f.repo.salvarPrestador('u', { ...f.perfil, nome: 'Perfil mudou' });
+      if (alterar === 'perfil') f.repo.salvarPrestador(f.u, { ...f.perfil, nome: 'Perfil mudou' });
       else f.repo.salvarCertificado(f.p.id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
       return original(...args);
     };
@@ -241,27 +291,29 @@ test('rotas de renovação e remoção fecham somente os clientes fiscais do tit
     },
   });
   t.after(() => app.close());
-  const { auth, repo, emissao } = app.ctx;
+  const { auth } = app.ctx;
   const perfis = [];
   for (const email of ['a@teste.invalid', 'b@teste.invalid']) {
     const conta = auth.cadastrar(email, 'senha-segura', email);
+    // Cada conta: banco, chave e serviço de emissão próprios.
+    const { repo, emissao } = app.ctx.contas.abrir(conta.usuarioId);
     const id = repo.salvarPrestador(conta.usuarioId, { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: email, municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' });
     repo.salvarCertificado(id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
     const p = repo.prestador(id);
     const notaId = repo.criarNota(id, rascunho);
     repo.transicionar(notaId, 'rascunho', 'pendente', { ambiente: p.ambiente, contextoEmitente: p, idDps: email, dpsXml: '<original/>', tentativas: 1, ultimoEnvioEm: '2026-01-01T00:00:00.000Z' });
     await emissao.verificar(p, notaId);
-    perfis.push({ p, notaId, token: conta.token });
+    perfis.push({ p, notaId, token: conta.token, repo, emissao });
   }
   const headers = { cookie: `nv_sessao=${perfis[0].token}`, 'x-notavez': '1' };
   const renovacao = await app.inject({ method: 'POST', url: '/api/certificado', headers,
     payload: { consentimento: true, pfxBase64: cert.pfx.toString('base64'), senha: cert.senha } });
   assert.equal(renovacao.statusCode, 200);
   assert.deepEqual(clientes.map(c => c.fechado), [true, false]);
-  await emissao.verificar(perfis[0].p, perfis[0].notaId);
+  await perfis[0].emissao.verificar(perfis[0].p, perfis[0].notaId);
   assert.deepEqual(clientes.map(c => c.fechado), [true, false, false]);
   const remocao = await app.inject({ method: 'DELETE', url: '/api/certificado', headers });
   assert.equal(remocao.statusCode, 200);
   assert.deepEqual(clientes.map(c => c.fechado), [true, false, true]);
-  assert.ok(repo.certificadoAtivo(perfis[1].p.id));
+  assert.ok(perfis[1].repo.certificadoAtivo(perfis[1].p.id));
 });

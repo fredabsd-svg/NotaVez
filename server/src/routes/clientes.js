@@ -15,7 +15,7 @@ const publico = (c, completo = false) => ({
 });
 
 export async function rotasClientes(app) {
-  const { repo, db } = app.ctx;
+  // Dados, chave e serviço de emissão da conta da sessão (req.conta): nunca de outra.
 
   // Busca por nome, CPF ou CNPJ (os dados são decifrados só em memória).
   app.get('/', async (req) => {
@@ -23,7 +23,7 @@ export async function rotasClientes(app) {
     const q = semAcento(req.query?.q || '').trim();
     const dig = somenteDigitos(q);
     const alnum = normalizarCnpj(q);
-    let lista = repo.listarClientes(p.id);
+    let lista = req.conta.repo.listarClientes(p.id);
     if (q) {
       lista = lista.filter((c) => semAcento(c.nome).includes(q)
         || (dig.length >= 3 && c.documento.includes(dig))
@@ -33,7 +33,7 @@ export async function rotasClientes(app) {
   });
 
   app.get('/:id', async (req) => {
-    const c = repo.cliente(exigirPrestador(req).id, req.params.id);
+    const c = req.conta.repo.cliente(exigirPrestador(req).id, req.params.id);
     if (!c) throw naoEncontrado('Cliente');
     return { cliente: publico(c, true) };
   });
@@ -41,28 +41,28 @@ export async function rotasClientes(app) {
   app.post('/', async (req) => {
     const p = exigirPrestador(req);
     const dados = lerCliente(req.body || {});
-    const existente = repo.clientePorDocumento(p.id, dados.documento);
+    const existente = req.conta.repo.clientePorDocumento(p.id, dados.documento);
     if (existente) throw new ErroApp(409, `Você já cadastrou este ${dados.tipo} como "${existente.nome}".`, { clienteId: existente.id });
-    const id = repo.salvarCliente(p.id, null, dados);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.criado', entidade: 'cliente', entidadeId: id, ip: req.ip });
-    return { cliente: publico(repo.cliente(p.id, id), true) };
+    const id = req.conta.repo.salvarCliente(p.id, null, dados);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.criado', entidade: 'cliente', entidadeId: id, ip: req.ip });
+    return { cliente: publico(req.conta.repo.cliente(p.id, id), true) };
   });
 
   app.put('/:id', async (req) => {
     const p = exigirPrestador(req);
-    if (!repo.cliente(p.id, req.params.id)) throw naoEncontrado('Cliente');
+    if (!req.conta.repo.cliente(p.id, req.params.id)) throw naoEncontrado('Cliente');
     const dados = lerCliente(req.body || {});
-    const outro = repo.clientePorDocumento(p.id, dados.documento);
+    const outro = req.conta.repo.clientePorDocumento(p.id, dados.documento);
     if (outro && outro.id !== req.params.id) throw new ErroApp(409, `Este documento já pertence ao cliente "${outro.nome}".`);
-    repo.salvarCliente(p.id, req.params.id, dados);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.editado', entidade: 'cliente', entidadeId: req.params.id, ip: req.ip });
-    return { cliente: publico(repo.cliente(p.id, req.params.id), true) };
+    req.conta.repo.salvarCliente(p.id, req.params.id, dados);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.editado', entidade: 'cliente', entidadeId: req.params.id, ip: req.ip });
+    return { cliente: publico(req.conta.repo.cliente(p.id, req.params.id), true) };
   });
 
   app.delete('/:id', async (req) => {
     const p = exigirPrestador(req);
-    repo.removerCliente(p.id, req.params.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.removido', entidade: 'cliente', entidadeId: req.params.id, ip: req.ip });
+    req.conta.repo.removerCliente(p.id, req.params.id);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cliente.removido', entidade: 'cliente', entidadeId: req.params.id, ip: req.ip });
     return { ok: true };
   });
 }

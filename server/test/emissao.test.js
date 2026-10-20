@@ -245,12 +245,30 @@ test('segurança: login, CSRF, isolamento entre contas e dados cifrados em repou
   assert.equal((await outro.api('GET', `/api/notas/${nota.id}`)).status, 404);
   assert.equal((await outro.api('GET', `/api/clientes/${u.clienteId}`)).status, 404);
 
-  const { db } = app.ctx;
-  const linhas = JSON.stringify([...db.all('SELECT * FROM clientes'), ...db.all('SELECT * FROM prestadores'), ...db.all('SELECT * FROM notas'), ...db.all('SELECT * FROM auditoria')]);
+  // Cada conta tem banco e chave próprios; o catálogo central não guarda dados de clientes nem notas.
+  const { db, contas } = app.ctx;
+  for (const t of ['clientes', 'prestadores', 'notas', 'certificados']) {
+    assert.equal(db.get("SELECT count(*) n FROM sqlite_master WHERE type = 'table' AND name = ?", t).n, 0, `catálogo central sem ${t}`);
+  }
+  const idU = (await u.api('GET', '/api/conta')).body.usuarioId;
+  const idOutro = (await outro.api('GET', '/api/conta')).body.usuarioId;
+  const bancoU = contas.abrir(idU).db;
+  const bancoOutro = contas.abrir(idOutro).db;
+  assert.notEqual(bancoU, bancoOutro);
+  assert.equal(bancoOutro.get('SELECT count(*) n FROM clientes WHERE id = ?', u.clienteId).n, 0, 'cliente de uma conta não existe no banco da outra');
+  assert.equal(bancoOutro.get('SELECT count(*) n FROM notas WHERE id = ?', nota.id).n, 0, 'nota de uma conta não existe no banco da outra');
+  const linhas = JSON.stringify([...bancoU.all('SELECT * FROM clientes'), ...bancoU.all('SELECT * FROM prestadores'), ...bancoU.all('SELECT * FROM notas'),
+    ...bancoU.all('SELECT * FROM auditoria'), ...db.all('SELECT * FROM auditoria'), ...db.all('SELECT * FROM usuarios'), ...db.all('SELECT * FROM sessoes')]);
   assert.ok(!linhas.includes('52998224725'), 'CPF do cliente não aparece em claro');
   assert.ok(!linhas.includes('Maria da Silva'), 'nome do cliente não aparece em claro');
   assert.ok(!linhas.includes('11222333000181'), 'CNPJ não aparece em claro');
-  const certRow = JSON.stringify(db.all('SELECT * FROM certificados'));
+  assert.ok(!linhas.includes('Empresa Teste'), 'nome do prestador não aparece em claro');
+  assert.ok(!linhas.includes('127.0.0.1'), 'IP da auditoria não aparece em claro');
+  // Dado cifrado de uma conta não abre com a chave de outra.
+  const cifradoU = bancoU.get('SELECT dados_cifrados d FROM clientes LIMIT 1').d;
+  assert.throws(() => bancoOutro.cripto.decifrar(cifradoU));
+  assert.ok(bancoU.cripto.decifrar(cifradoU).includes('Maria da Silva'));
+  const certRow = JSON.stringify(bancoU.all('SELECT * FROM certificados'));
   assert.ok(!certRow.includes(cert.senha + '"'), 'senha do certificado não aparece em claro');
 
   const tentativas = [];

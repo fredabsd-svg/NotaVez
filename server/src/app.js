@@ -5,8 +5,8 @@ import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
-import { abrirBanco } from './db/banco.js';
-import { criarRepositorio } from './db/repositorio.js';
+import { abrirCentral } from './db/banco.js';
+import { criarContas, pastaDasContas } from './db/contas.js';
 import { criarAutenticacao, COOKIE } from './security/autenticacao.js';
 import { criarServicoEmissao } from './fiscal/emissao.js';
 import { criarClienteSefin } from './fiscal/sefin/cliente.js';
@@ -22,17 +22,24 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo } = {}) {
-  const db = abrirBanco(banco);
-  const repo = criarRepositorio(db);
+  assetlinksArquivo = config.assetlinksArquivo, pastaContas = pastaDasContas(banco), govbr = config.govbr, certificadoLogin = config.certificadoLogin, appOrigem = config.appOrigem,
+  govbrFetch = globalThis.fetch } = {}) {
+  // Catálogo central (login, sessões, chaves envelopadas, numeração da DPS) e
+  // um banco por conta, cada um com a sua chave e o seu serviço de emissão.
+  const db = abrirCentral(banco);
+  const contas = criarContas({
+    central: db,
+    pasta: pastaContas,
+    criarServicos: (conta) => ({ emissao: criarServicoEmissao({ repo: conta.repo, fabricaCliente }) }),
+  });
+  contas.preparar();
   const auth = criarAutenticacao(db, { entregarRecuperacao });
-  const emissao = criarServicoEmissao({ repo, fabricaCliente });
   const limites = criarLimites(db);
 
   const app = Fastify({ logger: logger && { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body'] }, bodyLimit: 1024 * 1024, trustProxy: proxiesConfiaveis });
   await app.register(cookie);
 
-  app.decorate('ctx', { db, repo, auth, emissao, contaPublica });
+  app.decorate('ctx', { db, contas, auth, limites, contaPublica, govbr, govbrFetch, certificadoLogin, appOrigem });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador
   // decodifica o caminho (ex.: "/%61pi/notas" cai em "/api/notas"), então checar
@@ -60,13 +67,19 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   // Autenticação: rotas /api/* exceto conta/entrar|cadastrar e tabelas públicas.
   app.decorateRequest('usuario', null);
   app.decorateRequest('prestador', null);
+  app.decorateRequest('conta', null);
   app.addHook('preHandler', async (req) => {
     if (!rotaApi(req)) return;
     const rota = req.routeOptions.url;
-    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia)$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
+    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia|metodos|govbr\/(entrar|retorno)|certificado\/(iniciar|entrar|concluir))$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
     req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);
     if (!req.usuario && !livre) throw new ErroApp(401, 'Entre na sua conta para continuar.');
-    if (req.usuario) req.prestador = repo.prestadorDoUsuario(req.usuario.id);
+    if (req.usuario) {
+      // O banco da conta é aberto com a chave DESTA conta: não há como uma
+      // requisição alcançar dados de outra.
+      req.conta = contas.abrir(req.usuario.id);
+      req.prestador = req.conta.repo.prestadorDoUsuario(req.usuario.id);
+    }
     // A sessão pode ter sido trocada em outra aba depois que a tela foi aberta.
     // A identidade esperada é uma precondição, nunca uma fonte de autorização.
     if (req.usuario && !livre && !(req.method === 'GET' && rota === '/api/conta')) {
@@ -123,6 +136,6 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
       : reply.sendFile('index.html')));
   }
 
-  app.addHook('onClose', async () => { emissao.fecharClientes(); db.fechar(); });
+  app.addHook('onClose', async () => { contas.fechar(); db.fechar(); });
   return app;
 }

@@ -76,91 +76,91 @@ function comServico(repo, prestadorId, r) {
 }
 
 export async function rotasNotas(app) {
-  const { repo, db, emissao } = app.ctx;
+  // Dados, chave e serviço de emissão da conta da sessão (req.conta): nunca de outra.
 
   app.get('/notas', async (req) => {
     const p = exigirPrestador(req);
     const q = String(req.query?.q || '').toLowerCase().trim();
-    let notas = repo.listarNotas(p.id, { situacao: req.query?.situacao || undefined, limite: 200 });
+    let notas = req.conta.repo.listarNotas(p.id, { situacao: req.query?.situacao || undefined, limite: 200 });
     if (q) notas = notas.filter((n) => (n.rascunho?.tomador?.nome || '').toLowerCase().includes(q) || (n.nNfse || '').includes(q) || (n.chaveAcesso || '').includes(q));
-    return { notas: notas.map((n) => resumoNota(repo, p, n)) };
+    return { notas: notas.map((n) => resumoNota(req.conta.repo, p, n)) };
   });
 
   app.get('/notas/:id', async (req) => {
     const p = exigirPrestador(req);
-    const n = repo.nota(p.id, req.params.id);
+    const n = req.conta.repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
-    return { nota: resumoNota(repo, p, n, true) };
+    return { nota: resumoNota(req.conta.repo, p, n, true) };
   });
 
   // Cria rascunho. O app pode mandar o próprio id (rascunho criado offline).
   app.post('/notas', async (req) => {
     const p = exigirPrestador(req);
     const id = req.body?.id && /^[0-9a-f-]{36}$/i.test(req.body.id) ? req.body.id : null;
-    if (id && repo.notaPorId(id)) {
-      const existente = repo.nota(p.id, id);
+    if (id && req.conta.repo.notaPorId(id)) {
+      const existente = req.conta.repo.nota(p.id, id);
       if (!existente) throw new ErroApp(409, 'Identificador de rascunho em uso.');
-      return { nota: resumoNota(repo, p, existente, true) };
+      return { nota: resumoNota(req.conta.repo, p, existente, true) };
     }
-    const r = comTomadorAtual(repo, p.id, comServico(repo, p.id, lerRascunho(req.body?.rascunho)));
+    const r = comTomadorAtual(req.conta.repo, p.id, comServico(req.conta.repo, p.id, lerRascunho(req.body?.rascunho)));
     if (!r.competencia) r.competencia = hojeBrasilia();
-    const novo = repo.criarNota(p.id, r, { id });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'rascunho.criado', entidade: 'nota', entidadeId: novo, ip: req.ip });
-    return { nota: resumoNota(repo, p, repo.nota(p.id, novo), true) };
+    const novo = req.conta.repo.criarNota(p.id, r, { id });
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'rascunho.criado', entidade: 'nota', entidadeId: novo, ip: req.ip });
+    return { nota: resumoNota(req.conta.repo, p, req.conta.repo.nota(p.id, novo), true) };
   });
 
   app.put('/notas/:id', async (req) => {
     const p = exigirPrestador(req);
-    const atual = repo.nota(p.id, req.params.id);
+    const atual = req.conta.repo.nota(p.id, req.params.id);
     if (!atual) throw naoEncontrado('Nota');
     if (!['rascunho', 'rejeitada'].includes(atual.situacao)) throw new ErroApp(409, 'Esta nota já foi enviada e não pode mais ser alterada. Use "Clonar" para criar outra.');
     if (!Number.isSafeInteger(req.body?.versao) || req.body.versao < 1) throw new ErroApp(409, 'Informe a versão do rascunho para salvar. Recarregue a nota.');
     const anterior = atual.rascunho;
     let r = lerRascunho(req.body?.rascunho);
-    if (r.servicoId && r.servicoId !== anterior.servicoId) r = comServico(repo, p.id, r);
-    r = comTomadorAtual(repo, p.id, r);
-    if (!repo.atualizarRascunho(p.id, atual.id, r, req.body?.versao)) {
+    if (r.servicoId && r.servicoId !== anterior.servicoId) r = comServico(req.conta.repo, p.id, r);
+    r = comTomadorAtual(req.conta.repo, p.id, r);
+    if (!req.conta.repo.atualizarRascunho(p.id, atual.id, r, req.body?.versao)) {
       throw new ErroApp(409, 'Este rascunho foi alterado em outro aparelho. Recarregue para ver a versão mais recente.');
     }
-    return { nota: resumoNota(repo, p, repo.nota(p.id, atual.id), true) };
+    return { nota: resumoNota(req.conta.repo, p, req.conta.repo.nota(p.id, atual.id), true) };
   });
 
   app.delete('/notas/:id', async (req) => {
     const p = exigirPrestador(req);
-    if (!repo.removerRascunho(p.id, req.params.id)) throw new ErroApp(409, 'Só rascunhos e notas rejeitadas podem ser descartados.');
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'rascunho.descartado', entidade: 'nota', entidadeId: req.params.id, ip: req.ip });
+    if (!req.conta.repo.removerRascunho(p.id, req.params.id)) throw new ErroApp(409, 'Só rascunhos e notas rejeitadas podem ser descartados.');
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'rascunho.descartado', entidade: 'nota', entidadeId: req.params.id, ip: req.ip });
     return { ok: true };
   });
 
   // Validação para a tela de Revisão (não envia nada).
   app.post('/notas/:id/validar', async (req) => {
     const p = exigirPrestador(req);
-    const n = repo.nota(p.id, req.params.id);
+    const n = req.conta.repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
-    const v = await emissao.validarNota(p, n.id, req.body?.versao);
+    const v = await req.conta.emissao.validarNota(p, n.id, req.body?.versao);
     return { perfilRevisado: perfilPublico(p), versao: v.versao, revisao: v.revisao, ok: v.ok, erros: v.erros, exigencias: v.exigencias, regime: p.opSimpNac, regApTribSN: p.regApTribSN || null };
   });
 
   app.post('/notas/:id/emitir', async (req) => {
     const p = exigirPrestador(req);
-    const n = repo.nota(p.id, req.params.id);
+    const n = req.conta.repo.nota(p.id, req.params.id);
     if (!n) throw naoEncontrado('Nota');
     if (['rascunho', 'rejeitada'].includes(n.situacao) && (!Number.isSafeInteger(req.body?.versao) || req.body.versao < 1 || typeof req.body?.revisao !== 'string')) {
       throw new ErroApp(409, 'Revise a versão atual do rascunho antes de emitir.');
     }
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'emissao.solicitada', entidade: 'nota', entidadeId: n.id, ip: req.ip });
-    const resultado = await emissao.emitir(p, n.id, { versao: req.body?.versao, revisao: req.body?.revisao });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: `emissao.${resultado.situacao}`, entidade: 'nota', entidadeId: n.id, detalhes: { codigos: resultado.erros?.map((e) => e.codigo) }, ip: req.ip });
-    if (n.rascunho.clienteId) repo.marcarClienteUsado(p.id, n.rascunho.clienteId);
-    if (n.rascunho.servicoId) repo.marcarServicoUsado(p.id, n.rascunho.servicoId);
-    return { nota: resumoNota(repo, p, resultado, true) };
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'req.conta.emissao.solicitada', entidade: 'nota', entidadeId: n.id, ip: req.ip });
+    const resultado = await req.conta.emissao.emitir(p, n.id, { versao: req.body?.versao, revisao: req.body?.revisao });
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: `req.conta.emissao.${resultado.situacao}`, entidade: 'nota', entidadeId: n.id, detalhes: { codigos: resultado.erros?.map((e) => e.codigo) }, ip: req.ip });
+    if (n.rascunho.clienteId) req.conta.repo.marcarClienteUsado(p.id, n.rascunho.clienteId);
+    if (n.rascunho.servicoId) req.conta.repo.marcarServicoUsado(p.id, n.rascunho.servicoId);
+    return { nota: resumoNota(req.conta.repo, p, resultado, true) };
   });
 
   app.post('/notas/:id/verificar', async (req) => {
     const p = exigirPrestador(req);
-    const r = await emissao.verificar(p, req.params.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'emissao.verificada', entidade: 'nota', entidadeId: req.params.id, detalhes: { situacao: r.situacao }, ip: req.ip });
-    return { nota: resumoNota(repo, p, r, true) };
+    const r = await req.conta.emissao.verificar(p, req.params.id);
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'req.conta.emissao.verificada', entidade: 'nota', entidadeId: req.params.id, detalhes: { situacao: r.situacao }, ip: req.ip });
+    return { nota: resumoNota(req.conta.repo, p, r, true) };
   });
 
   // Clonar: novo rascunho com cliente, serviço e local; NUNCA copia número,
@@ -169,7 +169,7 @@ export async function rotasNotas(app) {
     const p = exigirPrestador(req);
     if (!origem) throw new ErroApp(404, 'Ainda não há nota emitida para clonar.');
     const o = origem.rascunho;
-    const r = comTomadorAtual(repo, p.id, {
+    const r = comTomadorAtual(req.conta.repo, p.id, {
       clienteId: o.clienteId, tomador: o.tomador, servicoId: o.servicoId,
       cTribNac: o.cTribNac, cTribMun: o.cTribMun, cNBS: o.cNBS, descricao: o.descricao,
       competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
@@ -180,22 +180,22 @@ export async function rotasNotas(app) {
       retencoesFederais: o.retencoesFederais ? { ...o.retencoesFederais, valorContribuicoes: null, irrf: null, cp: null } : null,
       revisar: ['competencia', 'valor', 'descricao', 'tributacao'],
     });
-    const id = repo.criarNota(p.id, r, { origemId: origem.id });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.clonada', entidade: 'nota', entidadeId: id, detalhes: { origem: origem.id }, ip: req.ip });
-    return { nota: resumoNota(repo, p, repo.nota(p.id, id), true) };
+    const id = req.conta.repo.criarNota(p.id, r, { origemId: origem.id });
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.clonada', entidade: 'nota', entidadeId: id, detalhes: { origem: origem.id }, ip: req.ip });
+    return { nota: resumoNota(req.conta.repo, p, req.conta.repo.nota(p.id, id), true) };
   }
-  app.post('/notas/clonar-ultima', async (req) => clonar(req, repo.ultimaEmitida(exigirPrestador(req).id)));
-  app.post('/notas/:id/clonar', async (req) => clonar(req, repo.nota(exigirPrestador(req).id, req.params.id)));
+  app.post('/notas/clonar-ultima', async (req) => clonar(req, req.conta.repo.ultimaEmitida(exigirPrestador(req).id)));
+  app.post('/notas/:id/clonar', async (req) => clonar(req, req.conta.repo.nota(exigirPrestador(req).id, req.params.id)));
 
   // XML oficial da NFS-e (como devolvido pela Sefin Nacional).
   app.get('/notas/:id/xml', async (req, reply) => {
     const p = exigirPrestador(req);
-    let n = repo.nota(p.id, req.params.id);
+    let n = req.conta.repo.nota(p.id, req.params.id);
     if (!n || n.situacao !== 'emitida') throw new ErroApp(404, 'XML disponível apenas para notas emitidas.');
-    if (!n.temXml) n = await emissao.buscarXml(p, n.id);
-    const xml = repo.xmlNfse(n.id);
+    if (!n.temXml) n = await req.conta.emissao.buscarXml(p, n.id);
+    const xml = req.conta.repo.xmlNfse(n.id);
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.xml_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.xml_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/xml; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="NFSe-${n.chaveAcesso}.xml"`).send(xml);
   });
@@ -203,14 +203,14 @@ export async function rotasNotas(app) {
   // DANFSe (NT 008) em PDF, gerado SÓ a partir do XML oficial da NFS-e.
   app.get('/notas/:id/danfse', async (req, reply) => {
     const p = exigirPrestador(req);
-    let n = repo.nota(p.id, req.params.id);
+    let n = req.conta.repo.nota(p.id, req.params.id);
     if (!n || n.situacao !== 'emitida') throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
-    if (!n.temXml) n = await emissao.buscarXml(p, n.id);
-    const xml = repo.xmlNfse(n.id);
+    if (!n.temXml) n = await req.conta.emissao.buscarXml(p, n.id);
+    const xml = req.conta.repo.xmlNfse(n.id);
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
     // No modo demonstração a Receita é simulada: o PDF leva a marca "SIMULAÇÃO".
     const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : null });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
+    auditar(req.conta.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${n.chaveAcesso}.pdf"`).send(pdf);
   });

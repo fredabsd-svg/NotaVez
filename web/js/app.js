@@ -171,7 +171,15 @@ try {
   estado.demo = !!saude.demo;
 } catch { /* sem internet */ }
 document.getElementById('faixa-demo').hidden = !estado.demo;
-if (!(await sessaoEncerrada())) await carregarConta();
+// Volta de uma entrada por gov.br/certificado: o servidor acabou de abrir uma
+// sessão. Confere com o servidor e adota o titular (os rascunhos locais seguem
+// separados por titular, como na entrada por e-mail e senha).
+const entradaExterna = location.hash.match(/[?&]entrada=(govbr|certificado)\b/);
+if (entradaExterna) {
+  history.replaceState(null, '', location.hash.replace(/([?&])entrada=\w+&?/, '$1').replace(/[?&]$/, ''));
+  try { await carregarConta({ permitirOffline: false, substituirTitular: true }); } catch { /* sem sessão: tela de entrada */ }
+  if (estado.conta) aviso(entradaExterna[1] === 'govbr' ? 'Você entrou com o gov.br.' : 'Você entrou com o certificado digital.');
+} else if (!(await sessaoEncerrada())) await carregarConta();
 if (estado.conta && navigator.onLine) sincronizarTodos().catch(() => {});
 if (await temLegadoEmQuarentena()) aviso('Há rascunhos antigos sem titular identificado. Eles foram preservados separadamente e não serão exibidos nem enviados por outra conta.');
 renderizar();

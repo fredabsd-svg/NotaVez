@@ -185,7 +185,7 @@ export async function tela() {
     statusCert,
     !dados.perfil ? h('p', { class: 'suave' }, 'Salve o perfil primeiro.') : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
     h('h3', {}, 'Conta'),
-    h('a', { class: 'btn', href: '#/conta' }, 'Gerenciar e excluir conta'),
+    h('a', { class: 'btn', href: '#/conta' }, 'Formas de entrar, proteção e exclusão da conta'),
     h('a', { class: 'btn btn-texto', href: '/privacidade.html' }, 'Privacidade'),
     h('a', { class: 'btn btn-texto', href: '/recuperar-conta.html' }, 'Recuperar senha'),
     h('a', { class: 'btn', href: '#/instalar' }, 'Instalar na tela inicial'),

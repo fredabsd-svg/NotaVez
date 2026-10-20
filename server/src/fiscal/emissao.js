@@ -7,7 +7,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { config, ambientesSefin } from '../config.js';
-import { decifrar, decifrarBuffer } from '../security/cripto.js';
 import { escolherPacote } from './regras/index.js';
 import { municipioIncidencia } from './regras/comum.js';
 import { montarDps, dataHoraBrasilia, hojeBrasilia } from './dps.js';
@@ -53,12 +52,12 @@ export function validarRascunho(prestador, rascunho, hoje = hojeBrasilia(), para
   return { ok: erros.length === 0, erros, pacote: escolha.pacote, contexto, exigencias: escolha.pacote.exigencias(ctx) };
 }
 
-function materialCertificado(certificado) {
-  const pfx = decifrarBuffer(certificado._pfx);
-  return lerCertificado(pfx, decifrar(certificado._senha));
-}
-
 export function criarServicoEmissao({ repo, fabricaCliente }) {
+  // O PFX é decifrado com a chave da conta só no momento de abrir a conexão.
+  function materialCertificado(certificado) {
+    const { pfx, senha } = repo.materialCertificado(certificado);
+    return lerCertificado(pfx, senha);
+  }
   const clientes = new Map();
   function certificadoCompativel(prestador, certificado) {
     if (!certificado || certificado.documento !== prestador.documento

@@ -1,25 +1,28 @@
-import { ErroApp } from '../util/erros.js';
+import { auditar } from '../security/auditoria.js';
 
-// Deve compartilhar o banco/transação das transições fiscais. O claim fiscal
-// exige nota e prestador existentes; nunca pode enviar se essa exclusão vencer.
-export function excluirConta(db, usuarioId) {
-  return db.transacao(() => {
-    const pendente = db.get(`SELECT n.id FROM notas n JOIN prestadores p ON p.id = n.prestador_id
-      WHERE p.usuario_id = ? AND n.situacao IN ('enviando','pendente') LIMIT 1`, usuarioId);
-    if (pendente) throw new ErroApp(409, 'Há uma nota com resultado ainda não confirmado. Verifique a situação antes de excluir a conta.', { codigo: 'CONTA_COM_EMISSAO_PENDENTE', notaId: pendente.id });
-    // Chamadas e auditoria não possuem FK com cascata: remover antes dos pais.
-    db.run('DELETE FROM chamadas_api WHERE nota_id IN (SELECT n.id FROM notas n JOIN prestadores p ON p.id = n.prestador_id WHERE p.usuario_id = ?)', usuarioId);
-    db.run(`DELETE FROM auditoria WHERE usuario_id = ? OR prestador_id IN (SELECT id FROM prestadores WHERE usuario_id = ?)
-      OR entidade_id IN (
-        SELECT id FROM usuarios WHERE id = ? UNION SELECT id FROM prestadores WHERE usuario_id = ?
-        UNION SELECT n.id FROM notas n JOIN prestadores p ON p.id = n.prestador_id WHERE p.usuario_id = ?
-        UNION SELECT c.id FROM clientes c JOIN prestadores p ON p.id = c.prestador_id WHERE p.usuario_id = ?
-        UNION SELECT s.id FROM servicos s JOIN prestadores p ON p.id = s.prestador_id WHERE p.usuario_id = ?
-        UNION SELECT c.id FROM certificados c JOIN prestadores p ON p.id = c.prestador_id WHERE p.usuario_id = ?
-      )`, ...Array(8).fill(usuarioId));
-    db.run('DELETE FROM usuarios WHERE id = ?', usuarioId);
-    // contadores_dps são reservas compartilhadas por emitente/ambiente/série.
-    // Não reutilizar numeração depois da exclusão; não guardam XML ou contato.
-    return { ok: true };
-  });
+// Exclusão em três passos, nesta ordem:
+// 1. no banco da conta, numa transação: recusa se houver nota de resultado
+//    incerto e marca a conta como encerrada (nenhum envio começa depois disso);
+// 2. no catálogo central: apaga o usuário e, com ele, a chave da conta, as
+//    sessões e as formas de entrada (a partir daqui o arquivo é ilegível);
+// 3. apaga o arquivo da conta.
+export function excluirConta({ central, contas, usuarioId, ip = null }) {
+  const conta = contas.abrir(usuarioId);
+  conta.repo.encerrar();
+  try {
+    central.transacao(() => {
+      central.run('DELETE FROM auditoria WHERE usuario_id = ?', usuarioId);
+      central.run('DELETE FROM usuarios WHERE id = ?', usuarioId);
+      // Registro sem identificação da pessoa (o id some com a conta).
+      auditar(central, { acao: 'conta.excluida', ip });
+    });
+  } catch (e) {
+    // Nada foi apagado: a conta volta a poder emitir.
+    conta.db.run("DELETE FROM meta WHERE chave = 'encerrada'");
+    throw e;
+  }
+  contas.apagarArquivos(usuarioId);
+  // contadores_dps são reservas compartilhadas por emitente/ambiente/série:
+  // preservadas para nunca reutilizar numeração; não guardam XML nem contato.
+  return { ok: true };
 }

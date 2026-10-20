@@ -24,26 +24,26 @@ function lerServico(b = {}) {
 const publico = (s) => ({ ...s, nacional: servicoNacional(s.cTribNac) });
 
 export async function rotasServicos(app) {
-  const { repo } = app.ctx;
-  app.get('/', async (req) => ({ servicos: repo.listarServicos(exigirPrestador(req).id).map(publico) }));
+  // Dados, chave e serviço de emissão da conta da sessão (req.conta): nunca de outra.
+  app.get('/', async (req) => ({ servicos: req.conta.repo.listarServicos(exigirPrestador(req).id).map(publico) }));
   app.get('/:id', async (req) => {
-    const s = repo.servico(exigirPrestador(req).id, req.params.id);
+    const s = req.conta.repo.servico(exigirPrestador(req).id, req.params.id);
     if (!s) throw naoEncontrado('Serviço');
     return { servico: publico(s) };
   });
   app.post('/', async (req) => {
     const p = exigirPrestador(req);
-    const id = repo.salvarServico(p.id, null, lerServico(req.body));
-    return { servico: publico(repo.servico(p.id, id)) };
+    const id = req.conta.repo.salvarServico(p.id, null, lerServico(req.body));
+    return { servico: publico(req.conta.repo.servico(p.id, id)) };
   });
   app.put('/:id', async (req) => {
     const p = exigirPrestador(req);
-    if (!repo.servico(p.id, req.params.id)) throw naoEncontrado('Serviço');
-    repo.salvarServico(p.id, req.params.id, lerServico(req.body));
-    return { servico: publico(repo.servico(p.id, req.params.id)) };
+    if (!req.conta.repo.servico(p.id, req.params.id)) throw naoEncontrado('Serviço');
+    req.conta.repo.salvarServico(p.id, req.params.id, lerServico(req.body));
+    return { servico: publico(req.conta.repo.servico(p.id, req.params.id)) };
   });
   app.delete('/:id', async (req) => {
-    repo.removerServico(exigirPrestador(req).id, req.params.id);
+    req.conta.repo.removerServico(exigirPrestador(req).id, req.params.id);
     return { ok: true };
   });
 }
