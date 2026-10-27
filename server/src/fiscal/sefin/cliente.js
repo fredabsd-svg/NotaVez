@@ -8,6 +8,17 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 const gz64 = (txt) => gzipSync(Buffer.from(txt, 'utf8')).toString('base64');
 const ungz64 = (b64) => gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
 
+// XML do ADN: GZip + Base64; tolera Base64 simples e XML em texto.
+export function lerArquivoXml(valor) {
+  if (typeof valor !== 'string' || !valor.trim()) return null;
+  const t = valor.trim();
+  if (t.startsWith('<')) return t;
+  const bruto = Buffer.from(t, 'base64');
+  try { return gunzipSync(bruto).toString('utf8'); } catch { /* não é gzip */ }
+  const txt = bruto.toString('utf8').replace(/^\uFEFF/, '').trim();
+  return txt.startsWith('<') ? txt : null;
+}
+
 // Erros de rede que garantem que a requisição não foi processada.
 const ANTES_DO_ENVIO = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']);
 
@@ -25,10 +36,11 @@ export function lerMensagens(corpo) {
   })).filter((m) => m.codigo !== 'SEM_CODIGO' || m.descricao);
 }
 
-export function criarClienteSefin({ baseUrl, baseParametros, rotasParametros = {}, chavePem, certPem, cadeiaPem = [], ca, timeoutMs = 30_000 }) {
+export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParametros = {}, chavePem, certPem, cadeiaPem = [], ca, timeoutMs = 30_000 }) {
   const agente = new https.Agent({ key: chavePem, cert: [certPem, ...cadeiaPem].join('\n'), ca, keepAlive: true, maxSockets: 4 });
   const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
 
+  const baseDistribuicao = baseAdn ? new URL(baseAdn.endsWith('/') ? baseAdn : `${baseAdn}/`) : null;
   const baseParam = baseParametros ? new URL(baseParametros.endsWith('/') ? baseParametros : `${baseParametros}/`) : null;
   const rota = (modelo, valores) => modelo.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(valores[k] ?? ''));
 
@@ -148,6 +160,36 @@ export function criarClienteSefin({ baseUrl, baseParametros, rotasParametros = {
       const vigente = lista.find((a) => (pegar(a, 'DtIni', 'dtIni') || '') <= competencia && (!pegar(a, 'DtFim', 'dtFim') || pegar(a, 'DtFim', 'dtFim') >= competencia)) || lista[0];
       const aliq = vigente ? Number(pegar(vigente, 'Aliq', 'aliq', 'aliquota')) : NaN;
       return Number.isFinite(aliq) ? { tipo: 'ok', aliquota: aliq } : { tipo: 'falha', http: r.status };
+    },
+
+    /**
+     * ADN — distribuição de DF-e por NSU (GET /contribuintes/DFe/{NSU}): devolve em
+     * lotes de até 50 os documentos em que o CNPJ do certificado é parte (notas
+     * recebidas como tomador, eventos de cancelamento etc.). ArquivoXml vem em
+     * GZip + Base64. Formato a confirmar na produção restrita.
+     */
+    async distribuirDfe(nsu, cnpjConsulta) {
+      if (!baseDistribuicao) return { tipo: 'falha', detalhe: 'sem_endereco' };
+      const qs = new URLSearchParams({ lote: 'true', ...(cnpjConsulta ? { cnpjConsulta } : {}) });
+      const r = await requisitar('GET', `/contribuintes/DFe/${Number(nsu) || 0}?${qs}`, undefined, baseDistribuicao);
+      const base = { http: r.status ?? null, ms: r.ms };
+      if (r.erroRede) return { ...base, tipo: 'falha', detalhe: r.erroRede.code || r.erroRede.message };
+      const status = String(pegar(r.json, 'StatusProcessamento', 'statusProcessamento') ?? '');
+      const lote = pegar(r.json, 'LoteDFe', 'loteDFe', 'loteDfe');
+      if (/NENHUM_DOCUMENTO/i.test(status) || (r.status === 404 && !lerMensagens(r.json).length)) return { ...base, tipo: 'ok', documentos: [] };
+      if (r.status === 200 && Array.isArray(lote)) {
+        return {
+          ...base, tipo: 'ok',
+          documentos: lote.map((d) => ({
+            nsu: Number(pegar(d, 'NSU', 'nsu')),
+            chaveAcesso: pegar(d, 'ChaveAcesso', 'chaveAcesso') ? String(pegar(d, 'ChaveAcesso', 'chaveAcesso')) : null,
+            tipoDocumento: String(pegar(d, 'TipoDocumento', 'tipoDocumento') ?? '').toUpperCase(),
+            tipoEvento: pegar(d, 'TipoEvento', 'tipoEvento') ?? null,
+            xml: lerArquivoXml(pegar(d, 'ArquivoXml', 'arquivoXml')),
+          })).filter((d) => Number.isSafeInteger(d.nsu) && d.nsu >= 0),
+        };
+      }
+      return { ...base, tipo: 'falha', erros: lerMensagens(r.json), detalhe: `http_${r.status}` };
     },
 
     fechar: () => agente.destroy(),

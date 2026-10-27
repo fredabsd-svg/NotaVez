@@ -23,6 +23,12 @@ writeFileSync(arquivo, cert.pfx);
 const sefin = await iniciarSefinSimulada({ caPem: cert.caPem, caChavePem: cert.caChavePem, certClientePem: cert.certPem });
 ambientesSefin.producao_restrita.sefin = sefin.baseUrl;
 ambientesSefin.producao_restrita.parametros = sefin.baseParametros;
+ambientesSefin.producao_restrita.adn = sefin.baseAdn;
+// Notas que fornecedores "emitiram" para o CNPJ de demonstração (aba Tomadas).
+sefin.adicionarTomada({ tomador: cnpj, nome: 'CONTABILIDADE EXEMPLO LTDA', valor: '450.00', descricao: 'Honorários contábeis de setembro/2026', cTribNac: '171901' });
+sefin.adicionarTomada({ tomador: cnpj, prestador: '11222333000262', nome: 'SUPORTE DE TI EXEMPLO ME', valor: '1200.00', descricao: 'Suporte técnico em informática', cTribNac: '010701', issRetido: true });
+const cancelada = sefin.adicionarTomada({ tomador: cnpj, nome: 'LIMPEZA EXEMPLO EIRELI', valor: '300.00', descricao: 'Limpeza de escritório', cTribNac: '071002' });
+sefin.cancelarTomada(cancelada.chave);
 ambientesSefin.producao_restrita.consultaPublica = null; // não há consulta pública para notas simuladas
 const app = await criarApp({ logger: false, fabricaCliente: (o) => criarClienteSefin({ ...o, ca: sefin.ca }) });
 app.ctx.sefinSimulada = sefin; // permite forçar cenários: POST /api/demo/cenario

@@ -36,6 +36,10 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     // Convênios municipais simulados (ibge → aderente aos emissores nacionais).
     conveniados: new Map([['3550308', true]]),
     consultasParametros: 0,
+    // Distribuição do ADN (notas recebidas por tomadores, eventos), por NSU.
+    distribuicao: [],
+    consultasDistribuicao: [],
+    falharDistribuicao: false,
   };
   let seq = 0;
   const { key, cert } = certServidor(caPem, caChavePem);
@@ -89,6 +93,32 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
       + `<xTribNac>${esc(servicoNacional(cTribNac)?.descricao || 'Simulado')}</xTribNac><verAplic>SIMULADOR</verAplic>`
       + `<ambGer>2</ambGer><tpEmis>1</tpEmis><cStat>${op === '2' ? '107' : '100'}</cStat><dhProc>2026-09-25T10:00:00-03:00</dhProc><nDFSe>${n}</nDFSe>`
       + emit + valores + ibscbs;
+  }
+
+  // Nota emitida por um fornecedor PARA `tomador` (aparece na distribuição do ADN).
+  function adicionarTomada({ tomador, prestador = '11444777000161', nome = 'FORNECEDOR SIMULADO LTDA', valor = '500.00', descricao = 'Serviço contratado (simulação)',
+    competencia = '2026-09-01', cTribNac = '170101', municipio: cMun = '3550308', issRetido = false } = {}) {
+    const n = estado.distribuicao.length + 1;
+    const idDps = `DPS${cMun}2${prestador}00900${String(n).padStart(15, '0')}`;
+    const dps = `<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${idDps}"><tpAmb>2</tpAmb><dhEmi>${competencia}T10:00:00-03:00</dhEmi>`
+      + `<verAplic>SIMULADOR</verAplic><serie>900</serie><nDPS>${n}</nDPS><dCompet>${competencia}</dCompet><tpEmit>1</tpEmit><cLocEmi>${cMun}</cLocEmi>`
+      + `<prest><CNPJ>${prestador}</CNPJ><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><regEspTrib>0</regEspTrib></regTrib></prest>`
+      + `<toma><CNPJ>${tomador}</CNPJ><xNome>EMPRESA TOMADORA</xNome></toma>`
+      + `<serv><locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest><cServ><cTribNac>${cTribNac}</cTribNac><xDescServ>${esc(descricao)}</xDescServ></cServ></serv>`
+      + `<valores><vServPrest><vServ>${valor}</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>${issRetido ? '2' : '1'}</tpRetISSQN></tribMun>`
+      + '<totTrib><pTotTribSN>6.00</pTotTribSN></totTrib></trib></valores></infDPS></DPS>';
+    const { chave, xml } = gerarNfse(idDps, dps);
+    const doc = { nsu: n, chave, tipo: 'NFSE', xml: xml.replace(/<xNome>EMPRESA SIMULADA LTDA<\/xNome>/, `<xNome>${esc(nome)}</xNome>`) };
+    estado.distribuicao.push(doc);
+    return doc;
+  }
+  function cancelarTomada(chave) {
+    const n = estado.distribuicao.length + 1;
+    const xml = '<evento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infEvento Id="EVT1"><verAplic>SIMULADOR</verAplic><ambGer>2</ambGer><nSeqEvento>1</nSeqEvento>'
+      + `<dhProc>2026-09-26T10:00:00-03:00</dhProc><nDFe>${n}</nDFe><pedRegEvento versao="1.01"><infPedReg Id="PRE${chave}101101"><tpAmb>2</tpAmb><verAplic>SIMULADOR</verAplic>`
+      + `<dhEvento>2026-09-26T10:00:00-03:00</dhEvento><chNFSe>${chave}</chNFSe><e101101><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>1</cMotivo><xMotivo>Erro na emissão</xMotivo></e101101>`
+      + '</infPedReg></pedRegEvento></infEvento></evento>';
+    estado.distribuicao.push({ nsu: n, chave, tipo: 'EVENTO', xml });
   }
 
   function regras(xml) {
@@ -187,6 +217,18 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
           ? responder(res, 200, { parametrosConvenio: { tipoConvenioDeserializationSetter: 1, aderenteAmbienteNacional: 1, aderenteEmissorNacional: estado.conveniados.get(mConv[1]) ? 1 : 0, situacaoEmissaoPadraoContribuintesRFB: 1, aderenteMAN: 0 } })
           : responder(res, 404, { mensagem: 'Nenhum registro encontrado.' });
       }
+      const mDfe = url.pathname.match(/\/contribuintes\/DFe\/(\d+)$/);
+      if (req.method === 'GET' && mDfe) {
+        estado.consultasDistribuicao.push({ nsu: Number(mDfe[1]), cnpjConsulta: url.searchParams.get('cnpjConsulta'), lote: url.searchParams.get('lote') });
+        if (estado.falharDistribuicao) return responder(res, 500, { mensagem: 'erro interno' });
+        const lote = estado.distribuicao.filter((d) => d.nsu > Number(mDfe[1])).slice(0, 50);
+        const base = { TipoAmbiente: 'PRODUCAORESTRITA', VersaoAplicativo: 'SIMULADOR', DataHoraProcessamento: new Date().toISOString(), Alertas: [], Erros: [] };
+        if (!lote.length) return responder(res, 404, { ...base, StatusProcessamento: 'NENHUM_DOCUMENTO_LOCALIZADO', LoteDFe: [] });
+        return responder(res, 200, { ...base, StatusProcessamento: 'DOCUMENTOS_LOCALIZADOS', LoteDFe: lote.map((d) => ({
+          NSU: d.nsu, ChaveAcesso: d.chave, TipoDocumento: d.tipo, TipoEvento: d.tipo === 'EVENTO' ? 'CANCELAMENTO' : null,
+          ArquivoXml: gzipSync(Buffer.from(d.xml)).toString('base64'), DataHoraGeracao: new Date().toISOString(),
+        })) });
+      }
       const mDps = caminho.match(/^\/dps\/(.+)$/);
       if (req.method === 'GET' && mDps) {
         const g = estado.geradas.get(decodeURIComponent(mDps[1]));
@@ -207,6 +249,9 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     estado,
     baseUrl: `https://127.0.0.1:${porta}/SefinNacional`,
     baseParametros: `https://127.0.0.1:${porta}/parametrizacao`,
+    baseAdn: `https://127.0.0.1:${porta}`,
+    adicionarTomada,
+    cancelarTomada,
     ca: caPem,
     fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(r); }),
   };
