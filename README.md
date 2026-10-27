@@ -37,6 +37,9 @@
 
 | | |
 |---|---|
+| **Várias empresas na mesma conta** | Escritórios cadastram quantas empresas quiserem e escolhem numa lista (com busca e filtros como "sem certificado" ou "pendências"). Cada empresa tem seu ambiente: emitir, clonar, notas emitidas, **notas tomadas**, clientes, serviços e dados fiscais. |
+| **Cadastro pelo CNPJ** | Digitou o CNPJ, o app busca na base pública da Receita a razão social, o endereço, o município e o **enquadramento** (MEI, Simples, Lucro Presumido ou Real) — para a empresa e para os clientes. |
+| **Notas tomadas** | Baixa do Ambiente de Dados Nacional as NFS-e que fornecedores emitiram para a empresa, marca as canceladas e mostra totais do mês, PDF e XML. |
 | **Emitir em poucos toques** | Cliente e serviço salvos, valor sugerido, revisão em uma tela. **"Clonar última nota"** refaz a nota do mês com novos identificadores e pede para conferir competência, valor, descrição e tributação. |
 | **Sem susto com a Receita** | As regras oficiais (Anexo I) rodam **antes** do envio e aparecem em linguagem comum. Se a resposta não vier, o app **consulta antes de reenviar** e mantém a mesma DPS nos reenvios. |
 | **Honesto sobre a situação** | "Emitida" só aparece com a chave de acesso oficial. Rascunho, envio pendente e simulação nunca se passam por nota fiscal. |

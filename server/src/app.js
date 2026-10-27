@@ -17,12 +17,16 @@ import { rotasClientes } from './routes/clientes.js';
 import { rotasServicos } from './routes/servicos.js';
 import { rotasNotas } from './routes/notas.js';
 import { rotasTabelas } from './routes/tabelas.js';
+import { rotasEmpresas } from './routes/empresas.js';
+import { rotasTomadas } from './routes/tomadas.js';
+import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
+import { criarServicoTomadas } from './fiscal/tomadas.js';
 import { criarLimites } from './security/limites.js';
 import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo } = {}) {
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj() } = {}) {
   const db = abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -32,7 +36,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   const app = Fastify({ logger: logger && { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body'] }, bodyLimit: 1024 * 1024, trustProxy: proxiesConfiaveis });
   await app.register(cookie);
 
-  app.decorate('ctx', { db, repo, auth, emissao, contaPublica });
+  const tomadas = criarServicoTomadas({ repo, emissao });
+  app.decorate('ctx', { db, repo, auth, emissao, tomadas, limites, consultarCnpj, contaPublica });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador
   // decodifica o caminho (ex.: "/%61pi/notas" cai em "/api/notas"), então checar
@@ -60,21 +65,32 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   // Autenticação: rotas /api/* exceto conta/entrar|cadastrar e tabelas públicas.
   app.decorateRequest('usuario', null);
   app.decorateRequest('prestador', null);
+  app.decorateRequest('empresaPedida', undefined);
   app.addHook('preHandler', async (req) => {
     if (!rotaApi(req)) return;
     const rota = req.routeOptions.url;
     const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia)$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
     req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);
     if (!req.usuario && !livre) throw new ErroApp(401, 'Entre na sua conta para continuar.');
-    if (req.usuario) req.prestador = repo.prestadorDoUsuario(req.usuario.id);
     // A sessão pode ter sido trocada em outra aba depois que a tela foi aberta.
     // A identidade esperada é uma precondição, nunca uma fonte de autorização.
     if (req.usuario && !livre && !(req.method === 'GET' && rota === '/api/conta')) {
       const usuario = req.headers['x-notavez-usuario'];
-      const prestador = req.headers['x-notavez-prestador'];
-      if ((usuario !== undefined && usuario !== req.usuario.id)
-        || (prestador !== undefined && prestador !== (req.prestador?.id || ''))) {
+      if (usuario !== undefined && usuario !== req.usuario.id) {
         throw new ErroApp(409, 'A conta mudou. Entre novamente antes de continuar.', { codigo: 'CONTA_ALTERADA' });
+      }
+    }
+    // Empresa ativa: escolhida pelo app (cabeçalho, ou ?empresa= em links de
+    // download) e sempre conferida contra o dono. Sem indicação, a primeira
+    // empresa da conta (compatível com quem tem uma só).
+    if (req.usuario) {
+      const pedida = req.headers['x-notavez-prestador'] ?? (req.method === 'GET' ? req.query?.empresa : undefined);
+      const descoberta = req.method === 'GET' && rota === '/api/conta';
+      req.empresaPedida = pedida;
+      if (pedida === undefined) req.prestador = repo.prestadorDoUsuario(req.usuario.id);
+      else if (pedida) {
+        req.prestador = repo.prestadorDoUsuarioPorId(req.usuario.id, pedida);
+        if (!req.prestador && !descoberta && !livre) throw new ErroApp(409, 'Esta empresa não está mais disponível na sua conta.', { codigo: 'EMPRESA_INDISPONIVEL' });
       }
     }
     limites.requisicao(req);
@@ -109,6 +125,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   await app.register(rotasServicos, { prefix: '/api/servicos' });
   await app.register(rotasNotas, { prefix: '/api' });
   await app.register(rotasTabelas, { prefix: '/api/tabelas' });
+  await app.register(rotasEmpresas, { prefix: '/api' });
+  await app.register(rotasTomadas, { prefix: '/api/tomadas' });
 
   if (servirWeb) {
     await app.register(fastifyStatic, {

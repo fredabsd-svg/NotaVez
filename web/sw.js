@@ -1,11 +1,12 @@
 // Service worker: guarda só a "casca" do app (HTML, CSS, JS, ícones) para abrir
 // sem internet. Respostas da API NUNCA são guardadas aqui (dados fiscais e pessoais).
-const VERSAO = 'notavez-v6-contas';
+const VERSAO = 'notavez-v7-empresas';
 const CASCA = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
   '/js/app.js', '/js/api.js', '/js/ui.js', '/js/store.js', '/js/rascunho.js',
   '/js/views/entrar.js', '/js/views/conta.js', '/js/views/inicio.js', '/js/views/clientes.js', '/js/views/servicos.js', '/js/views/nota.js',
   '/js/views/revisao.js', '/js/views/resultado.js', '/js/views/historico.js', '/js/views/perfil.js', '/js/views/instalar.js',
+  '/js/views/empresas.js', '/js/views/tomadas.js', '/js/cnpj.js',
   '/icons/icone.svg', '/icons/logo.svg', '/icons/logo-escuro.svg', '/icons/favicon-32.png',
   '/icons/icone-192.png', '/icons/icone-512.png', '/icons/icone-180.png',
 ];

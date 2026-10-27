@@ -25,7 +25,12 @@ export async function rotasConta(app) {
     reply.clearCookie(COOKIE, { path: '/' });
     return { ok: true };
   });
-  app.get('/', async (req) => ({ usuarioId: req.usuario.id, prestadorId: req.prestador?.id ?? null, email: req.usuario.email, temPerfil: !!req.prestador }));
+  // Com várias empresas e nenhuma pedida (?empresa=), o app mostra a lista para escolher.
+  app.get('/', async (req) => {
+    const empresas = app.ctx.repo.contarPrestadores(req.usuario.id);
+    const prestador = req.empresaPedida || empresas === 1 ? req.prestador : null;
+    return { usuarioId: req.usuario.id, prestadorId: prestador?.id ?? null, email: req.usuario.email, temPerfil: !!prestador, empresas, empresaNome: prestador?.nome ?? null };
+  });
   app.delete('/', async (req, reply) => {
     auth.reautenticar(req.usuario.id, req.body?.senha, req.ip);
     const prestadores = db.all('SELECT id FROM prestadores WHERE usuario_id = ?', req.usuario.id);

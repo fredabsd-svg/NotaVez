@@ -69,6 +69,12 @@ export const ICONES = {
   copiar: 'M9 9h11v11H9zM5 15H4V4h11v1',
   atualizar: 'M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5',
   documento: 'M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h5',
+  recebida: 'M6 2h9l5 5v15H6zM14 2v6h6M12 11v7M9 15l3 3 3-3',
+  empresa: 'M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 9h4a1 1 0 011 1v11M3 21h18M8 8h3M8 12h3M8 16h3',
+  rascunho: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+  ajustes: 'M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4',
+  servico: 'M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
+  busca: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5',
 };
 
 // Campo de formulário com rótulo, ajuda e mensagem de erro associadas (acessível).

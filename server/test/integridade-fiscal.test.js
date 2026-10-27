@@ -20,7 +20,7 @@ function fixture(t, cliente = {}) {
   db.run("INSERT INTO usuarios VALUES ('u','teste@example.test','irrelevante','2026-01-01')");
   const repo = criarRepositorio(db);
   const p = { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: 'Teste', municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' };
-  const id = repo.salvarPrestador('u', p);
+  const id = repo.salvarPrestador('u', null, p);
   repo.salvarCertificado(id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
   const chamadas = [];
   const service = criarServicoEmissao({ repo, fabricaCliente: (o) => {
@@ -54,7 +54,7 @@ test('perfil muda ambiente e certificado renova: consulta e reenvio mantêm cont
   let enviado;
   const f = fixture(t, { consultarDps: async () => ({ tipo: 'nao_encontrada' }), enviarDps: async xml => { enviado = xml; return { tipo: 'incerta' }; } });
   abandonar(f, f.notaId, 'pendente');
-  f.repo.salvarPrestador('u', { ...f.perfil, ambiente: 'producao' });
+  f.repo.salvarPrestador('u', f.p.id, { ...f.perfil, ambiente: 'producao' });
   const renovado = gerarCertificadoTeste({ nome: 'RENOVADO' });
   f.repo.salvarCertificado(f.p.id, { ...renovado, info: lerCertificado(renovado.pfx, renovado.senha) });
   await f.service.verificar(f.repo.prestador(f.p.id), f.notaId);
@@ -62,7 +62,7 @@ test('perfil muda ambiente e certificado renova: consulta e reenvio mantêm cont
   assert.equal(f.chamadas[0].certPem, renovado.certPem);
   assert.equal(enviado, '<original/>');
   assert.equal(f.repo.notaPorId(f.notaId).ambiente, 'producao_restrita');
-  assert.throws(() => f.repo.salvarPrestador('u', { ...f.perfil, documento: '11444777000161' }), /pendentes/);
+  assert.throws(() => f.repo.salvarPrestador('u', f.p.id, { ...f.perfil, documento: '11444777000161' }), /pendentes/);
 });
 test('certificado incompatível ou vencido nunca consulta nem reenvia uma pendência', async (t) => {
   const f = fixture(t); abandonar(f);
@@ -91,7 +91,7 @@ test('revisão aprovada é invalidada por edição e por mudança de perfil', as
   f.repo.atualizarRascunho(f.p.id, f.notaId, { ...rascunho, valor: '999.00' }, 1);
   await assert.rejects(f.service.emitir(f.p, f.notaId, revisado), e => e.status === 409);
   const novo = await f.service.validarNota(f.p, f.notaId, 2);
-  f.repo.salvarPrestador('u', { ...f.perfil, nome: 'Outra revisão' });
+  f.repo.salvarPrestador('u', f.p.id, { ...f.perfil, nome: 'Outra revisão' });
   await assert.rejects(f.service.emitir(f.repo.prestador(f.p.id), f.notaId, novo), e => e.status === 409);
   assert.equal(f.chamadas.length, 0);
 });
@@ -132,7 +132,7 @@ test('migração preserva banco antigo, recupera contexto da DPS e separa unicid
   const adapter = { get: (sql, ...p) => antigo.prepare(sql).get(...p), run: (sql, ...p) => antigo.prepare(sql).run(...p) };
   adapter.run("INSERT INTO usuarios VALUES ('u','teste@example.test','hash','2026-01-01')");
   const repoAntigo = criarRepositorio(adapter);
-  const idP = repoAntigo.salvarPrestador('u', { tipoDocumento: 'CNPJ', documento: '11444777000161', nome: 'Legado', municipioIbge: '3304557', opSimpNac: '2' });
+  const idP = repoAntigo.salvarPrestador('u', null, { tipoDocumento: 'CNPJ', documento: '11444777000161', nome: 'Legado', municipioIbge: '3304557', opSimpNac: '2' });
   const idNota = repoAntigo.criarNota(idP, rascunho);
   repoAntigo.transicionar(idNota, 'rascunho', 'enviando', { ambiente: 'producao_restrita', idDps: 'DPSLEGADA', dpsXml: '<DPS><infDPS><tpAmb>2</tpAmb><cLocEmi>3550308</cLocEmi><prest><CNPJ>11222333000181</CNPJ></prest></infDPS></DPS>' });
   antigo.close();
@@ -154,7 +154,7 @@ test('certificado renovado ou perfil modificado durante preparação impede clai
     const f = fixture(t);
     const original = f.repo.proximoNumeroDps;
     f.repo.proximoNumeroDps = (...args) => {
-      if (alterar === 'perfil') f.repo.salvarPrestador('u', { ...f.perfil, nome: 'Perfil mudou' });
+      if (alterar === 'perfil') f.repo.salvarPrestador('u', f.p.id, { ...f.perfil, nome: 'Perfil mudou' });
       else f.repo.salvarCertificado(f.p.id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
       return original(...args);
     };
@@ -245,7 +245,7 @@ test('rotas de renovação e remoção fecham somente os clientes fiscais do tit
   const perfis = [];
   for (const email of ['a@teste.invalid', 'b@teste.invalid']) {
     const conta = auth.cadastrar(email, 'senha-segura', email);
-    const id = repo.salvarPrestador(conta.usuarioId, { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: email, municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' });
+    const id = repo.salvarPrestador(conta.usuarioId, null, { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: email, municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' });
     repo.salvarCertificado(id, { ...cert, info: lerCertificado(cert.pfx, cert.senha) });
     const p = repo.prestador(id);
     const notaId = repo.criarNota(id, rascunho);

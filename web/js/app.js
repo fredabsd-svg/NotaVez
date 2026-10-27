@@ -1,7 +1,7 @@
 // Roteador e inicialização do PWA.
-import { api, ErroApi } from './api.js';
+import { api, ErroApi, urlConta } from './api.js';
 import { h, aviso, carregando } from './ui.js';
-import { definirConta, recuperarContaOffline, sessaoEncerrada, temLegadoEmQuarentena, excluirDadosDaConta, sincronizarTodos } from './store.js';
+import { definirConta, recuperarContaOffline, sessaoEncerrada, temLegadoEmQuarentena, excluirDadosDaConta, sincronizarTodos, contaGuardada } from './store.js';
 import * as entrar from './views/entrar.js';
 import * as conta from './views/conta.js';
 import * as inicio from './views/inicio.js';
@@ -13,6 +13,8 @@ import * as resultado from './views/resultado.js';
 import * as historico from './views/historico.js';
 import * as perfil from './views/perfil.js';
 import * as instalar from './views/instalar.js';
+import * as empresas from './views/empresas.js';
+import * as tomadas from './views/tomadas.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -33,7 +35,13 @@ const rotas = [
   ['/servicos/:id', servicos.formulario],
   ['/perfil', perfil.tela],
   ['/instalar', instalar.tela],
+  ['/empresas', empresas.lista],
+  ['/empresas/nova', empresas.nova],
+  ['/tomadas', tomadas.lista],
+  ['/tomadas/:id', tomadas.detalhe],
 ];
+// Telas que funcionam sem uma empresa escolhida.
+const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova']);
 
 export const estado = { conta: null, inicio: null };
 
@@ -58,6 +66,7 @@ async function renderizar() {
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
   const main = document.getElementById('conteudo');
   if (!estado.conta && caminho !== '/entrar' && caminho !== '/instalar') return ir('/entrar', { substituir: true });
+  if (estado.conta && !estado.conta.prestadorId && !SEM_EMPRESA.has(caminho)) return ir(estado.conta.empresas ? '/empresas' : '/empresas/nova', { substituir: true });
 
   const rota = casar(caminho) || casar('/');
   main.replaceChildren(carregando());
@@ -77,7 +86,10 @@ async function renderizar() {
   document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
   document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;
-  document.getElementById('abas').hidden = !estado.conta || tela.semAbas;
+  document.getElementById('abas').hidden = !estado.conta || tela.semAbas || !estado.conta.prestadorId;
+  const empresa = document.getElementById('empresa-ativa');
+  empresa.hidden = !estado.conta?.prestadorId || tela.semAbas;
+  empresa.querySelector('span').textContent = estado.conta?.empresaNome || 'Empresa';
   for (const a of document.querySelectorAll('.abas a')) {
     if (a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
@@ -91,9 +103,11 @@ export async function atualizarSelo() {
   document.getElementById('selo-ambiente').hidden = !(ambiente === 'producao_restrita' || !estado.inicio?.perfil);
 }
 
-export async function carregarConta({ permitirOffline = true, substituirTitular = false, usuarioEsperado } = {}) {
+// `empresa`: a empresa que esta aba quer abrir (padrão: a que já estava aberta).
+export async function carregarConta({ permitirOffline = true, substituirTitular = false, usuarioEsperado, empresa } = {}) {
   try {
-    const conta = await api('GET', '/api/conta');
+    const desejada = empresa !== undefined ? empresa : estado.conta?.prestadorId ?? (await contaGuardada())?.prestadorId ?? null;
+    const conta = await api('GET', urlConta(desejada));
     if (!conta?.usuarioId) throw new ErroApi(401, { erro: 'Não foi possível confirmar o titular da conta.' });
     if (usuarioEsperado && usuarioEsperado !== conta.usuarioId) throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.' });
     if (!substituirTitular && estado.conta && estado.conta.usuarioId !== conta.usuarioId) {
@@ -107,6 +121,15 @@ export async function carregarConta({ permitirOffline = true, substituirTitular 
     if (!permitirOffline) throw e;
   }
   return estado.conta;
+}
+
+// Entra no ambiente de uma empresa: rascunhos e cópias locais são separados por empresa.
+export async function entrarNaEmpresa(id, destino = '/') {
+  const conta = await carregarConta({ permitirOffline: false, empresa: id });
+  if (conta?.prestadorId !== id) throw new ErroApi(409, { erro: 'Esta empresa não está mais disponível na sua conta.' });
+  atualizarSelo();
+  sincronizarTodos().catch(() => {});
+  ir(destino);
 }
 
 export async function sair() {
@@ -133,13 +156,23 @@ window.addEventListener('hashchange', renderizar);
 window.addEventListener('online', atualizarOnline);
 window.addEventListener('offline', atualizarOnline);
 window.addEventListener('notavez:sessao-expirada', async () => {
+  // Abrir o app sem sessão (primeiro acesso) não é "sessão terminou".
+  const tinhaSessao = !!estado.conta;
   estado.conta = null;
   estado.inicio = null;
   estado.ultimoResultado = null;
   renderizando++;
   try { await definirConta(null); } catch { /* identidade em memória já encerrada */ }
-  aviso('Sua sessão terminou. Seus rascunhos continuam guardados para a mesma conta. Entre novamente.');
+  if (tinhaSessao) aviso('Sua sessão terminou. Seus rascunhos continuam guardados para a mesma conta. Entre novamente.');
   ir('/entrar');
+});
+
+window.addEventListener('notavez:empresa-indisponivel', async () => {
+  if (!estado.conta?.prestadorId) return;
+  renderizando++;
+  try { await carregarConta({ permitirOffline: false, empresa: null }); } catch { return; }
+  aviso('Esta empresa não está mais disponível na sua conta. Escolha outra.');
+  ir('/empresas', { substituir: true });
 });
 
 window.addEventListener('notavez:conta-excluida', async (e) => {

@@ -83,7 +83,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const amb = ambientesSefin[prestador.ambiente];
       if (!amb) throw new ErroApp(409, 'Ambiente original da nota indisponível. Procure o suporte.');
       clientes.set(chave, fabricaCliente({
-        baseUrl: amb.sefin, baseParametros: amb.parametros, rotasParametros: ambientesSefin.rotasParametros, ...mat, timeoutMs: config.timeoutSefinMs,
+        baseUrl: amb.sefin, baseParametros: amb.parametros, baseAdn: amb.adn, rotasParametros: ambientesSefin.rotasParametros, ...mat, timeoutMs: config.timeoutSefinMs,
       }));
     }
     return clientes.get(chave);
@@ -310,6 +310,15 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     return repo.notaPorId(nota.id);
   }
 
+  // Notas recebidas pela empresa (ADN), com o certificado ativo dela.
+  async function distribuirDfe(prestador, nsu) {
+    const certificado = repo.certificadoAtivo(prestador.id);
+    if (!certificado) throw new ErroApp(409, 'Envie o certificado A1 desta empresa para baixar as notas tomadas.', { acao: 'certificado' });
+    const cliente = clienteSefin(prestador, certificado);
+    if (typeof cliente.distribuirDfe !== 'function') throw new ErroApp(503, 'Consulta de notas tomadas indisponível neste servidor.');
+    return cliente.distribuirDfe(nsu, prestador.documento);
+  }
+
   // Tarefa periódica: verifica notas pendentes (consulta primeiro, sempre).
   async function verificarPendentes() {
     for (const nota of repo.pendentes()) {
@@ -327,5 +336,5 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     }
   }
 
-  return { emitir, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
+  return { emitir, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, distribuirDfe, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
 }

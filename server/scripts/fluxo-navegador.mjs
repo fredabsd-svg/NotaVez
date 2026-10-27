@@ -21,14 +21,14 @@ await p.getByRole('tab', { name: 'Criar conta' }).click();
 await p.getByLabel('E-mail').fill(`mei${Date.now()}@exemplo.com`);
 await p.getByLabel('Senha').fill('senha-segura-1');
 await p.getByRole('button', { name: 'Criar conta' }).click();
-await esperarTexto('O que falta para emitir');
+await esperarTexto('CNPJ da empresa');
 await foto('02-perfil-pendencias');
 
 await p.getByLabel('CNPJ da empresa').fill('11222333000181');
 await p.getByLabel('Nome ou razão social').fill('Ana Souza Design');
-await p.getByRole('combobox', { name: /Município do seu CNPJ/ }).fill('são paulo');
+await p.getByRole('combobox', { name: /Município do CNPJ/ }).fill('são paulo');
 await p.getByRole('button', { name: 'São Paulo - SP' }).click();
-await p.getByRole('button', { name: 'Salvar perfil' }).click();
+await p.getByRole('button', { name: 'Cadastrar empresa' }).click();
 await p.waitForLoadState('load'); await esperarTexto('Certificado digital');
 await p.getByLabel('Arquivo do certificado A1').setInputFiles((await import('node:path')).join((await import('node:os')).tmpdir(), 'notavez-certificado-DEMO.pfx'));
 await p.getByLabel('Senha do certificado').fill('demo1234');
