@@ -9,7 +9,7 @@ const CAMPO_TELA = {
   competencia: 'Competência', valor: 'Valor', descricao: 'Descrição', tributacao: 'Tributação', servico: 'Serviço',
   tomador: 'Cliente', 'tomador.documento': 'Cliente', 'tomador.nome': 'Cliente', 'tomador.endereco': 'Endereço do cliente',
   'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação',
-  'perfil.cnpj': 'Perfil', 'perfil.municipio': 'Perfil', 'perfil.regime': 'Perfil', 'perfil.federais': 'Perfil', regime: 'Regime',
+  'perfil.cnpj': 'Dados da empresa', 'perfil.municipio': 'Dados da empresa', 'perfil.regime': 'Dados da empresa', 'perfil.federais': 'Dados da empresa', regime: 'Regime',
   retencoes: 'Retenções federais', ibscbs: 'IBS/CBS', 'ibscbs.nbs': 'IBS/CBS (NBS)', 'ibscbs.cIndOp': 'IBS/CBS (forma de prestação)', 'ibscbs.cClassTrib': 'IBS/CBS (classificação)', cTribMun: 'Código municipal', cNBS: 'Código NBS',
 };
 

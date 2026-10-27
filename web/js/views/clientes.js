@@ -3,6 +3,7 @@ import { api, ErroApi } from '../api.js';
 import { comCache, buscarMunicipio, municipioPorCodigo } from '../store.js';
 import { aplicar } from '../rascunho.js';
 import { ir } from '../app.js';
+import { consultaAutomatica } from '../cnpj.js';
 
 async function escolherParaNota(notaId, c) {
   await aplicar(notaId, { clienteId: c.id }, { cliente: { nome: c.nome, documentoExibicao: c.documentoExibicao, tipo: c.tipo } });
@@ -100,6 +101,26 @@ export async function formulario({ id }, query) {
   }
   atualizarEndereco();
 
+  // CNPJ completo: nome, contato e endereço vêm da base pública da Receita.
+  const consulta = consultaAutomatica(doc.entrada, {
+    inicial: c.tipo === 'CNPJ' ? c.documento : null,
+    aoEncontrar: async (d) => {
+      nome.entrada.value = d.razaoSocial;
+      if (!email.entrada.value && d.email) email.entrada.value = d.email;
+      if (!fone.entrada.value && d.fone) fone.entrada.value = d.fone;
+      const e = d.endereco || {};
+      cep.entrada.value = e.cep || '';
+      numero.entrada.value = e.numero || '';
+      logradouro.entrada.value = e.logradouro || '';
+      complemento.entrada.value = e.complemento || '';
+      bairro.entrada.value = e.bairro || '';
+      municipioIbge = e.municipioIbge || '';
+      const m = municipioIbge ? await municipioPorCodigo(municipioIbge) : null;
+      municipio.entrada.value = m ? `${m.nome} - ${m.uf}` : '';
+      blocoEndereco.open = true;
+    },
+  });
+
   const erroGeral = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
   const salvar = h('button', { class: 'btn btn-primario', type: 'submit' }, para ? 'Salvar e usar na nota' : 'Salvar cliente');
   const form = h('form', {
@@ -134,7 +155,7 @@ export async function formulario({ id }, query) {
         }
       } finally { salvar.disabled = false; }
     },
-  }, doc, nome, email, fone, blocoEndereco, erroGeral, h('div', { class: 'rodape-fixo' }, salvar));
+  }, doc, consulta, nome, email, fone, blocoEndereco, erroGeral, h('div', { class: 'rodape-fixo' }, salvar));
 
   const excluir = id ? h('button', {
     class: 'btn btn-texto btn-perigo', type: 'button',

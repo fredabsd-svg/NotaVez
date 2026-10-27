@@ -1,5 +1,5 @@
 import { h, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, situacaoSelo } from '../ui.js';
-import { api, ErroApi } from '../api.js';
+import { api, ErroApi, cabecalhosIdentidade, comEmpresa } from '../api.js';
 import { ir, estado } from '../app.js';
 
 // Baixa um documento da nota como File (para a folha de compartilhamento do celular).
@@ -8,7 +8,7 @@ async function arquivo(n, tipo) {
     danfse: { url: `/api/notas/${n.id}/danfse`, nome: `DANFSe-${n.chaveAcesso}.pdf`, mime: 'application/pdf' },
     xml: { url: `/api/notas/${n.id}/xml`, nome: `NFSe-${n.chaveAcesso}.xml`, mime: 'application/xml' },
   }[tipo];
-  const r = await fetch(cfg.url, { credentials: 'same-origin' });
+  const r = await fetch(cfg.url, { credentials: 'same-origin', headers: cabecalhosIdentidade() });
   return r.ok ? new File([await r.blob()], cfg.nome, { type: cfg.mime }) : null;
 }
 
@@ -18,7 +18,7 @@ async function abrirDanfse(e, n) {
   e.preventDefault();
   const aba = window.open('', '_blank');
   try {
-    const r = await fetch(`/api/notas/${n.id}/danfse`, { credentials: 'same-origin' });
+    const r = await fetch(`/api/notas/${n.id}/danfse`, { credentials: 'same-origin', headers: cabecalhosIdentidade() });
     if (!r.ok) throw new Error((await r.json().catch(() => null))?.erro || 'Não foi possível gerar o DANFSe agora. Tente de novo em instantes.');
     const url = URL.createObjectURL(await r.blob());
     if (aba) aba.location.href = url; else location.href = url;
@@ -57,8 +57,8 @@ function blocoEmitida(n) {
     n.homologacao ? h('p', { class: 'cartao cartao-alerta' }, 'Ambiente de testes: esta nota não tem validade jurídica, e o DANFSe traz esse aviso.') : null,
     h('h3', {}, 'Documentos oficiais'),
     h('button', { class: 'btn btn-primario', type: 'button', onclick: () => compartilhar(n) }, icone(ICONES.compartilhar), 'Enviar ao cliente'),
-    n.documentos?.danfse ? h('a', { class: 'btn', href: `/api/notas/${n.id}/danfse`, target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe (PDF)') : null,
-    n.documentos?.xml !== undefined ? h('a', { class: 'btn', href: `/api/notas/${n.id}/xml`, download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML da NFS-e') : null,
+    n.documentos?.danfse ? h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/danfse`), target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe (PDF)') : null,
+    n.documentos?.xml !== undefined ? h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/xml`), download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML da NFS-e') : null,
     n.documentos?.consultaPublica ? h('a', { class: 'btn btn-texto', href: n.documentos.consultaPublica, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'Conferir na Consulta Pública') : null,
     h('p', { class: 'suave' }, '"Enviar ao cliente" manda o DANFSe (PDF) e o XML. O DANFSe é a versão para imprimir da NFS-e: o Nota Sem Stress o gera a partir do XML oficial da Receita, no modelo da NT 008, com QR Code para conferir a nota.'),
   ];

@@ -15,11 +15,19 @@ export function definirIdentidadeApi(conta) {
   identidade = proxima;
 }
 
+// Cabeçalhos de identidade para downloads feitos com fetch fora de api().
+export function cabecalhosIdentidade() {
+  return identidade ? { 'X-NotaVez-Usuario': identidade.usuarioId, 'X-NotaVez-Prestador': identidade.prestadorId || '' } : {};
+}
+// Links abertos pelo navegador (sem cabeçalhos) dizem a empresa na URL.
+export const comEmpresa = (url) => (identidade?.prestadorId ? `${url}${url.includes('?') ? '&' : '?'}empresa=${encodeURIComponent(identidade.prestadorId)}` : url);
+export const urlConta = (empresa) => (empresa ? `/api/conta?empresa=${encodeURIComponent(empresa)}` : '/api/conta');
+
 export async function api(metodo, url, corpo) {
   if (!navigator.onLine) throw new ErroApi(0);
   const identidadePedido = identidade;
   const epocaPedido = epoca;
-  const descoberta = (metodo === 'GET' && url === '/api/conta') || /^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(url);
+  const descoberta = (metodo === 'GET' && /^\/api\/conta(\?|$)/.test(url)) || /^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(url);
   let r;
   try {
     r = await fetch(url, {
@@ -36,6 +44,7 @@ export async function api(metodo, url, corpo) {
   if (!descoberta && epocaPedido !== epoca) throw new ErroApi(401, { erro: 'A conta mudou durante esta operação.' });
   if (!r.ok) {
     if ((r.status === 401 && !url.includes('/api/conta/')) || dados?.codigo === 'CONTA_ALTERADA') window.dispatchEvent(new CustomEvent('notavez:sessao-expirada'));
+    if (dados?.codigo === 'EMPRESA_INDISPONIVEL') window.dispatchEvent(new CustomEvent('notavez:empresa-indisponivel'));
     throw new ErroApi(r.status, dados);
   }
   return dados;

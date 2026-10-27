@@ -26,8 +26,8 @@ export async function tela(_, query) {
           const entrada = await api('POST', `/api/conta/${modo === 'cadastro' ? 'cadastrar' : 'entrar'}`, { email: email.entrada.value, senha: senha.entrada.value });
           await carregarConta({ permitirOffline: false, substituirTitular: true, usuarioEsperado: entrada.usuarioId });
           sincronizarTodos().catch(() => {});
-          if (modo === 'cadastro') aviso('Conta criada. Agora preencha seu perfil fiscal.');
-          ir(modo === 'cadastro' ? '/perfil' : '/', { substituir: true });
+          if (modo === 'cadastro') aviso('Conta criada. Agora cadastre sua empresa pelo CNPJ.');
+          ir(modo === 'cadastro' ? '/empresas/nova' : '/', { substituir: true });
         } catch (err) {
           erro.textContent = err instanceof ErroApi ? err.message : 'Não foi possível entrar.';
           erro.hidden = false;
