@@ -1,5 +1,6 @@
 import { h, campo, aviso } from '../ui.js';
 import { api } from '../api.js';
+import { sair } from '../app.js';
 
 function acessoGovbr(conta) {
   if (conta.govbr) {
@@ -44,6 +45,8 @@ export async function tela(_, query = {}) {
       linha('Usuário (CPF/CNPJ)', conta.documentoFormatado ? `${conta.documentoFormatado}${conta.documentoVerificado ? ' · confirmado pelo gov.br' : ''}` : null),
       linha('E-mail', conta.email || 'Não informado')),
     acessoGovbr(conta),
+    h('button', { class: 'btn', type: 'button', onclick: sair }, 'Sair da conta'),
+    h('p', { class: 'suave' }, 'Ao sair, o app volta para a tela de usuário (CPF, CNPJ ou e-mail) e senha.'),
     h('h2', {}, 'Excluir conta'),
     h('p', {}, 'Antes de excluir, baixe os documentos de que precisa. A conta, sessões, perfil, clientes, serviços, rascunhos, notas, registros associados e certificado A1 serão apagados do banco ativo do serviço.'),
     h('p', {}, 'Notas em envio ou com resultado incerto precisam ser verificadas primeiro. Excluir aqui não cancela documentos já emitidos nem apaga registros mantidos pelos sistemas fiscais oficiais.'),
