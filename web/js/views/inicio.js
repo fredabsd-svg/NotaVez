@@ -1,7 +1,7 @@
 import { h, moeda, data, icone, ICONES, situacaoSelo, aviso } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { comCache, rascunhosLocais } from '../store.js';
-import { estado, atualizarSelo } from '../app.js';
+import { estado, atualizarSelo, sair } from '../app.js';
 
 export function pendenciasCartao(eleg, { compacto = false } = {}) {
   if (!eleg || eleg.podeEmitir) return null;
@@ -76,6 +76,11 @@ export async function tela() {
       h('h3', {}, 'Última emissão'),
       ultima,
       h('a', { class: 'btn btn-texto', href: '#/empresas' }, icone(ICONES.empresa), 'Trocar de empresa'),
-      h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Instalar na tela inicial')),
+      h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Instalar na tela inicial'),
+      // O app fica conectado no aparelho; sair leva de volta à tela de usuário e senha.
+      h('h3', {}, 'Conta'),
+      h('p', { class: 'suave' }, `Conectado como ${estado.conta?.documentoFormatado || estado.conta?.email || 'você'}.`),
+      h('a', { class: 'btn btn-texto', href: '#/conta' }, 'Minha conta e gov.br'),
+      h('button', { class: 'btn btn-texto', type: 'button', onclick: sair }, 'Sair da conta')),
   };
 }

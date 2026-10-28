@@ -118,8 +118,11 @@ try {
   await page.reload();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
 
-  await page.goto(`${base}/#/perfil`);
+  // Conectado no aparelho: a saída fica à vista no Início e volta à tela de usuário e senha.
+  await page.goto(`${base}/#/`);
+  await page.getByText('Conectado como 529.982.247-25.').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
+  await page.getByLabel('CPF, CNPJ ou e-mail').waitFor();
   // Volta entrando com o CPF como usuário: com duas empresas, cai na lista.
   await page.getByLabel('CPF, CNPJ ou e-mail').fill('52998224725');
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
