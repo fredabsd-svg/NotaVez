@@ -17,7 +17,7 @@ const rascunho = { competencia: '2026-09-01', cTribNac: '010101', descricao: 'Se
 function fixture(t, cliente = {}) {
   const db = abrirBanco(':memory:');
   t.after(() => db.fechar());
-  db.run("INSERT INTO usuarios VALUES ('u','teste@example.test','irrelevante','2026-01-01')");
+  db.run("INSERT INTO usuarios (id, email, senha_hash, criado_em) VALUES ('u','teste@example.test','irrelevante','2026-01-01')");
   const repo = criarRepositorio(db);
   const p = { tipoDocumento: 'CNPJ', documento: '11222333000181', nome: 'Teste', municipioIbge: '3550308', opSimpNac: '2', ambiente: 'producao_restrita' };
   const id = repo.salvarPrestador('u', null, p);
@@ -130,7 +130,7 @@ test('migração preserva banco antigo, recupera contexto da DPS e separa unicid
     .replace('ON notas(ambiente, id_dps_indice)', 'ON notas(id_dps_indice)');
   antigo.exec(schemaAntigo);
   const adapter = { get: (sql, ...p) => antigo.prepare(sql).get(...p), run: (sql, ...p) => antigo.prepare(sql).run(...p) };
-  adapter.run("INSERT INTO usuarios VALUES ('u','teste@example.test','hash','2026-01-01')");
+  adapter.run("INSERT INTO usuarios (id, email, senha_hash, criado_em) VALUES ('u','teste@example.test','hash','2026-01-01')");
   const repoAntigo = criarRepositorio(adapter);
   const idP = repoAntigo.salvarPrestador('u', null, { tipoDocumento: 'CNPJ', documento: '11444777000161', nome: 'Legado', municipioIbge: '3304557', opSimpNac: '2' });
   const idNota = repoAntigo.criarNota(idP, rascunho);

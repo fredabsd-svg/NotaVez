@@ -40,6 +40,15 @@ const COLUNAS_NOVAS = [
   ['notas', 'processamento_ate', 'TEXT'],
   ['notas', 'proxima_verificacao_em', 'TEXT'],
   ['notas', 'verificacoes', 'INTEGER NOT NULL DEFAULT 0'],
+  // Acesso como no Portal da NFS-e: CPF/CNPJ como usuário e vínculo com o gov.br.
+  ['usuarios', 'tipo_documento', 'TEXT'],
+  ['usuarios', 'documento_cifrado', 'TEXT'],
+  ['usuarios', 'documento_indice', 'TEXT'],
+  ['usuarios', 'documento_verificado', 'INTEGER NOT NULL DEFAULT 0'],
+  ['usuarios', 'nome', 'TEXT'],
+  ['usuarios', 'govbr_indice', 'TEXT'],
+  // "Manter conectado neste aparelho": sessão longa renovada a cada uso.
+  ['sessoes', 'lembrar', 'INTEGER NOT NULL DEFAULT 1'],
 ];
 function migrar(db) {
   db.exec('BEGIN IMMEDIATE');
@@ -51,7 +60,9 @@ function migrar(db) {
     // Recria também em bancos existentes: o antigo índice ignorava o ambiente.
     db.exec(`DROP INDEX IF EXISTS ux_notas_id_dps;
       CREATE UNIQUE INDEX ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS ix_notas_verificacao ON notas(situacao, proxima_verificacao_em);`);
+      CREATE INDEX IF NOT EXISTS ix_notas_verificacao ON notas(situacao, proxima_verificacao_em);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_documento ON usuarios(documento_indice) WHERE documento_indice IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_govbr ON usuarios(govbr_indice) WHERE govbr_indice IS NOT NULL;`);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); db.close(); throw e; }
 }

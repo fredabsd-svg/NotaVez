@@ -17,10 +17,11 @@ const esperarTexto = (t) => p.getByText(t, { exact: false }).first().waitFor({ t
 await p.goto(BASE);
 await esperarTexto('Nota fiscal de serviço');
 await foto('01-entrar');
-await p.getByRole('tab', { name: 'Criar conta' }).click();
-await p.getByLabel('E-mail').fill(`mei${Date.now()}@exemplo.com`);
-await p.getByLabel('Senha').fill('senha-segura-1');
-await p.getByRole('button', { name: 'Criar conta' }).click();
+await p.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
+await p.getByLabel(/^E-mail/).fill(`mei${Date.now()}@exemplo.com`);
+await p.getByLabel(/^Senha/).fill('senha-segura-1');
+await p.getByLabel(/^Repita a senha/).fill('senha-segura-1');
+await p.getByRole('button', { name: 'Criar acesso' }).click();
 await esperarTexto('CNPJ da empresa');
 await foto('02-perfil-pendencias');
 

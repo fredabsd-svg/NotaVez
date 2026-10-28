@@ -25,10 +25,11 @@ const esperar = (t) => p.getByText(t, { exact: false }).first().waitFor({ timeou
 
 await p.goto(BASE);
 await esperar('Nota fiscal de serviço');
-await p.getByRole('tab', { name: 'Criar conta' }).click();
-await p.getByLabel('E-mail').fill(`me${Date.now()}@exemplo.com`);
-await p.getByLabel('Senha').fill('senha-segura-1');
-await p.getByRole('button', { name: 'Criar conta' }).click();
+await p.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
+await p.getByLabel(/^E-mail/).fill(`me${Date.now()}@exemplo.com`);
+await p.getByLabel(/^Senha/).fill('senha-segura-1');
+await p.getByLabel(/^Repita a senha/).fill('senha-segura-1');
+await p.getByRole('button', { name: 'Criar acesso' }).click();
 await esperar('CNPJ da empresa');
 
 await p.getByLabel('CNPJ da empresa').fill('11222333000181');
