@@ -139,7 +139,7 @@ No leiaute da NFS-e, Presumido e Real são o mesmo regime ("Não Optante"); as d
 | Perfil | Emite direto? | Por quê | O que o app faz |
 |---|---|---|---|
 | **MEI com e-CNPJ A1 (ICP-Brasil) do próprio CNPJ, dentro da validade** | **Sim** | Atende E1200–E1209 e E0714–E0718 | Emite em homologação; a produção depende de liberação no servidor |
-| MEI só com login gov.br | Não | A API não aceita gov.br; exige certificado ICP-Brasil | Rascunhos + lista "o que falta" + orientação para usar o Emissor Nacional |
+| MEI só com login gov.br | Não pela API | A API não aceita gov.br nem usuário/senha; exige certificado ICP-Brasil | **Emissão assistida:** roteiro com os valores da DPS na ordem das telas do Emissor Nacional (botões de copiar), a pessoa emite no site oficial e importa o XML assinado para o histórico (`GET /api/notas/{id}/assistida`, `POST /api/notas/importar`) |
 | MEI com certificado A3 (cartão ou token) | Não (MVP) | O servidor não tem acesso ao token físico | Rascunhos. Futuro: certificado em nuvem (PSC) com assinatura remota |
 | MEI só com o e-CPF do titular | Não suportado | A E0718 exige o certificado do emitente; não há garantia de aceite de e-CPF para emitente CNPJ | Recusa o envio do certificado e explica o motivo |
 | Contador ou procurador emitindo por um cliente | Não suportado | A assinatura tem de ser do emitente (E0718); a API não tem mecanismo de delegação | Futuro: vários perfis por conta, cada um com o seu certificado |

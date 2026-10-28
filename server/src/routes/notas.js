@@ -7,6 +7,7 @@ import { mascararDocumento, formatarDocumento } from '../util/documentos.js';
 import { ErroApp, naoEncontrado } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
 import { exigirPrestador, perfilPublico } from './perfil.js';
+import { roteiroEmissor, lerNfseImportada } from '../fiscal/assistida.js';
 
 const ROTULOS = {
   rascunho: { rotulo: 'Rascunho', aviso: 'Ainda não é nota fiscal.' },
@@ -24,6 +25,10 @@ export function resumoNota(repo, prestador, n, completo = false) {
     id: n.id,
     situacao: n.situacao,
     ...ROTULOS[n.situacao],
+    // Emitida pela própria pessoa no Emissor Nacional: o app só guardou o XML que ela trouxe.
+    ...(n.situacao === 'emitida' && n.canal === 'emissor_nacional'
+      ? { rotulo: 'Emitida (Emissor Nacional)', aviso: 'Emitida por você no Emissor Nacional; o XML foi importado para o histórico. Confira na Consulta Pública se precisar.' } : {}),
+    canal: n.canal,
     clienteNome: r.tomador?.nome || null,
     valor: n.valor,
     competencia: n.competencia,
@@ -186,6 +191,44 @@ export async function rotasNotas(app) {
   }
   app.post('/notas/clonar-ultima', async (req) => clonar(req, repo.ultimaEmitida(exigirPrestador(req).id)));
   app.post('/notas/:id/clonar', async (req) => clonar(req, repo.nota(exigirPrestador(req).id, req.params.id)));
+
+  // Emissão assistida: roteiro com os valores que iriam na DPS, para preencher o Emissor Nacional.
+  app.get('/notas/:id/assistida', async (req) => {
+    const p = exigirPrestador(req);
+    const n = repo.nota(p.id, req.params.id);
+    if (!n) throw naoEncontrado('Nota');
+    if (!['rascunho', 'rejeitada'].includes(n.situacao)) throw new ErroApp(409, 'Esta nota já saiu do rascunho.', { notaId: n.id });
+    const v = await emissao.validar(p, n.rascunho);
+    const amb = ambientesSefin[p.ambiente];
+    return {
+      nota: resumoNota(repo, p, n, true),
+      roteiro: roteiroEmissor({ prestador: p, nota: n, validacao: v }),
+      // Pontos que a validação do app encontrou: o Emissor Nacional deve recusar os mesmos.
+      avisos: v.erros.map((e) => ({ campo: e.campo, mensagem: e.mensagem, regra: e.regra })),
+      emissorNacional: amb?.emissorNacional || null,
+      homologacao: p.ambiente === 'producao_restrita',
+    };
+  });
+
+  // XML da NFS-e emitida no Emissor Nacional → histórico (com notaId, conclui aquele rascunho).
+  app.post('/notas/importar', async (req) => {
+    const p = exigirPrestador(req);
+    const dados = lerNfseImportada(req.body?.xml, { exigirAssinatura: !config.demo });
+    if (dados.emitente?.documento !== p.documento) {
+      throw new ErroApp(422, `Esta NFS-e foi emitida por ${dados.emitente ? `${dados.emitente.tipo} ${formatarDocumento(dados.emitente.tipo, dados.emitente.documento)}` : 'outro emitente'}, não pela empresa aberta (${formatarDocumento(p.tipoDocumento, p.documento)}).`);
+    }
+    const notaId = req.body?.notaId ? String(req.body.notaId) : null;
+    let rascunho = dados.rascunho;
+    if (notaId) {
+      const atual = repo.nota(p.id, notaId);
+      if (!atual) throw naoEncontrado('Nota');
+      rascunho = { ...rascunho, clienteId: atual.rascunho?.clienteId || null, servicoId: atual.rascunho?.servicoId || null };
+    }
+    const id = repo.registrarImportada(p.id, notaId, { ...dados, rascunho, xml: req.body.xml, contexto: p });
+    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.importada', entidade: 'nota', entidadeId: id, detalhes: { assinada: dados.assinatura.presente }, ip: req.ip });
+    if (rascunho.clienteId) repo.marcarClienteUsado(p.id, rascunho.clienteId);
+    return { nota: resumoNota(repo, p, repo.nota(p.id, id), true), assinatura: dados.assinatura };
+  });
 
   // XML oficial da NFS-e (como devolvido pela Sefin Nacional).
   app.get('/notas/:id/xml', async (req, reply) => {

@@ -187,3 +187,9 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
 .btn-govbr { border-color: #1351b4; color: #1351b4; border-radius: 999px; background: var(--cartao); }
 .btn-govbr strong { font-weight: 800; letter-spacing: -.02em; }
 @media (prefers-color-scheme: dark) { .btn-govbr { border-color: #8fb4f5; color: #8fb4f5; } }
+
+/* Emissão assistida pelo Emissor Nacional: valor e botão de copiar lado a lado. */
+.roteiro h2 { font-size: 18px; margin: 0 0 4px; }
+.copiavel { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.copiavel span { min-width: 0; overflow-wrap: anywhere; }
+.copiavel .btn { flex: none; margin: 0; }

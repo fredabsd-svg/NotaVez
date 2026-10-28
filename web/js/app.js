@@ -15,6 +15,7 @@ import * as perfil from './views/perfil.js';
 import * as instalar from './views/instalar.js';
 import * as empresas from './views/empresas.js';
 import * as tomadas from './views/tomadas.js';
+import * as assistida from './views/assistida.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -25,6 +26,7 @@ const rotas = [
   ['/nota/:id', nota.tela],
   ['/nota/:id/revisao', revisao.tela],
   ['/nota/:id/resultado', resultado.tela],
+  ['/nota/:id/assistida', assistida.tela],
   ['/notas', historico.tela],
   ['/notas/:id', resultado.detalhe],
   ['/clientes', clientes.lista],

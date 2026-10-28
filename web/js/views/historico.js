@@ -2,6 +2,7 @@ import { h, moeda, data, situacaoSelo, campo } from '../ui.js';
 import { api } from '../api.js';
 import { comCache, rascunhosLocais } from '../store.js';
 import { ir } from '../app.js';
+import { botaoImportarXml } from './assistida.js';
 
 const FILTROS = [['', 'Todas'], ['emitida', 'Emitidas'], ['pendente', 'Pendentes'], ['rejeitada', 'Rejeitadas'], ['rascunho', 'Rascunhos']];
 
@@ -39,6 +40,9 @@ export async function tela(_, query) {
               h('div', { style: 'margin-top:6px' }, h('span', { class: 'situacao s-rascunho' }, 'Rascunho · não emitida'))),
             h('div', { class: 'item-valor' }, moeda(r.rascunho.valor)))))))
         : null,
-      ul),
+      ul,
+      // Notas emitidas direto no Emissor Nacional também entram no histórico pelo XML.
+      h('div', { class: 'cartao' }, h('p', { class: 'suave', style: 'margin-top:0' }, 'Emitiu uma nota direto no Emissor Nacional? Traga o XML para ter o histórico, o PDF e poder clonar.'),
+        botaoImportarXml({ texto: 'Importar XML do Emissor Nacional', classe: 'btn' }))),
   };
 }

@@ -38,6 +38,7 @@
 | | |
 |---|---|
 | **Entrar como no Portal da NFS-e** | Usuário CPF/CNPJ (ou e-mail) e senha, "Fazer primeiro acesso", "Esqueci a minha senha" e **Entrar com gov.br** (Login Único, quando configurado). "Manter conectado" deixa o app aberto no aparelho sem pedir login de novo. |
+| **Sem certificado? Emissão assistida** | A Receita só aceita aplicativos com o certificado A1. Sem ele, o app monta o roteiro da nota na ordem das telas do **Emissor Nacional** (com botões de copiar), você emite no site oficial com usuário e senha ou gov.br e traz o XML: a nota entra no histórico com DANFSe e pode ser clonada. |
 | **Várias empresas na mesma conta** | Escritórios cadastram quantas empresas quiserem e escolhem numa lista (com busca e filtros como "sem certificado" ou "pendências"). Cada empresa tem seu ambiente: emitir, clonar, notas emitidas, **notas tomadas**, clientes, serviços e dados fiscais. |
 | **Cadastro pelo CNPJ** | Digitou o CNPJ, o app busca na base pública da Receita a razão social, o endereço, o município e o **enquadramento** (MEI, Simples, Lucro Presumido ou Real) — para a empresa e para os clientes. |
 | **Notas tomadas** | Baixa do Ambiente de Dados Nacional as NFS-e que fornecedores emitiram para a empresa, marca as canceladas e mostra totais do mês, PDF e XML. |

@@ -121,6 +121,8 @@ export async function tela({ id }) {
       r.cNBS ? linha('Código NBS', r.cNBS) : null)),
     h('div', { class: 'rodape-fixo' },
       botao,
+      // Sem certificado A1, a pessoa emite no site oficial com usuário e senha ou gov.br.
+      h('a', { class: `btn ${eleg.podeEmitir ? 'btn-texto' : ''}`, href: `#/nota/${id}/assistida` }, 'Emitir pelo Emissor Nacional (usuário e senha ou gov.br)'),
       h('a', { class: 'btn btn-texto', href: `#/nota/${id}` }, 'Editar'),
       !pode ? h('p', { class: 'suave centro' }, 'O rascunho continua salvo. Nada foi enviado à Receita.') : null));
 

@@ -69,6 +69,7 @@ export function criarRepositorio(db) {
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
     versao: row.versao,
+    canal: row.canal ?? null,
   };
 
   const tomadaDe = (row) => row && {
@@ -223,6 +224,28 @@ export function criarRepositorio(db) {
         WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada') AND versao = ?`,
       cifrar(rascunho), rascunho.valor ?? null, rascunho.competencia ?? null, agora(), prestadorId, id, versao);
       return r.changes === 1;
+    },
+    // Nota emitida pela própria pessoa no Emissor Nacional (XML importado). Com
+    // notaId, o rascunho que gerou o roteiro passa a ser a nota emitida.
+    registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto }) {
+      if (db.get('SELECT 1 FROM notas WHERE chave_indice = ?', indiceCego(chaveAcesso))) {
+        const minha = db.get('SELECT id FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chaveAcesso));
+        throw new ErroApp(409, minha ? 'Esta NFS-e já está no histórico.' : 'Esta NFS-e já foi importada em outra conta.', minha ? { notaId: minha.id } : {});
+      }
+      const campos = [cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, cifrar(contexto),
+        cifrar(chaveAcesso), indiceCego(chaveAcesso), nNfse, cifrar(xml), emitidaEm, agora()];
+      if (notaId) {
+        const r = db.run(`UPDATE notas SET situacao = 'emitida', canal = 'emissor_nacional', rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?,
+          contexto_emitente_cifrado = ?, chave_cifrada = ?, chave_indice = ?, n_nfse = ?, nfse_xml_cifrado = ?, emitida_em = ?, atualizado_em = ?,
+          erros_json = NULL, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')`, ...campos, prestadorId, notaId);
+        if (r.changes !== 1) throw new ErroApp(409, 'Esta nota não é mais um rascunho. Atualize a tela.');
+        return notaId;
+      }
+      const id = novoId();
+      db.run(`INSERT INTO notas (rascunho_cifrado, valor, competencia, ambiente, contexto_emitente_cifrado, chave_cifrada, chave_indice, n_nfse,
+        nfse_xml_cifrado, emitida_em, atualizado_em, id, prestador_id, situacao, canal, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'emitida','emissor_nacional',?)`,
+      ...campos, id, prestadorId, agora());
+      return id;
     },
     removerRascunho: (prestadorId, id) => db.run("DELETE FROM notas WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')", prestadorId, id).changes === 1,
     xmlDps: (id) => decifrar(db.get('SELECT dps_xml_cifrado x FROM notas WHERE id = ?', id)?.x),

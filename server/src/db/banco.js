@@ -49,6 +49,8 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'govbr_indice', 'TEXT'],
   // "Manter conectado neste aparelho": sessão longa renovada a cada uso.
   ['sessoes', 'lembrar', 'INTEGER NOT NULL DEFAULT 1'],
+  // Por onde a nota foi emitida: NULL = API pelo app; 'emissor_nacional' = XML importado.
+  ['notas', 'canal', 'TEXT'],
 ];
 function migrar(db) {
   db.exec('BEGIN IMMEDIATE');
