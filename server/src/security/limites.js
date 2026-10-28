@@ -28,8 +28,9 @@ export function criarLimites(db, { agora = Date.now } = {}) {
     const janela = 15 * 60_000;
     if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(rota)) {
       consumir(`conta:ip:${req.ip}`, 60, janela);
-      if (typeof req.body?.email === 'string') {
-        consumir(`conta:${rota}:${req.body.email.trim().toLowerCase()}`, rota.endsWith('/entrar') ? 15 : 5, janela);
+      const identificador = req.body?.usuario ?? req.body?.email;
+      if (typeof identificador === 'string') {
+        consumir(`conta:${rota}:${identificador.trim().toLowerCase()}`, rota.endsWith('/entrar') ? 15 : 5, janela);
       }
     } else if (req.usuario) {
       consumir(`mutacao:${req.usuario.id}`, 300, 60_000);

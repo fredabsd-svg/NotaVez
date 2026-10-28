@@ -179,3 +179,11 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
 .consulta-cnpj dl { margin: 8px 0 0; }
 .totais { display: flex; gap: 12px; } .totais > div { flex: 1; min-width: 0; }
 .totais strong { display: block; font-size: 19px; overflow-wrap: anywhere; }
+
+/* Entrada no estilo do Portal da NFS-e. */
+.acesso h2 { font-size: 18px; margin: 0 0 4px; }
+.acesso-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.acesso-links a, .link { min-height: 44px; display: inline-flex; align-items: center; color: var(--azul); font: inherit; font-size: 16px; font-weight: 600; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.btn-govbr { border-color: #1351b4; color: #1351b4; border-radius: 999px; background: var(--cartao); }
+.btn-govbr strong { font-weight: 800; letter-spacing: -.02em; }
+@media (prefers-color-scheme: dark) { .btn-govbr { border-color: #8fb4f5; color: #8fb4f5; } }

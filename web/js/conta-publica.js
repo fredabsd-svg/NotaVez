@@ -38,7 +38,7 @@ configurarForm('excluir-conta', async (form, resultado) => {
   }
 });
 configurarForm('recuperar-conta', async (form, resultado) => {
-  const r = await requisitar('POST', '/api/conta/recuperar', { email: form.elements.email.value });
+  const r = await requisitar('POST', '/api/conta/recuperar', { usuario: form.elements.email.value });
   resultado.textContent = r.mensagem;
 });
 // Fragmento evita token nos logs HTTP/referrer. Apagar imediatamente da barra.

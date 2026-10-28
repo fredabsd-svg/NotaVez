@@ -43,10 +43,14 @@ try {
     document.addEventListener('securitypolicyviolation', (e) => window.violacoesCsp.push(e.violatedDirective));
   });
   await page.goto(base);
-  await page.getByRole('tab', { name: 'Criar conta' }).click();
-  await page.getByLabel('E-mail', { exact: true }).fill('smoke-a@example.invalid');
+  // Primeiro acesso como no Portal da NFS-e: CPF como usuário, e-mail e senha.
+  await page.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
+  await page.getByLabel(/^CPF ou CNPJ/).fill('52998224725');
+  assert.equal(await page.getByLabel(/^CPF ou CNPJ/).inputValue(), '529.982.247-25');
+  await page.getByLabel(/^E-mail/).fill('smoke-a@example.invalid');
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
-  await page.getByRole('button', { name: 'Criar conta', exact: true }).click();
+  await page.getByLabel(/^Repita a senha/).fill('senha-segura-1');
+  await page.getByRole('button', { name: 'Criar acesso', exact: true }).click();
   // Cadastro pelo CNPJ: razão social, município e enquadramento vêm da consulta.
   await page.getByLabel('CNPJ da empresa').fill('11222333000181');
   await page.getByText('Dados encontrados na Receita').waitFor();
@@ -116,10 +120,17 @@ try {
 
   await page.goto(`${base}/#/perfil`);
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
-  await page.getByRole('tab', { name: 'Criar conta' }).click();
-  await page.getByLabel('E-mail', { exact: true }).fill('smoke-b@example.invalid');
+  // Volta entrando com o CPF como usuário: com duas empresas, cai na lista.
+  await page.getByLabel('CPF, CNPJ ou e-mail').fill('52998224725');
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
-  await page.getByRole('button', { name: 'Criar conta', exact: true }).click();
+  await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+  await page.getByText('2 de 2 empresa(s)').waitFor();
+  await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
+  await page.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
+  await page.getByLabel(/^E-mail/).fill('smoke-b@example.invalid');
+  await page.getByLabel(/^Senha/).fill('senha-segura-1');
+  await page.getByLabel(/^Repita a senha/).fill('senha-segura-1');
+  await page.getByRole('button', { name: 'Criar acesso', exact: true }).click();
   await page.getByLabel('CNPJ da empresa').waitFor();
   const draftsB = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsB.length, 0, 'B não pode ver o draft de A');
@@ -130,12 +141,12 @@ try {
   await page.getByLabel('Confirme sua senha para excluir').fill('senha-segura-1');
   await page.locator('#exclusao-confirmada').check();
   await page.getByRole('button', { name: 'Excluir minha conta e dados' }).click();
-  await page.getByRole('tab', { name: 'Já tenho conta' }).waitFor();
+  await page.getByRole('button', { name: 'Fazer primeiro acesso' }).waitFor();
   await page.goto(`${base}/privacidade.html`);
   await page.getByText('Responsável fictício de teste', { exact: false }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.violacoesCsp), []);
   assert.deepEqual(erros, []);
-  console.log('Smoke web aprovado: cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, isolamento A/B, exclusão e privacidade; CSP ativa.');
+  console.log('Smoke web aprovado: primeiro acesso e login por CPF, cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, isolamento A/B, exclusão e privacidade; CSP ativa.');
 } catch (e) {
   if (page) {
     await mkdir('test-results', { recursive: true });
