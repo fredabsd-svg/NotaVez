@@ -1,7 +1,7 @@
 import { h, anexar, moeda, data, situacaoSelo, campo } from '../ui.js';
 import { api } from '../api.js';
 import { comCache, rascunhosLocais } from '../store.js';
-import { ir } from '../app.js';
+import { ir, estado } from '../app.js';
 import { botaoImportarXml } from './assistida.js';
 import { rascunhoEmBranco } from '../rascunho.js';
 
@@ -14,12 +14,12 @@ export async function tela(_, query) {
   const qs = new URLSearchParams({ ...(filtro ? { situacao: filtro } : {}), ...(mes ? { competencia: mes } : {}) }).toString();
   const { notas, limitado, meses: mesesServidor } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
   const rota = (situacao, m) => { const p = new URLSearchParams({ ...(situacao ? { situacao } : {}), ...(m ? { mes: m } : {}) }).toString(); return `/notas${p ? `?${p}` : ''}`; };
-  const soAparelho = (await rascunhosLocais()).filter((r) => !r.noServidor && !rascunhoEmBranco(r.rascunho));
+  const soAparelho = (await rascunhosLocais()).filter((r) => !r.noServidor && !rascunhoEmBranco(r));
   const ul = h('ul', { class: 'lista duas-colunas' });
   const item = (n) => h('li', {}, h('a', { class: 'item', href: n.situacao === 'rascunho' && !n.erros?.length ? `#/nota/${n.id}` : `#/notas/${n.id}` },
     h('div', { class: 'item-corpo' },
       h('div', { class: 'item-titulo' }, n.clienteNome || 'Sem cliente'),
-      h('div', { class: 'item-sub' }, [n.nNfse ? `NFS-e nº ${n.nNfse}` : null, data(n.competencia), n.homologacao ? 'Testes' : null].filter(Boolean).join(' · ')),
+      h('div', { class: 'item-sub item-sub-quebra' }, [n.nNfse ? `NFS-e nº ${n.nNfse}` : null, data(n.competencia), n.homologacao !== (estado.conta?.empresaAmbiente === 'producao_restrita') ? (n.homologacao ? 'Testes' : 'Produção') : null].filter(Boolean).join(' · ')),
       h('div', { style: 'margin-top:6px' }, situacaoSelo(n))),
     h('div', { class: 'item-valor' }, moeda(n.valor))));
 
@@ -36,7 +36,9 @@ export async function tela(_, query) {
       ul.append(h('li', { class: 'suave' }, notas.length || mes || filtro ? 'Nenhuma nota com estes filtros.' : 'Nenhuma nota aqui ainda.'));
       if (mes || t || filtro) ul.append(h('li', {}, h('a', { class: 'btn btn-pequeno', href: '#/notas' }, 'Limpar filtros')));
     }
-    const emitidas = lista.filter((n) => n.situacao === 'emitida');
+    // Total só do ambiente atual da empresa: notas de testes não somam com as de produção.
+    const testes = estado.conta?.empresaAmbiente === 'producao_restrita';
+    const emitidas = lista.filter((n) => n.situacao === 'emitida' && !!n.homologacao === testes);
     const total = emitidas.reduce((soma, n) => soma + Number(n.valor || 0), 0);
     resumo.replaceChildren(); anexar(resumo, h('span', {}, h('strong', {}, String(lista.length)), lista.length === 1 ? ' nota' : ' notas'),
       emitidas.length ? h('span', {}, mes ? 'Emitidas no mês: ' : 'Emitidas: ', h('strong', {}, moeda(total))) : null,
@@ -53,8 +55,7 @@ export async function tela(_, query) {
   return {
     titulo: 'Notas', aba: 'notas',
     node: h('div', {},
-      h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Emitidas, pendentes, rejeitadas e rascunhos desta empresa.'),
-        h('a', { class: 'btn btn-pequeno', href: '#/nova' }, 'Nova nota')),
+      h('p', { class: 'suave' }, 'Emitidas, pendentes, rejeitadas e rascunhos desta empresa.'),
       h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrar por situação' }, FILTROS.map(([v, t]) => h('button', {
         class: 'chip', type: 'button', 'aria-pressed': String(v === filtro), onclick: () => ir(rota(v, mes), { substituir: true }),
       }, t))),

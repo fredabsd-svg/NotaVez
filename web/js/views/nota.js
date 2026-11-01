@@ -1,6 +1,6 @@
 import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES, codigoServico } from '../ui.js';
 import { api, ErroApi } from '../api.js';
-import { salvarLocal, removerLocal, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
+import { salvarLocal, removerLocal, rascunhosLocais, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
 import { usarNaNota } from './servicos.js';
 import { ir, estado } from '../app.js';
@@ -8,7 +8,9 @@ import { ir, estado } from '../app.js';
 export async function nova() {
   const id = crypto.randomUUID();
   // Só fica no aparelho até a primeira escolha: abrir "Emitir" e voltar não deixa rascunho vazio na conta.
-  await salvarLocal(id, rascunhoVazio(), { meta: {} });
+  // Rascunhos em branco abertos antes e abandonados saem (não se acumulam no aparelho).
+  for (const r of await rascunhosLocais()) if (r.emBranco === true && !r.noServidor) await removerLocal(r.id).catch(() => {});
+  await salvarLocal(id, rascunhoVazio(), { meta: {}, emBranco: true });
   ir(`/nota/${id}`, { substituir: true });
   return null;
 }
@@ -324,7 +326,7 @@ export async function tela({ id }) {
     : null;
 
   return {
-    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', tarefa: true, voltar: true, aba: 'emitir',
+    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : (dados.local && !dados.noServidor) || !dados.nota ? 'Nova nota' : 'Rascunho', tarefa: true, voltar: true, aba: 'emitir',
     node: h('div', { class: 'tela-tarefa' },
       rejeitada,
       dados.conflito ? h('div', { class: 'cartao cartao-alerta', role: 'alert' },

@@ -91,7 +91,7 @@ try {
   await page.getByRole('button', { name: 'Buscar notas na Receita' }).click();
   await page.getByText('FORNECEDOR FICTICIO LTDA').waitFor();
   await page.getByText('FORNECEDOR FICTICIO LTDA').click();
-  await page.getByRole('button', { name: 'Baixar XML da NFS-e' }).waitFor();
+  await page.getByRole('button', { name: 'Baixar XML' }).waitFor();
 
   // Nova nota pela tela: escolher cliente e serviço salvos (rascunho chega ao servidor).
   await page.goto(`${base}/#/nova`);
@@ -103,6 +103,17 @@ try {
   for (let i = 0; i < 50 && !rascunhoTela?.rascunho?.servicoId; i++) { await page.waitForTimeout(100); rascunhoTela = app.ctx.repo.notaPorId(idNova); }
   assert.equal(rascunhoTela?.rascunho?.clienteId, cliente.id, 'cliente escolhido na tela chega ao servidor');
   assert.equal(rascunhoTela?.rascunho?.servicoId, servico.id, 'serviço escolhido na tela chega ao servidor');
+
+  // Rascunho aberto e abandonado não vai para a conta; mexer só na competência já conta como rascunho.
+  await page.goto(`${base}/#/nova`); await page.getByLabel(/^Competência/).waitFor();
+  const idVazio = page.url().split('/nota/')[1];
+  await page.goto(`${base}/#/nova`); await page.getByLabel(/^Competência/).waitFor();
+  const idCompet = page.url().split('/nota/')[1];
+  await page.getByLabel(/^Competência/).fill('15/08/2026');
+  let soCompetencia;
+  for (let i = 0; i < 50 && !soCompetencia; i++) { await page.waitForTimeout(100); soCompetencia = app.ctx.repo.notaPorId(idCompet); }
+  assert.equal(soCompetencia?.rascunho?.competencia, '2026-08-15', 'rascunho só com a competência chega à conta');
+  assert.ok(!app.ctx.repo.notaPorId(idVazio), 'rascunho em branco abandonado não vai para a conta');
 
   // Emissão assistida: roteiro para o Emissor Nacional, copiar campo e trazer o XML emitido lá.
   const assistida = (await post('/api/notas', { rascunho: { clienteId: cliente.id, servicoId: servico.id, valor: '275,00' } })).nota;

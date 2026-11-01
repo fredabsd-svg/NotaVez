@@ -8,21 +8,21 @@ import { ErroApp } from '../util/erros.js';
 export async function rotasConta(app) {
   const { auth, db } = app.ctx;
   const gravarCookie = (reply, token, lembrar = true) => reply.setCookie(COOKIE, token, opcoesCookie(lembrar, config.cookieSeguro));
-  const gravarAparelho = (reply, t) => reply.setCookie('nv_aparelho', t, { path: '/api/conta/entrar', httpOnly: true, sameSite: 'strict', secure: config.cookieSeguro, maxAge: 400 * 86400 });
+  const gravarAparelho = (reply, nome, t) => reply.setCookie(nome, t, { path: '/api/conta/entrar', httpOnly: true, sameSite: 'strict', secure: config.cookieSeguro, maxAge: 400 * 86400 });
   // "Manter conectado neste aparelho" vem marcado; só false explícito pede sessão curta.
   const lembrar = (req) => req.body?.lembrar !== false;
   app.post('/cadastrar', async (req, reply) => {
     const { usuarioId, token } = auth.cadastrar(req.body?.email, req.body?.senha, req.ip, { documento: req.body?.documento, nome: req.body?.nome, lembrar: lembrar(req) });
     auditar(db, { usuarioId, acao: 'conta.cadastro', ip: req.ip });
     gravarCookie(reply, token, lembrar(req));
-    gravarAparelho(reply, auth.marcarAparelho(usuarioId));
+    gravarAparelho(reply, auth.nomeCookieAparelho(usuarioId), auth.marcarAparelho(usuarioId));
     return { ok: true, usuarioId };
   });
   app.post('/entrar', async (req, reply) => {
     // `usuario`: CPF, CNPJ ou e-mail (o campo `email` continua aceito).
-    const { usuarioId, token, aparelho } = auth.entrar(req.body?.usuario ?? req.body?.email, req.body?.senha, req.ip, { lembrar: lembrar(req), aparelho: req.cookies?.nv_aparelho });
+    const { usuarioId, token, aparelho, nomeAparelho } = auth.entrar(req.body?.usuario ?? req.body?.email, req.body?.senha, req.ip, { lembrar: lembrar(req), cookieAparelho: (nome) => req.cookies?.[nome] });
     // Marca o aparelho onde o dono já entrou: ele fica fora do teto global de tentativas da conta.
-    if (aparelho) gravarAparelho(reply, aparelho);
+    if (aparelho) gravarAparelho(reply, nomeAparelho, aparelho);
     auditar(db, { usuarioId, acao: 'conta.entrada', ip: req.ip });
     gravarCookie(reply, token, lembrar(req));
     return { ok: true, usuarioId };

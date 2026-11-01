@@ -138,7 +138,7 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
 .s-pendente, .s-enviando { background: var(--ambar-claro); color: var(--ambar); }
 .s-rascunho { background: var(--azul-claro); color: var(--azul-escuro); }
 
-.chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 8px; }
 .chip { flex: none; min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 2px solid var(--borda-campo); background: var(--cartao); color: var(--texto); font: inherit; font-size: var(--fs-14); cursor: pointer; }
 .chip[aria-pressed="true"] { border-color: var(--azul); background: var(--azul); color: var(--sobre-acento); }
 
@@ -243,10 +243,9 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
     border-radius: 8px; font-size: var(--fs-16); }
   .abas a[aria-current="page"] { background: var(--azul-claro); }
   .abas .so-celular { display: none; }
-  .abas .aba-nova-topo { justify-content: center; margin-bottom: var(--esp-3); min-height: 48px; background: var(--azul); color: var(--sobre-acento); border-radius: var(--raio-controle); font-weight: 600; }
-  .abas .aba-nova-topo[aria-current="page"] { background: var(--azul); color: var(--sobre-acento); }
-  /* Em tela de tarefa (nova nota, revisão…) a ação principal é a do conteúdo: o atalho da lateral recua. */
-  body.sem-abas .abas .aba-nova-topo { background: transparent; color: var(--azul); border: 1px solid var(--borda-campo); }
+  /* Atalho fixo e em contorno: a ação cheia de cada tela é a do conteúdo. */
+  .abas .aba-nova-topo { justify-content: center; margin-bottom: var(--esp-3); min-height: 48px; color: var(--azul); border: 1px solid var(--borda-campo); border-radius: var(--raio-controle); font-weight: 600; }
+  .abas .aba-nova-topo[aria-current="page"] { background: var(--azul-claro); }
   .abas .separador { display: block; height: 1px; background: var(--borda); margin: var(--esp-2) 0; }
   .rodape-fixo, body.sem-abas .rodape-fixo { bottom: 0; }
   form, .form-estreito, .tela-tarefa { max-width: 720px; }

@@ -85,8 +85,10 @@ async function renderizar() {
       node: h('div', { class: `cartao ${semRede ? 'cartao-alerta' : 'cartao-erro'}`, role: 'alert' },
         h('p', {}, semRede ? 'Esta tela precisa de conexão. Você pode continuar preparando notas: elas ficam salvas como rascunho neste aparelho.'
           : e instanceof ErroApi ? e.message : 'Não foi possível abrir esta tela.'),
-        h('button', { class: 'btn btn-primario', type: 'button', onclick: () => renderizar() }, 'Tentar de novo'),
-        semRede && estado.conta?.prestadorId ? h('a', { class: 'btn', href: '#/nova' }, 'Preparar uma nota') : null,
+        // Veio de um rascunho (escolher cliente/serviço): o caminho principal é voltar a ele, não abrir outro.
+        semRede && query.para ? h('a', { class: 'btn btn-primario', href: `#/nota/${encodeURIComponent(query.para)}` }, 'Voltar ao rascunho') : null,
+        h('button', { class: `btn ${semRede ? '' : 'btn-primario'}`, type: 'button', onclick: () => renderizar() }, 'Tentar de novo'),
+        semRede && !query.para && estado.conta?.prestadorId ? h('a', { class: 'btn btn-primario', href: '#/nova' }, 'Preparar uma nota') : null,
         h('a', { class: 'btn btn-texto', href: '#/' }, 'Voltar ao início')),
     };
     if (!(e instanceof ErroApi)) console.error(e);

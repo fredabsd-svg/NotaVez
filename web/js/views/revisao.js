@@ -108,7 +108,7 @@ export async function tela({ id }) {
   const corpo = h('div', { class: 'tela-tarefa' },
     h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Confira os dados antes de enviar à Receita.'),
       h('a', { class: 'btn btn-pequeno', href: `#/nota/${id}` }, 'Editar')),
-    nota.homologacao ? h('p', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Ambiente de testes: '), 'a nota será emitida sem validade jurídica.') : null,
+    (perfil.perfil?.ambiente || (nota.homologacao ? 'producao_restrita' : '')) === 'producao_restrita' ? h('p', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Ambiente de testes: '), 'a nota será emitida sem validade jurídica.') : null,
     erros,
     pendenciasCartao(eleg),
     h('div', { class: 'cartao' },

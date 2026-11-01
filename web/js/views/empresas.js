@@ -18,17 +18,21 @@ function marcadores(e) {
   else if (e.certificadoVencido) mk('Certificado vencido', 'marcador-erro');
   else if (venceEmBreve) mk(`Certificado vence ${data(e.certificadoValidoAte)}`, 'marcador-alerta');
   else if (e.rascunhos) mk(plural(e.rascunhos, 'rascunho', 'rascunhos'));
-  if (e.porProcuracao) mk('Por procuração');
-  else if (!e.certificadoValidoAte) mk('Sem certificado');
-  if (e.ambiente === 'producao_restrita') mk('Testes');
+  // Sem certificado (da empresa ou do escritório, por procuração) a empresa não emite pelo app.
+  if (!e.certificadoValidoAte) mk(e.porProcuracao ? 'Sem certificado do escritório' : 'Sem certificado', 'marcador-alerta');
+  else if (e.porProcuracao) mk('Por procuração');
+  // Ambiente só quando foge do comum: produção é o normal.
+  if (e.ambiente === 'producao_restrita' && !todasEmTestes) mk('Testes');
   return m;
 }
 
-const precisaAtencao = (e) => e.pendentes > 0 || e.certificadoVencido
-  || (e.certificadoValidoAte && new Date(e.certificadoValidoAte) - Date.now() < 30 * 86400_000);
+const precisaAtencao = (e) => e.pendentes > 0 || e.certificadoVencido || !e.certificadoValidoAte
+  || new Date(e.certificadoValidoAte) - Date.now() < 30 * 86400_000;
+let todasEmTestes = false;
 
 export async function lista(_, query) {
   const { empresas } = await comCache('empresas', () => api('GET', '/api/empresas'));
+  todasEmTestes = empresas.length > 1 && empresas.every((e) => e.ambiente === 'producao_restrita');
   const filtro = FILTROS.some(([v]) => v === query.filtro) ? query.filtro : '';
   const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
   // Primeiro o que precisa de atenção, depois por nome.

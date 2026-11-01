@@ -131,7 +131,10 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
       if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
       else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
       if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); preenchido.regime = regime.entrada.value; }
+      // CNPJ achado sem enquadramento: o regime que veio da empresa anterior (consulta errada) volta ao inicial.
+      else if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); preenchido.regime = null; }
       if (d.enquadramento?.apuracao) { apuracao.entrada.value = d.enquadramento.apuracao; preenchido.apuracao = apuracao.entrada.value; }
+      else if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) { apuracao.entrada.value = apuracaoInicial; preenchido.apuracao = null; }
       if (regime.entrada.value === '1' && cstPisCofins.entrada.value === '01' && !aliqPis.entrada.value && !aliqCofins.entrada.value) padroes.click();
       trocarSeAutomatico(email, 'email', d.email);
       trocarSeAutomatico(fone, 'fone', d.fone);

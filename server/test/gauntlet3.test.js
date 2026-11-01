@@ -74,12 +74,23 @@ test('tentativas erradas de vários IPs não trancam o dono no aparelho onde ele
   try {
     const dono = cliente(app, '192.0.2.60');
     await dono('POST', '/api/conta/cadastrar', { email: 'dono@exemplo.test', senha: 'senha-segura' });
-    assert.match(dono.cookies(), /nv_aparelho=/, 'o aparelho do cadastro fica marcado');
+    assert.match(dono.cookies(), /nv_ap_[A-Za-z0-9]{12}=/, 'o aparelho do cadastro fica marcado');
     const tentar = (ipA) => app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: ipA, headers: { 'x-notavez': '1' }, payload: { usuario: 'dono@exemplo.test', senha: 'errada-errada' } });
     for (let k = 1; k <= 7; k++) for (let i = 0; i < 15; i++) await tentar(`203.0.113.${k}`);
     // De outro IP (rede móvel), com o cookie do aparelho conhecido: entra.
     const r = await dono('POST', '/api/conta/entrar', { usuario: 'dono@exemplo.test', senha: 'senha-segura' }, { ip: '198.51.100.7' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Computador compartilhado: outra conta entrar ali não apaga a marca do dono.
+    const outra = cliente(app, '192.0.2.61');
+    await outra('POST', '/api/conta/cadastrar', { email: 'outra@exemplo.test', senha: 'senha-segura' });
+    const compartilhado = cliente(app, '198.51.100.9');
+    await compartilhado('POST', '/api/conta/entrar', { usuario: 'outra@exemplo.test', senha: 'senha-segura' });
+    const marcaDono = dono.cookies().split('; ').find((c) => c.startsWith('nv_ap_'));
+    const r2 = await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '198.51.100.9', headers: { 'x-notavez': '1', cookie: `${compartilhado.cookies()}; ${marcaDono}` }, payload: { usuario: 'dono@exemplo.test', senha: 'senha-segura' } });
+    assert.equal(r2.statusCode, 200, 'a marca de cada conta tem nome próprio');
+    // Identificador que não existe recebe o mesmo 429 depois de muitas tentativas (sem revelar quem existe).
+    for (let k = 1; k <= 7; k++) for (let i = 0; i < 15; i++) await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: `203.0.114.${k}`, headers: { 'x-notavez': '1' }, payload: { usuario: 'ninguem@exemplo.test', senha: 'errada-errada' } });
+    assert.equal((await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '203.0.114.99', headers: { 'x-notavez': '1' }, payload: { usuario: 'ninguem@exemplo.test', senha: 'x' } })).statusCode, 429);
     // Aparelho desconhecido continua sob o teto global (é ele que barra tentativas distribuídas).
     const novo = await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '198.51.100.8', headers: { 'x-notavez': '1' }, payload: { usuario: 'dono@exemplo.test', senha: 'senha-segura' } });
     assert.equal(novo.statusCode, 429);
@@ -99,7 +110,7 @@ test('escritório atrás do mesmo IP: logins certos de muitas pessoas não esgot
     assert.deepEqual([...new Set(status)], [200]);
     // Erros pelo mesmo IP continuam limitados.
     const erros = [];
-    for (let i = 0; i < 17; i++) erros.push((await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '203.0.113.201', headers: { 'x-notavez': '1' }, payload: { usuario: `p${i}@escritorio.test`, senha: 'errada-errada' } })).statusCode);
+    for (let i = 0; i < 52; i++) erros.push((await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '203.0.113.201', headers: { 'x-notavez': '1' }, payload: { usuario: `p${i % 20}@escritorio.test`, senha: 'errada-errada' } })).statusCode);
     assert.ok(erros.includes(429), 'senhas erradas em massa pelo mesmo IP ainda são barradas');
   } finally { await app.close(); }
 });
@@ -162,5 +173,25 @@ test('lista de notas: competência filtrada no servidor, meses disponíveis e av
     const agosto = (await api('GET', '/api/notas?competencia=2026-08')).body;
     assert.equal(agosto.notas.length, 5, 'o mês antigo vem completo mesmo fora das 200 mais recentes');
     assert.equal(agosto.limitado, false);
+  } finally { await app.close(); }
+});
+
+test('reconferência só mantém o cliente salvo se ele for o tomador da nota oficial', async () => {
+  const oficial = assinar(sefin.adicionarTomada({ prestador: CNPJ, tomador: '11444777000161', valor: '80.00' }).xml);
+  const fake = () => ({ consultarNfse: async () => ({ tipo: 'ok', nfseXml: oficial }), consultarConvenio: async () => ({ situacao: 'desconhecido' }), fechar() {} });
+  const app = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, fabricaCliente: fake });
+  try {
+    const api = cliente(app, '192.0.2.95');
+    await api('POST', '/api/conta/cadastrar', { email: 'vinc@exemplo.test', senha: 'senha-segura' });
+    await api('POST', '/api/empresas', { documento: CNPJ, nome: 'Cliente', municipioIbge: '3550308', opSimpNac: '2' });
+    const outro = (await api('POST', '/api/clientes', { documento: '52998224725', nome: 'Cliente X' })).body.cliente;
+    const rasc = (await api('POST', '/api/notas', { rascunho: { clienteId: outro.id, cTribNac: '010101', descricao: 'x', valor: '80,00' } })).body.nota;
+    await api('POST', '/api/notas/importar', { xml: oficial, notaId: rasc.id });
+    await api('POST', '/api/certificado', { pfxBase64: cert.pfx.toString('base64'), senha: cert.senha, consentimento: true });
+    assert.equal((await api('POST', '/api/notas/importar', { xml: oficial })).body.reconferida, true);
+    const n = (await api('GET', `/api/notas/${rasc.id}`)).body.nota;
+    assert.equal(n.rascunho.clienteId, null, 'cliente salvo diferente do tomador oficial não fica vinculado');
+    const clone = (await api('POST', '/api/notas/clonar-ultima', {})).body.nota;
+    assert.equal(clone.rascunho.tomador?.documento, '11444777000161');
   } finally { await app.close(); }
 });

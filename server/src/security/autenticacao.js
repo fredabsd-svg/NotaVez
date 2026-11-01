@@ -62,10 +62,18 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
   function limitar(acao, identidade, ip, max = 5) {
     db.transacao(() => { conferirLimite(acao, identidade, ip, max); contarLimite(acao, identidade, ip); });
   }
-  // Aparelho onde o dono já entrou (cookie próprio, guardado só como hash).
+  // Aparelho onde o dono já entrou (cookie próprio de cada conta, guardado só como hash):
+  // num computador compartilhado, a entrada de outra conta não apaga a marca desta.
+  const nomeCookieAparelho = (usuarioId) => `nv_ap_${hashToken(`nome-aparelho:${usuarioId}`).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`;
   function marcarAparelho(usuarioId) {
     const t = tokenAleatorio();
-    db.run('INSERT INTO aparelhos_confiaveis (token_hash, usuario_id, criado_em) VALUES (?,?,?)', hashToken(`aparelho:${t}`), usuarioId, agora());
+    db.transacao(() => {
+      // Vale 400 dias e no máximo 20 aparelhos por conta (os mais antigos saem).
+      db.run('DELETE FROM aparelhos_confiaveis WHERE criado_em < ?', new Date(Date.now() - 400 * 86400_000).toISOString());
+      db.run('INSERT INTO aparelhos_confiaveis (token_hash, usuario_id, criado_em) VALUES (?,?,?)', hashToken(`aparelho:${t}`), usuarioId, agora());
+      db.run(`DELETE FROM aparelhos_confiaveis WHERE usuario_id = ? AND token_hash NOT IN
+        (SELECT token_hash FROM aparelhos_confiaveis WHERE usuario_id = ? ORDER BY criado_em DESC, rowid DESC LIMIT 20)`, usuarioId, usuarioId);
+    });
     return t;
   }
   function criarSessao(usuarioId, lembrar = true) {
@@ -108,8 +116,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       }
       const id = novoId();
       return db.transacao(() => {
-        db.run(`INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, documento_verificado, nome, govbr_indice)
-          VALUES (?,?,?,?,?,?,?,1,?,?)`, id, emailOk || `govbr-${indiceGovbr(cpf).slice(0, 16)}${SEM_EMAIL}`,
+        db.run(`INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, documento_verificado, nome, govbr_indice, documento_origem)
+          VALUES (?,?,?,?,?,?,?,1,?,?,'govbr_conta')`, id, emailOk || `govbr-${indiceGovbr(cpf).slice(0, 16)}${SEM_EMAIL}`,
         // Senha aleatória descartada: quem entra pelo gov.br não tem senha até pedir uma.
         hashSenha(tokenAleatorio()), agora(), 'CPF', cifrar(cpf), indiceDocumento(cpf), String(nome || '').trim().slice(0, 200) || null, indiceGovbr(cpf));
         return { usuarioId: id, token: criarSessao(id), novo: true };
@@ -149,29 +157,34 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       }
       const id = novoId();
       return db.transacao(() => {
-        db.run('INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, nome) VALUES (?,?,?,?,?,?,?,?)',
+        db.run('INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, nome, documento_origem) VALUES (?,?,?,?,?,?,?,?,?)',
           id, email, hashSenha(senha), agora(), doc?.tipo ?? null, doc ? cifrar(doc.numero) : null, doc ? indiceDocumento(doc.numero) : null,
-          String(nome || '').trim().slice(0, 200) || null);
+          String(nome || '').trim().slice(0, 200) || null, doc ? 'digitado' : null);
         return { usuarioId: id, token: criarSessao(id, lembrar), lembrar };
       });
     },
     // Só tentativas ERRADAS contam: um escritório com muita gente atrás do mesmo IP não se tranca.
-    // Por conta+IP (15) e por IP (15); teto global por conta (100), do qual o aparelho onde o
-    // dono já entrou fica isento — tentativas de terceiros de vários IPs não trancam o dono.
-    entrar(identificador, senha, ip, { lembrar = true, aparelho = null } = {}) {
+    // Limites: conta+IP (15), IP (50) e conta em qualquer IP (100). O aparelho onde o dono já
+    // entrou (cookie próprio por conta) fica isento: tentativas de terceiros não o trancam.
+    // Identificador inexistente tem os mesmos limites (sem revelar se a conta existe).
+    entrar(identificador, senha, ip, { lembrar = true, cookieAparelho = () => null } = {}) {
       // Limite por CONTA quando ela existe: e-mail e CPF da mesma conta somam tentativas.
       const u = usuarioPorIdentificador(identificador);
-      const porIp = ['entrada', u ? `conta:${u.id}:ip:${ip}` : chaveIdentificador(identificador), ip];
+      const quem = u ? `conta:${u.id}` : `id:${chaveIdentificador(identificador)}`;
+      const aparelho = u ? cookieAparelho(nomeCookieAparelho(u.id)) : null;
       const confiavel = !!(u && typeof aparelho === 'string' && aparelho.length === 43
-        && db.get('SELECT 1 FROM aparelhos_confiaveis WHERE token_hash = ? AND usuario_id = ?', hashToken(`aparelho:${aparelho}`), u.id));
-      conferirLimite(...porIp, 15);
-      if (u && !confiavel) conferirLimite('entrada-conta', `conta:${u.id}`, false, 100);
+        && db.get('SELECT 1 FROM aparelhos_confiaveis WHERE token_hash = ? AND usuario_id = ? AND criado_em >= ?', hashToken(`aparelho:${aparelho}`), u.id, new Date(Date.now() - 400 * 86400_000).toISOString()));
+      // Aparelho conhecido tem um contador só dele (quem não tem o cookie não consegue gastá-lo).
+      const limites = confiavel ? [['entrada', `${quem}:aparelho:${hashToken(aparelho)}`, false, 15]]
+        : [['entrada', `${quem}:ip:${ip}`, false, 15], ['entrada-ip', null, ip, 50], ['entrada-conta', quem, false, 100]];
+      for (const [acao, id, ipL, max] of limites) conferirLimite(acao, id, ipL, max);
       if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) {
-        db.transacao(() => { contarLimite(...porIp); if (u) contarLimite('entrada-conta', `conta:${u.id}`, false); });
+        db.transacao(() => { for (const [acao, id, ipL] of limites) contarLimite(acao, id, ipL); });
         throw new ErroApp(401, 'Usuário ou senha incorretos.');
       }
-      return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar, aparelho: confiavel ? null : marcarAparelho(u.id) };
+      return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar, aparelho: confiavel ? null : marcarAparelho(u.id), nomeAparelho: nomeCookieAparelho(u.id) };
     },
+    nomeCookieAparelho: (usuarioId) => nomeCookieAparelho(usuarioId),
     marcarAparelho: (usuarioId) => marcarAparelho(usuarioId),
     reautenticar(usuarioId, senha, ip) {
       limitar('exclusao', usuarioId, ip);
@@ -217,7 +230,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         // O CPF "confirmado" que veio desse gov.br também sai (era a identidade de quem vinculou).
         // Só o CPF que entrou pelo vínculo do gov.br; o que o titular digitou no cadastro continua.
         const u = db.get('SELECT documento_cifrado, documento_origem, govbr_indice FROM usuarios WHERE id = ?', r.usuario_id);
-        if (u?.govbr_indice && u.documento_origem === 'vinculo_govbr' && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
+        // Contas anteriores ao registro da origem (NULL): vale a regra antiga, mais segura.
+        if (u?.govbr_indice && (u.documento_origem === 'vinculo_govbr' || u.documento_origem == null) && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
           db.run('UPDATE usuarios SET tipo_documento = NULL, documento_cifrado = NULL, documento_indice = NULL, documento_verificado = 0, documento_origem = NULL WHERE id = ?', r.usuario_id);
         }
         db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', r.usuario_id);

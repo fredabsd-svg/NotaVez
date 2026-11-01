@@ -28,7 +28,7 @@ export function criarLimites(db, { agora = Date.now } = {}) {
     const janela = 15 * 60_000;
     if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(rota)) {
       // Escritórios com muita gente atrás do mesmo IP: o limite fino (só tentativas erradas) fica na autenticação.
-      consumir(`conta:ip:${req.ip}`, 120, janela);
+      consumir(`conta:ip:${req.ip}`, 300, janela);
       const identificador = req.body?.usuario ?? req.body?.email;
       if (typeof identificador === 'string') {
         // Qualquer grafia do mesmo CPF/CNPJ conta como a mesma identidade.

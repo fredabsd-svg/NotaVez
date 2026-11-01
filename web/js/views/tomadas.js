@@ -89,14 +89,17 @@ export async function lista(_, query) {
           : h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado A1 desta empresa'),
             h('p', {}, 'A Receita só entrega as notas recebidas para quem apresenta o certificado digital do CNPJ (ou do escritório, por procuração).'),
             h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
-      filtroMes,
-      h('section', { class: 'cartao', 'aria-label': 'Totais' },
-        h('p', { class: 'suave', style: 'margin:0' }, `${mes ? nomeMes(mes) : 'Todas as competências'} · ${plural(dados.totais.quantidade, 'nota válida', 'notas válidas')}`),
-        h('div', { class: 'totais' },
-          h('div', {}, h('span', { class: 'suave' }, 'Valor dos serviços'), h('strong', {}, moeda(dados.totais.valor))),
-          h('div', {}, h('span', { class: 'suave' }, 'Valor líquido'), h('strong', {}, moeda(dados.totais.valorLiquido))))),
-      dados.tomadas.length > 5 ? campo({ rotulo: 'Pesquisar', ajuda: 'Fornecedor, CNPJ, número ou chave', atributos: { type: 'search', autocomplete: 'off' }, oninput: (e) => mostrar(e.target.value) }) : null,
-      contador, ul),
+      // Sem certificado e sem notas: só o cartão de como começar (sem filtro nem totais zerados).
+      ...(dados.tomadas.length || dados.temCertificado || mes ? [
+        filtroMes,
+        h('section', { class: 'cartao', 'aria-label': 'Totais' },
+          h('p', { class: 'suave', style: 'margin:0' }, `${mes ? nomeMes(mes) : 'Todas as competências'} · ${plural(dados.totais.quantidade, 'nota válida', 'notas válidas')}`),
+          h('div', { class: 'totais' },
+            h('div', {}, h('span', { class: 'suave' }, 'Valor dos serviços'), h('strong', {}, moeda(dados.totais.valor))),
+            h('div', {}, h('span', { class: 'suave' }, 'Valor líquido'), h('strong', {}, moeda(dados.totais.valorLiquido))))),
+        dados.tomadas.length > 5 ? campo({ rotulo: 'Pesquisar', ajuda: 'Fornecedor, CNPJ, número ou chave', atributos: { type: 'search', autocomplete: 'off' }, oninput: (e) => mostrar(e.target.value) }) : null,
+        dados.tomadas.length ? contador : null] : []),
+      ul),
   };
 }
 
@@ -105,14 +108,14 @@ export async function detalhe({ id }) {
   const linha = (rotulo, valor, classe) => (valor ? h('div', {}, h('dt', {}, rotulo), h('dd', { class: classe }, valor)) : null);
   const acao = (rotulo, ic, fn) => h('button', { class: 'btn', type: 'button', onclick: async () => { try { await fn(); } catch (e) { aviso(e.message); } } }, icone(ic), rotulo);
   return {
-    titulo: t.nNfse ? `NFS-e nº ${t.nNfse}` : 'Nota tomada', aba: 'tomadas', voltar: true,
+    titulo: t.nNfse ? `Nota recebida nº ${t.nNfse}` : 'Nota recebida', aba: 'tomadas', voltar: true,
     node: h('div', {},
       t.situacao === 'cancelada' ? h('p', { class: 'cartao cartao-erro' }, h('strong', {}, 'Nota cancelada pelo fornecedor. '), 'Não use para pagamento ou crédito.') : null,
       h('p', { class: 'valor-grande' }, moeda(t.valor)),
       h('dl', { class: 'dados cartao' },
         linha('Fornecedor (prestador)', t.emitente?.nome),
         linha(t.emitente?.tipo || 'Documento', t.emitente?.documentoFormatado),
-        linha('Situação', t.situacao === 'cancelada' ? 'Cancelada' : 'Válida'),
+        linha('Situação', selo(t)),
         linha('Competência', data(t.competencia)),
         linha('Emitida em', dataHora(t.emitidaEm)),
         linha('Serviço', [codigoServico(t.cTribNac), t.servico].filter(Boolean).join(' — ')),
@@ -122,7 +125,7 @@ export async function detalhe({ id }) {
         linha('ISS', t.issRetido ? `Retido pelo tomador${t.vIss ? ` (${moeda(t.vIss)})` : ''}` : t.vIss ? moeda(t.vIss) : null),
         linha('Chave de acesso', chaveFormatada(t.chaveAcesso), 'chave'),
         linha('Baixada em', dataHora(t.baixadaEm))),
-      acao('Ver DANFSe (PDF)', ICONES.documento, async () => {
+      acao('Ver DANFSe', ICONES.documento, async () => {
         const aba = window.open('', '_blank');
         try {
           const url = URL.createObjectURL(await baixar(t, 'danfse', { abrir: true }));
@@ -130,7 +133,7 @@ export async function detalhe({ id }) {
           setTimeout(() => URL.revokeObjectURL(url), 60_000);
         } catch (e) { aba?.close(); throw e; }
       }),
-      acao('Baixar XML da NFS-e', ICONES.baixar, () => baixar(t, 'xml')),
+      acao('Baixar XML', ICONES.baixar, () => baixar(t, 'xml')),
       navigator.share ? acao('Compartilhar', ICONES.compartilhar, async () => {
         const arquivos = [await baixar(t, 'danfse', { abrir: true }), await baixar(t, 'xml', { abrir: true })];
         const texto = `NFS-e nº ${t.nNfse || ''} de ${t.emitente?.nome || ''} — ${moeda(t.valor)}\nChave de acesso: ${t.chaveAcesso}`;

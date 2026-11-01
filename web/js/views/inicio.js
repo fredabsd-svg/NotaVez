@@ -28,7 +28,11 @@ export async function tela() {
   }
   estado.inicio = dados;
   atualizarSelo();
-  const locais = (await rascunhosLocais()).filter((r) => !r.sincronizado && !(!r.noServidor && rascunhoEmBranco(r.rascunho))).length;
+  // Deixa clientes, serviços e perfil guardados no aparelho: sem internet, a nota continua preparável.
+  if (navigator.onLine) {
+    for (const [k, url] of [['clientes', '/api/clientes'], ['servicos', '/api/servicos'], ['perfil', '/api/perfil?leve=1']]) comCache(k, () => api('GET', url)).catch(() => {});
+  }
+  const locais = (await rascunhosLocais()).filter((r) => !r.sincronizado && !(!r.noServidor && rascunhoEmBranco(r))).length;
 
   if (!dados.perfil) {
     return {
@@ -40,7 +44,9 @@ export async function tela() {
     };
   }
 
-  const u = dados.ultima;
+  // O cartão mostra a nota que o "Clonar" copia (a última emitida); uma rejeitada mais recente vira alerta.
+  const rejeitadaRecente = dados.ultima && dados.ultima.situacao === 'rejeitada' ? dados.ultima : null;
+  const u = dados.ultimaEmitida || (dados.ultima?.situacao === 'emitida' || !rejeitadaRecente ? dados.ultima : null);
   const ultima = u
     ? h('a', { class: 'item', href: `#/notas/${u.id}` },
       h('div', { class: 'item-corpo' },
@@ -48,7 +54,7 @@ export async function tela() {
         h('div', { class: 'item-sub' }, u.nNfse ? `NFS-e nº ${u.nNfse} · ` : '', data(u.competencia)),
         h('div', { style: 'margin-top:6px' }, situacaoSelo(u))),
       h('div', { class: 'item-valor' }, moeda(u.valor)))
-    : h('p', { class: 'suave' }, 'Você ainda não enviou nenhuma nota.');
+    : h('p', { class: 'suave' }, rejeitadaRecente ? 'Nenhuma nota emitida ainda.' : 'Você ainda não enviou nenhuma nota.');
 
   const atalho = (href, ic, titulo, sub) => h('li', {}, h('a', { class: 'item item-seta', href },
     icone(ic), h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo' }, titulo), sub ? h('div', { class: 'item-sub' }, sub) : null)));
@@ -74,11 +80,10 @@ export async function tela() {
         dados.podeClonar
           ? h('a', { class: 'btn', href: '#/clonar' }, icone(ICONES.clonar), 'Clonar a última emitida')
           : null),
-      h('h3', {}, 'Última nota enviada'),
+      rejeitadaRecente ? h('a', { class: 'alerta-linha', href: `#/notas/${rejeitadaRecente.id}` },
+        h('span', {}, `A última nota enviada (${rejeitadaRecente.clienteNome || 'sem cliente'}, ${moeda(rejeitadaRecente.valor)}) foi rejeitada.`), 'Corrigir ›') : null,
+      h('h3', {}, 'Última emitida'),
       ultima,
-      // O "Clonar" copia a última EMITIDA; se a última enviada foi outra (rejeitada, pendente), mostra qual.
-      dados.ultimaEmitida ? h('p', { class: 'suave' }, 'O botão "Clonar" copia a última emitida: ',
-        h('a', { href: `#/notas/${dados.ultimaEmitida.id}` }, `${dados.ultimaEmitida.nNfse ? `NFS-e nº ${dados.ultimaEmitida.nNfse}` : 'nota'} · ${dados.ultimaEmitida.clienteNome || 'sem cliente'} · ${moeda(dados.ultimaEmitida.valor)}`), '.') : null,
       h('h3', {}, 'Atalhos'),
       h('ul', { class: 'atalhos' },
         rascunhos ? atalho('#/notas?situacao=rascunho', ICONES.rascunho, 'Rascunhos', [dados.rascunhos ? `${plural(dados.rascunhos, 'salvo', 'salvos')} na conta` : null, locais ? `${locais} só neste aparelho` : null].filter(Boolean).join(' · ')) : null,

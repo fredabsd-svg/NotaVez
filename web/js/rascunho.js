@@ -9,8 +9,9 @@ export const rascunhoVazio = () => ({
   issRetido: false, pAliq: null, pTotTribSN: null,
 });
 
-// Rascunho recém-aberto e nunca preenchido: não vai para a conta nem aparece nas listas.
-export const rascunhoEmBranco = (r) => !!r && !r.clienteId && !r.tomador && !r.servicoId && !r.cTribNac && !r.descricao && !r.valor;
+// Rascunho recém-aberto e nunca tocado: não vai para a conta nem aparece nas listas.
+// Vale a marca do registro (qualquer edição tira), não os campos: mudar só a competência já conta.
+export const rascunhoEmBranco = (registro) => registro?.emBranco === true;
 
 // Carrega a versão mais recente: local (não sincronizada) ou do servidor.
 export async function carregar(id) {
@@ -38,7 +39,7 @@ const temporizadores = new Map();
 const gravacoes = new Map();
 export async function salvar(id, rascunho, meta, aoSincronizar, ctx = contextoConta()) {
   const chave = `${ctx.chave}:${id}`;
-  const gravacao = salvarLocal(id, rascunho, { meta }, ctx);
+  const gravacao = salvarLocal(id, rascunho, { meta, emBranco: false }, ctx);
   gravacoes.set(chave, gravacao);
   await gravacao;
   conferirContexto(ctx);
@@ -71,7 +72,7 @@ export async function aplicar(id, patch, metaPatch = {}) {
   if (!['rascunho', 'rejeitada'].includes(atual.situacao)) throw new ErroApi(409, { erro: 'Esta nota já foi enviada e não pode mais ser alterada. Use "Clonar" para criar outra.', notaId: id });
   const rascunho = { ...atual.rascunho, ...patch };
   const meta = { ...atual.meta, ...metaPatch };
-  await salvarLocal(id, rascunho, { meta }, ctx);
+  await salvarLocal(id, rascunho, { meta, emBranco: false }, ctx);
   try { await sincronizar(id); } catch { /* fica no aparelho */ }
   conferirContexto(ctx);
   return { rascunho, meta };

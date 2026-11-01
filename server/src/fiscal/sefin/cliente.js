@@ -36,6 +36,14 @@ export function lerMensagens(corpo) {
   })).filter((m) => m.codigo !== 'SEM_CODIGO' || m.descricao);
 }
 
+// XML da NFS-e só é aceito inteiro e da chave pedida (fecha </NFSe> e traz Id="NFS<chave>").
+function xmlNfseValido(xmlB64, chave) {
+  let xml;
+  try { xml = ungz64(xmlB64); } catch { return null; }
+  if (typeof xml !== 'string' || !/<\/(?:\w+:)?NFSe>\s*$/.test(xml.trim()) || !xml.includes(`Id="NFS${chave}"`)) return null;
+  return xml;
+}
+
 export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParametros = {}, chavePem, certPem, cadeiaPem = [], ca, timeoutMs = 30_000 }) {
   const agente = new https.Agent({ key: chavePem, cert: [certPem, ...cadeiaPem].join('\n'), ca, keepAlive: true, maxSockets: 4 });
   const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
@@ -92,7 +100,10 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
       const xmlB64 = pegar(r.json, 'nfseXmlGZipB64', 'NfseXmlGZipB64');
       if (r.status >= 200 && r.status < 300) {
         if (chave && xmlB64) {
-          return { ...base, tipo: 'emitida', chaveAcesso: String(chave), nfseXml: ungz64(xmlB64), alertas: lerMensagens({ erros: pegar(r.json, 'alertas', 'Alertas') ?? [] }) };
+          // XML ilegível ou truncado não vira "oficial": a nota segue como incerta e é consultada de novo.
+          const nfseXml = xmlNfseValido(xmlB64, String(chave));
+          if (!nfseXml) return { ...base, tipo: 'incerta', motivo: 'resposta_incompleta', chaveAcesso: String(chave) };
+          return { ...base, tipo: 'emitida', chaveAcesso: String(chave), nfseXml, alertas: lerMensagens({ erros: pegar(r.json, 'alertas', 'Alertas') ?? [] }) };
         }
         return { ...base, tipo: 'incerta', motivo: 'resposta_incompleta' };
       }
@@ -125,8 +136,9 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
       if (r.erroRede) return { ...base, tipo: 'falha', detalhe: r.erroRede.code || r.erroRede.message };
       const xmlB64 = pegar(r.json, 'nfseXmlGZipB64', 'NfseXmlGZipB64');
       if (r.status === 200 && xmlB64) {
-        // Resposta corrompida (gzip/base64 inválido) é falha da Receita, não erro 500 do app.
-        try { return { ...base, tipo: 'ok', nfseXml: ungz64(xmlB64) }; } catch { return { ...base, tipo: 'falha', detalhe: 'xml_corrompido' }; }
+        // Resposta corrompida (gzip/base64 inválido, XML truncado ou de outra nota) é falha da Receita, não erro 500 do app.
+        const nfseXml = xmlNfseValido(xmlB64, chaveAcesso);
+        return nfseXml ? { ...base, tipo: 'ok', nfseXml } : { ...base, tipo: 'falha', detalhe: 'xml_corrompido' };
       }
       if (r.status === 404) return { ...base, tipo: 'nao_encontrada' };
       return { ...base, tipo: 'falha', detalhe: `http_${r.status}` };
