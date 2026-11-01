@@ -35,6 +35,7 @@ export async function rotasTomadas(app) {
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
       sincronizacao: repo.distribuicao(p.id, p.ambiente, p.documento),
       temCertificado: !!repo.certificadoEmissao(p),
+      porProcuracao: !!p.usaProcuracao,
     };
   });
 

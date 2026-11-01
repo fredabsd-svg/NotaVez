@@ -27,7 +27,10 @@ export function resumoNota(repo, prestador, n, completo = false) {
     ...ROTULOS[n.situacao],
     // Emitida pela própria pessoa no Emissor Nacional: o app só guardou o XML que ela trouxe.
     ...(n.situacao === 'emitida' && n.canal === 'emissor_nacional'
-      ? { rotulo: 'Emitida (Emissor Nacional)', aviso: 'Emitida por você no Emissor Nacional; o XML foi importado para o histórico. Confira na Consulta Pública se precisar.' } : {}),
+      ? { rotulo: 'Emitida (Emissor Nacional)', aviso: n.importadaConferida
+        ? 'Emitida por você no Emissor Nacional; o app buscou a versão oficial na Receita.'
+        : 'Emitida por você no Emissor Nacional; o XML enviado não pôde ser conferido com a Receita (sem certificado). Confira na Consulta Pública: o PDF sai com a marca "NÃO CONFERIDA".' } : {}),
+    importadaConferida: n.canal === 'emissor_nacional' ? n.importadaConferida : undefined,
     canal: n.canal,
     clienteNome: r.tomador?.nome || null,
     valor: n.valor,
@@ -214,21 +217,38 @@ export async function rotasNotas(app) {
   // XML da NFS-e emitida no Emissor Nacional → histórico (com notaId, conclui aquele rascunho).
   app.post('/notas/importar', async (req) => {
     const p = exigirPrestador(req);
-    const dados = lerNfseImportada(req.body?.xml, { exigirAssinatura: !config.demo });
+    let dados = await lerNfseImportada(req.body?.xml, { exigirAssinatura: !config.demo });
     if (dados.emitente?.documento !== p.documento) {
       throw new ErroApp(422, `Esta NFS-e foi emitida por ${dados.emitente ? `${dados.emitente.tipo} ${formatarDocumento(dados.emitente.tipo, dados.emitente.documento)}` : 'outro emitente'}, não pela empresa aberta (${formatarDocumento(p.tipoDocumento, p.documento)}).`);
     }
     const notaId = req.body?.notaId ? String(req.body.notaId) : null;
+    // A mesma DPS enviada pelo app e ainda sem confirmação: quem resolve é a verificação dela.
+    const enviada = dados.idDps ? repo.notaPorIdDps(p.id, dados.idDps) : null;
+    if (enviada && enviada.id !== notaId && ['pendente', 'enviando'].includes(enviada.situacao)) {
+      throw new ErroApp(409, 'Esta NFS-e é da nota que o app enviou e aguarda confirmação. Abra essa nota e toque em "Verificar situação".', { notaId: enviada.id });
+    }
+    // Com certificado disponível, a versão guardada é a oficial da Receita (não o arquivo enviado).
+    let xml = req.body.xml;
+    let conferida = false;
+    const conf = await emissao.conferirNfse(p, dados.chaveAcesso);
+    if (conf?.tipo === 'nao_encontrada') throw new ErroApp(422, 'A Receita não encontrou NFS-e com a chave deste arquivo. Confira se é o XML certo, baixado do Emissor Nacional.');
+    if (conf?.tipo === 'ok') {
+      const oficial = await lerNfseImportada(conf.nfseXml, { exigirAssinatura: false });
+      if (oficial.chaveAcesso !== dados.chaveAcesso || oficial.emitente?.documento !== p.documento) throw new ErroApp(422, 'O XML enviado não corresponde à NFS-e registrada na Receita.');
+      dados = oficial;
+      xml = conf.nfseXml;
+      conferida = true;
+    }
     let rascunho = dados.rascunho;
     if (notaId) {
       const atual = repo.nota(p.id, notaId);
       if (!atual) throw naoEncontrado('Nota');
       rascunho = { ...rascunho, clienteId: atual.rascunho?.clienteId || null, servicoId: atual.rascunho?.servicoId || null };
     }
-    const id = repo.registrarImportada(p.id, notaId, { ...dados, rascunho, xml: req.body.xml, contexto: p });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.importada', entidade: 'nota', entidadeId: id, detalhes: { assinada: dados.assinatura.presente }, ip: req.ip });
+    const id = repo.registrarImportada(p.id, notaId, { ...dados, rascunho, xml, contexto: p, conferida });
+    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.importada', entidade: 'nota', entidadeId: id, detalhes: { assinada: dados.assinatura?.presente ?? true, conferida }, ip: req.ip });
     if (rascunho.clienteId) repo.marcarClienteUsado(p.id, rascunho.clienteId);
-    return { nota: resumoNota(repo, p, repo.nota(p.id, id), true), assinatura: dados.assinatura };
+    return { nota: resumoNota(repo, p, repo.nota(p.id, id), true), assinatura: dados.assinatura, conferida };
   });
 
   // XML oficial da NFS-e (como devolvido pela Sefin Nacional).
@@ -253,7 +273,9 @@ export async function rotasNotas(app) {
     const xml = repo.xmlNfse(n.id);
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
     // No modo demonstração a Receita é simulada: o PDF leva a marca "SIMULAÇÃO".
-    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : null });
+    // XML que o app não conseguiu conferir com a Receita não vira DANFSe "limpo".
+    const naoConferida = n.canal === 'emissor_nacional' && !n.importadaConferida;
+    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : naoConferida ? 'NÃO CONFERIDA' : null });
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${n.chaveAcesso}.pdf"`).send(pdf);

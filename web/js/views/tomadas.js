@@ -74,9 +74,14 @@ export async function lista(_, query) {
       h('p', { class: 'suave' }, 'Notas de serviço que fornecedores emitiram para esta empresa, baixadas do Ambiente de Dados Nacional da NFS-e.'),
       dados.temCertificado
         ? h('div', {}, buscar, h('p', { class: 'suave' }, s.sincronizadoEm ? `Última busca: ${dataHora(s.sincronizadoEm)}.` : 'Ainda não buscamos as notas desta empresa.'))
-        : h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado A1 desta empresa'),
-          h('p', {}, 'A Receita só entrega as notas recebidas para quem apresenta o certificado digital do CNPJ.'),
-          h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
+        : dados.porProcuracao
+          // Empresa por procuração: quem falta é o certificado do escritório, não o da empresa.
+          ? h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado do escritório'),
+            h('p', {}, 'Esta empresa usa a procuração eletrônica: as notas tomadas são buscadas com o certificado do escritório (procurador).'),
+            h('a', { class: 'btn btn-pequeno', href: '#/procurador' }, 'Certificado do escritório'))
+          : h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado A1 desta empresa'),
+            h('p', {}, 'A Receita só entrega as notas recebidas para quem apresenta o certificado digital do CNPJ (ou do escritório, por procuração).'),
+            h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
       h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrar por mês' }, meses.map(([v, t]) => h('button', {
         class: 'chip', type: 'button', 'aria-pressed': String(v === mes), onclick: () => ir(`/tomadas${v ? `?mes=${v}` : ''}`, { substituir: true }),
       }, t))),

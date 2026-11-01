@@ -101,17 +101,24 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   const erroPerfil = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
   const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
 
+  // Lembra o que veio da consulta: ao corrigir o CNPJ, o que era da empresa errada é trocado.
+  const preenchido = { email: null, fone: null, municipio: null };
+  const trocarSeAutomatico = (cmp, chave, valor) => {
+    if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
+  };
   // CNPJ completo: razão social, município e enquadramento vêm da base pública.
   const consulta = consultaAutomatica(cnpj.entrada, {
     inicial: p.documento,
     aoEncontrar: (d) => {
       nome.entrada.value = d.razaoSocial;
-      if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; }
+      // Sem município na base, não fica o da consulta anterior (CNPJ corrigido).
+      if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
+      else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
       if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); }
       if (d.enquadramento?.apuracao) apuracao.entrada.value = d.enquadramento.apuracao;
       if (regime.entrada.value === '1' && cstPisCofins.entrada.value === '01' && !aliqPis.entrada.value && !aliqCofins.entrada.value) padroes.click();
-      if (!email.entrada.value && d.email) email.entrada.value = d.email;
-      if (!fone.entrada.value && d.fone) fone.entrada.value = d.fone;
+      trocarSeAutomatico(email, 'email', d.email);
+      trocarSeAutomatico(fone, 'fone', d.fone);
     },
   });
   const atualizarDaReceita = p.documento ? h('button', { class: 'btn btn-pequeno btn-texto', type: 'button', onclick: () => consulta.buscar() }, 'Atualizar com os dados da Receita') : null;
@@ -258,7 +265,7 @@ export async function tela() {
     h('button', {
       class: 'btn btn-texto btn-perigo', type: 'button',
       onclick: async () => {
-        if (!confirm(`Remover "${p.nome || 'esta empresa'}" da sua conta? Só é possível enquanto ela não tiver enviado notas à Receita. Rascunhos, clientes, serviços e o certificado desta empresa serão apagados.`)) return;
+        if (!confirm(`Remover "${p.nome || 'esta empresa'}" da sua conta? Só é possível enquanto ela não tiver enviado notas à Receita. Rascunhos, clientes, serviços, notas tomadas baixadas e o certificado desta empresa serão apagados.`)) return;
         try {
           await api('DELETE', `/api/empresas/${estado.conta.prestadorId}`);
           aviso('Empresa removida.');

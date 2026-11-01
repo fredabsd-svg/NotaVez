@@ -74,9 +74,16 @@ export async function rotasConta(app) {
     gravarFluxo(reply, token);
     return { url };
   });
+  // Conta criada pelo gov.br não tem senha: a exclusão é confirmada entrando de novo no gov.br.
+  app.post('/govbr/excluir', async (req, reply) => {
+    if (!auth.titular(req.usuario.id)?.govbr) throw new ErroApp(409, 'Esta conta não está vinculada ao gov.br. Exclua informando a senha.');
+    const { token, url } = app.ctx.govbr.iniciar({ modo: 'excluir', usuarioId: req.usuario.id });
+    gravarFluxo(reply, token);
+    return { url };
+  });
   app.delete('/govbr', async (req) => {
     // Conta criada pelo gov.br sem e-mail não teria outra forma de entrar.
-    if (!auth.titular(req.usuario.id)?.email) throw new ErroApp(409, 'Esta conta só entra pelo gov.br. Cadastre um e-mail e uma senha antes de desvincular.');
+    if (!auth.titular(req.usuario.id)?.email) throw new ErroApp(409, 'Esta conta foi criada pelo gov.br e só entra por ele: o vínculo não pode ser removido.');
     auth.desvincularGovbr(req.usuario.id);
     auditar(db, { usuarioId: req.usuario.id, acao: 'conta.govbr_desvinculado', ip: req.ip });
     return { ok: true };
@@ -87,6 +94,17 @@ export async function rotasConta(app) {
     if (q.error) return voltar(reply, '/#/entrar?govbr=cancelado');
     try {
       const r = await app.ctx.govbr.concluir({ token: req.cookies[COOKIE_GOVBR], state: q.state, code: q.code });
+      if (r.modo === 'excluir') {
+        if (!r.usuarioId || !auth.govbrConfere(r.usuarioId, r.cpf)) return voltar(reply, '/#/conta?govbr=outro');
+        const prestadores = db.all('SELECT id FROM prestadores WHERE usuario_id = ?', r.usuarioId);
+        try { excluirConta(db, r.usuarioId); } catch (e) {
+          if (e.extra?.codigo === 'CONTA_COM_EMISSAO_PENDENTE') return voltar(reply, '/#/conta?govbr=pendente');
+          throw e;
+        }
+        for (const p of prestadores) app.ctx.emissao.fecharClientesDoPrestador(p.id);
+        reply.clearCookie(COOKIE, { path: '/' });
+        return voltar(reply, `/#/entrar?govbr=excluida&u=${encodeURIComponent(r.usuarioId)}`);
+      }
       if (r.modo === 'vincular') {
         auth.vincularGovbr(r.usuarioId, r);
         auditar(db, { usuarioId: r.usuarioId, acao: 'conta.govbr_vinculado', ip: req.ip });

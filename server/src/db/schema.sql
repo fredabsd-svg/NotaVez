@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS notas (
 );
 CREATE INDEX IF NOT EXISTS ix_notas_prestador ON notas(prestador_id, atualizado_em);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(chave_indice) WHERE chave_indice IS NOT NULL;
+-- A mesma NFS-e pode estar em mais de uma conta (dono e contador): única por empresa.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(prestador_id, chave_indice) WHERE chave_indice IS NOT NULL;
 
 -- Numeração da DPS por EMITENTE (índice cego do CNPJ/CPF), ambiente e série.
 -- Duas contas com o mesmo CNPJ compartilham a sequência (evita E0014). Nunca reutilizada.

@@ -6,7 +6,13 @@ import { ir } from '../app.js';
 import { consultaAutomatica } from '../cnpj.js';
 
 async function escolherParaNota(notaId, c) {
-  await aplicar(notaId, { clienteId: c.id }, { cliente: { nome: c.nome, documentoExibicao: c.documentoExibicao, tipo: c.tipo } });
+  try {
+    await aplicar(notaId, { clienteId: c.id }, { cliente: { nome: c.nome, documentoExibicao: c.documentoExibicao, tipo: c.tipo } });
+  } catch (e) {
+    // Nota já enviada (ex.: voltou pelo histórico do navegador): mostra a nota, não um rascunho novo.
+    if (e instanceof ErroApi && e.dados?.notaId) { aviso(e.message); ir(`/notas/${notaId}`, { substituir: true }); return; }
+    throw e;
+  }
   ir(`/nota/${notaId}`, { substituir: true });
 }
 
@@ -102,12 +108,17 @@ export async function formulario({ id }, query) {
   atualizarEndereco();
 
   // CNPJ completo: nome, contato e endereço vêm da base pública da Receita.
+  // Lembra o que veio da consulta: ao corrigir o CNPJ, e-mail e telefone da empresa errada são trocados.
+  const preenchido = { email: null, fone: null };
+  const trocarSeAutomatico = (cmp, chave, valor) => {
+    if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
+  };
   const consulta = consultaAutomatica(doc.entrada, {
     inicial: c.tipo === 'CNPJ' ? c.documento : null,
     aoEncontrar: async (d) => {
       nome.entrada.value = d.razaoSocial;
-      if (!email.entrada.value && d.email) email.entrada.value = d.email;
-      if (!fone.entrada.value && d.fone) fone.entrada.value = d.fone;
+      trocarSeAutomatico(email, 'email', d.email);
+      trocarSeAutomatico(fone, 'fone', d.fone);
       const e = d.endereco || {};
       cep.entrada.value = e.cep || '';
       numero.entrada.value = e.numero || '';

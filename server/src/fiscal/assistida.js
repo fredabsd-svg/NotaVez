@@ -10,6 +10,7 @@ import forge from 'node-forge';
 import { municipio, servicoNacional } from './tabelas.js';
 import { formatarDocumento, somenteDigitos } from '../util/documentos.js';
 import { ErroApp } from '../util/erros.js';
+import { validarXsd } from './xsd.js';
 
 const moedaBr = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numeroBr = (v) => Number(v).toFixed(2).replace('.', ',');
@@ -126,7 +127,7 @@ const docDe = (o) => (o?.CNPJ ? { tipo: 'CNPJ', documento: txt(o.CNPJ) } : o?.CP
 
 // A NFS-e vem assinada pela Receita (Signature irmã de infNFSe). Confere a integridade
 // com o certificado embutido e devolve quem assinou; não substitui a Consulta Pública.
-function assinaturaNfse(xml) {
+function assinaturaNfse(xml, chave) {
   const depois = xml.slice(xml.lastIndexOf('infNFSe>'));
   const bloco = depois.match(/<(?:\w+:)?Signature[\s>][\s\S]*?<\/(?:\w+:)?Signature>/)?.[0];
   if (!bloco) return { presente: false };
@@ -137,13 +138,15 @@ function assinaturaNfse(xml) {
     const v = new SignedXml({ publicCert: pem });
     v.loadSignature(bloco);
     // A assinatura precisa cobrir o infNFSe (e não outro trecho do arquivo).
-    const valida = v.checkSignature(xml) && v.getSignedReferences().some((ref) => /infNFSe/.test(ref));
+    // Uma única referência, apontando para o infNFSe desta chave (o mesmo nó lido abaixo).
+    const refs = v.getReferences();
+    const valida = refs.length === 1 && refs[0].uri === `#NFS${chave}` && v.checkSignature(xml);
     return { presente: true, valida, titular: forge.pki.certificateFromPem(pem).subject.getField('CN')?.value || null };
   } catch { return { presente: true, valida: false }; }
 }
 
 /** Lê e confere o XML da NFS-e; devolve os dados para o histórico e um rascunho equivalente (para clonar). */
-export function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
+export async function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
   if (typeof xml !== 'string' || xml.length < 200 || xml.length > 900_000) throw new ErroApp(422, 'Envie o arquivo XML da NFS-e baixado do Emissor Nacional.');
   let doc;
   try { doc = parser.parse(xml.replace(/^﻿/, '')); } catch { doc = null; }
@@ -151,7 +154,14 @@ export function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
   const dps = inf?.DPS?.infDPS;
   const chave = String(inf?.['@Id'] || '').replace(/^NFS/, '');
   if (!inf || !dps || !/^\d{50}$/.test(chave)) throw new ErroApp(422, 'Este arquivo não é o XML de uma NFS-e do padrão nacional. No Emissor Nacional, use "Baixar XML" na nota emitida.');
-  const assinatura = assinaturaNfse(xml);
+  // Estrutura do leiaute oficial (NFSe = um infNFSe + a assinatura): impede esconder outro
+  // infNFSe ao lado do assinado e ler dados de um nó que a assinatura não cobre.
+  const comAssinatura = /<(\w+:)?Signature[\s>]/.test(xml.slice(xml.lastIndexOf('infNFSe>')));
+  if (comAssinatura || exigirAssinatura) {
+    const xsd = await validarXsd(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
+    if (!xsd.valido) throw new ErroApp(422, 'Este arquivo não segue o leiaute oficial da NFS-e. Baixe o XML da nota emitida no Emissor Nacional.', { detalhes: xsd.erros.slice(0, 3) });
+  }
+  const assinatura = assinaturaNfse(xml, chave);
   if (assinatura.presente && !assinatura.valida) throw new ErroApp(422, 'A assinatura deste XML não confere: o arquivo foi alterado depois de emitido. Baixe de novo no Emissor Nacional.');
   if (!assinatura.presente && exigirAssinatura) throw new ErroApp(422, 'Este XML não tem a assinatura da Receita. Baixe o XML da nota emitida no Emissor Nacional (não o da DPS).');
 
@@ -162,6 +172,7 @@ export function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
   const tpRet = txt(dps.valores?.trib?.tribMun?.tpRetISSQN);
   return {
     chaveAcesso: chave,
+    idDps: dps['@Id'] ? String(dps['@Id']) : null,
     nNfse: txt(inf.nNFSe),
     emitidaEm: txt(inf.dhProc) || txt(dps.dhEmi),
     ambiente: txt(dps.tpAmb) === '1' ? 'producao' : 'producao_restrita',

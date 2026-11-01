@@ -1,7 +1,7 @@
 // Entrada no estilo do Portal da NFS-e: usuário (CPF/CNPJ ou e-mail) e senha,
 // primeiro acesso e "Entrar com gov.br" (quando o servidor tem credenciais do Login Único).
 import { h, anexar, campo, aviso, mascaraDocumento } from '../ui.js';
-import { definirConta, sincronizarTodos } from '../store.js';
+import { definirConta, sincronizarTodos, excluirDadosDaConta } from '../store.js';
 import { api, ErroApi } from '../api.js';
 import { carregarConta, ir } from '../app.js';
 
@@ -12,6 +12,7 @@ const MENSAGENS_GOVBR = {
   'em-uso': 'Esta conta gov.br já está vinculada a outro acesso do Nota Sem Stress.',
   indisponivel: 'O acesso com gov.br ainda não está disponível neste servidor. Use usuário e senha.',
   erro: 'Não foi possível confirmar o acesso com o gov.br. Tente de novo em instantes.',
+  excluida: 'Conta excluída. Os dados dela foram apagados do serviço e deste navegador.',
 };
 
 // Usuário: só números (CPF/CNPJ) ganham máscara; e-mail e CNPJ alfanumérico ficam como digitados.
@@ -26,6 +27,8 @@ export async function tela(_, query) {
   let govbr = false;
   try { govbr = navigator.onLine && (await api('GET', '/api/conta/govbr')).disponivel; } catch { /* sem gov.br */ }
   const node = h('div');
+  // Exclusão confirmada pelo gov.br: apaga também as cópias locais desta conta.
+  if (query.govbr === 'excluida' && query.u) { try { await excluirDadosDaConta(query.u); } catch { /* armazenamento indisponível */ } }
 
   // Marcado por padrão: o app abre já conectado nas próximas vezes (renova a cada uso).
   let seq = 0;
@@ -123,7 +126,7 @@ export async function tela(_, query) {
         h('img', { class: 'marca marca-clara', src: '/icons/logo.svg', alt: 'Nota Sem Stress', width: 290, height: 44 }),
         h('img', { class: 'marca marca-escura', src: '/icons/logo-escuro.svg', alt: 'Nota Sem Stress', width: 290, height: 44 }),
         h('p', { class: 'suave' }, 'NFS-e de serviço em poucos toques, para MEI, Simples, Presumido e Real — e para quem cuida de várias empresas.')),
-      msg ? h('p', { class: `cartao ${query.govbr === 'cancelado' ? 'cartao-alerta' : 'cartao-erro'}`, role: 'alert' }, msg) : null,
+      msg ? h('p', { class: `cartao ${query.govbr === 'excluida' ? 'cartao-ok' : query.govbr === 'cancelado' ? 'cartao-alerta' : 'cartao-erro'}`, role: 'alert' }, msg) : null,
       modo === 'cadastro' ? formCadastro() : formEntrar(),
       govbr ? h('section', { class: 'cartao acesso', 'aria-labelledby': 'acesso-govbr' },
         h('h2', { id: 'acesso-govbr' }, 'Acesso via gov.br'),

@@ -21,6 +21,8 @@ const indiceGovbr = (cpf) => indiceCego(`govbr:${cpf}`);
 // Conta criada pelo gov.br sem e-mail informado: endereço interno, nunca usado para envio.
 const SEM_EMAIL = '@sem-email.nota-sem-stress.invalid';
 const semEmail = (email) => String(email).endsWith(SEM_EMAIL);
+// Chave dos limites de tentativa: a mesma para qualquer grafia do e-mail ou do CPF/CNPJ.
+const chaveIdentificador = (x) => (String(x || '').includes('@') ? normalizarEmail(x) : String(x || '').toUpperCase().replace(/[^0-9A-Z]/g, ''));
 const validarSenha = (senha) => {
   if (typeof senha !== 'string' || senha.length < 8 || senha.length > 256) throw new ErroApp(422, 'A senha precisa ter entre 8 e 256 caracteres.');
 };
@@ -113,6 +115,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         }
       });
     },
+    // Confere que o CPF autenticado agora no gov.br é o vinculado à conta (reautenticação).
+    govbrConfere: (usuarioId, cpf) => !!db.get('SELECT 1 FROM usuarios WHERE id = ? AND govbr_indice = ?', usuarioId, indiceGovbr(cpf)),
     desvincularGovbr: (usuarioId) => db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', usuarioId),
 
     // Primeiro acesso: CPF/CNPJ (usuário), e-mail (para recuperar a senha) e senha.
@@ -136,9 +140,9 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       });
     },
     entrar(identificador, senha, ip, { lembrar = true } = {}) {
-      const chave = String(identificador || '').includes('@') ? normalizarEmail(identificador) : (lerDocumento(identificador)?.numero || normalizarEmail(identificador));
-      limitar('entrada', chave, ip, 15);
+      // Limite por CONTA quando ela existe: e-mail e CPF da mesma conta somam tentativas.
       const u = usuarioPorIdentificador(identificador);
+      limitar('entrada', u ? `conta:${u.id}` : chaveIdentificador(identificador), ip, 15);
       if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Usuário ou senha incorretos.');
       return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar };
     },
@@ -148,7 +152,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Senha incorreta. A conta não foi excluída.');
     },
     async recuperar(identificador, ip) {
-      limitar('recuperacao', normalizarEmail(identificador), ip);
+      const alvo = usuarioPorIdentificador(identificador);
+      limitar('recuperacao', alvo ? `conta:${alvo.id}` : chaveIdentificador(identificador), ip);
       if (typeof entregarRecuperacao !== 'function') throw new ErroApp(503, 'Recuperação de senha indisponível. O responsável precisa configurar a entrega de mensagens.');
       db.run('DELETE FROM recuperacoes_senha WHERE expira_em <= ?', agora());
       const u = usuarioPorIdentificador(identificador);
@@ -180,6 +185,9 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         db.run('UPDATE usuarios SET senha_hash = ? WHERE id = ?', senhaHash, r.usuario_id);
         db.run('DELETE FROM recuperacoes_senha WHERE usuario_id = ?', r.usuario_id);
         db.run('DELETE FROM sessoes WHERE usuario_id = ?', r.usuario_id);
+        // Quem redefine a senha retoma a conta: um gov.br vinculado por outra pessoa não pode continuar entrando.
+        db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', r.usuario_id);
+        if (db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'govbr_fluxos'")) db.run('DELETE FROM govbr_fluxos WHERE usuario_id = ?', r.usuario_id);
         return r.usuario_id;
       });
     },

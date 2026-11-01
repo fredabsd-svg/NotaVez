@@ -30,7 +30,9 @@ export function criarLimites(db, { agora = Date.now } = {}) {
       consumir(`conta:ip:${req.ip}`, 60, janela);
       const identificador = req.body?.usuario ?? req.body?.email;
       if (typeof identificador === 'string') {
-        consumir(`conta:${rota}:${identificador.trim().toLowerCase()}`, rota.endsWith('/entrar') ? 15 : 5, janela);
+        // Qualquer grafia do mesmo CPF/CNPJ conta como a mesma identidade.
+        const chave = identificador.includes('@') ? identificador.trim().toLowerCase() : identificador.toUpperCase().replace(/[^0-9A-Z]/g, '');
+        consumir(`conta:${rota}:${chave}`, rota.endsWith('/entrar') ? 15 : 5, janela);
       }
     } else if (req.usuario) {
       consumir(`mutacao:${req.usuario.id}`, 300, 60_000);

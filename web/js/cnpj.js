@@ -45,6 +45,7 @@ export function consultaAutomatica(entrada, { aoEncontrar, inicial = null }) {
       aoEncontrar(d);
       status.replaceChildren(cartaoCnpj(d));
     } catch (e) {
+      ultimo = null; // permite tentar de novo o mesmo CNPJ
       if (cnpjCompleto(entrada.value) !== cnpj) return;
       status.replaceChildren(h('p', { class: 'suave' }, e instanceof ErroApi && e.status === 0 ? 'Sem internet: preencha os dados manualmente.' : e.message));
     }

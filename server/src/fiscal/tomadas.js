@@ -74,7 +74,9 @@ export function criarServicoTomadas({ repo, emissao }) {
         if (!d.xml) continue;
         resultado.lidos += 1;
         if (d.tipoDocumento.includes('EVENTO') || /<(\w+:)?evento[\s>]/.test(d.xml)) {
-          const chave = chaveCancelada(d.xml);
+          // Evento malformado não pode travar a fila: segue para o próximo NSU.
+          let chave = null;
+          try { chave = chaveCancelada(d.xml); } catch { chave = null; }
           if (chave && repo.cancelarTomada(prestador.id, ambiente, chave)) resultado.canceladas += 1;
           continue;
         }

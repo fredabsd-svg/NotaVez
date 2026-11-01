@@ -22,6 +22,8 @@ function acessoGovbr(conta) {
 export async function tela(_, query = {}) {
   const conta = await api('GET', '/api/conta');
   if (query.govbr === 'vinculado') aviso('Conta gov.br vinculada.');
+  if (query.govbr === 'pendente') aviso('Há nota com resultado ainda não confirmado. Verifique a situação antes de excluir a conta.', 8000);
+  if (query.govbr === 'outro') aviso('A conta gov.br usada agora não é a vinculada a este acesso. Nada foi excluído.', 8000);
   const senha = campo({ rotulo: 'Confirme sua senha para excluir', tipo: 'password', atributos: { autocomplete: 'current-password', required: true } });
   const concordo = h('input', { type: 'checkbox', id: 'exclusao-confirmada', required: true });
   const erro = h('p', { role: 'alert', class: 'erro-campo', hidden: true });
@@ -51,7 +53,15 @@ export async function tela(_, query = {}) {
     h('p', {}, 'Antes de excluir, baixe os documentos de que precisa. A conta, sessões, perfil, clientes, serviços, rascunhos, notas, registros associados e certificado A1 serão apagados do banco ativo do serviço.'),
     h('p', {}, 'Notas em envio ou com resultado incerto precisam ser verificadas primeiro. Excluir aqui não cancela documentos já emitidos nem apaga registros mantidos pelos sistemas fiscais oficiais.'),
     h('p', {}, 'Os dados locais desta conta serão removidos deste navegador quando possível. Outros aparelhos precisam se conectar para reconhecer a sessão revogada; limpe o armazenamento deles para apagar cópias locais.'),
-    h('a', { href: '/privacidade.html' }, 'Consultar privacidade e retenção'), formulario,
-    h('a', { href: '/recuperar-conta.html' }, 'Esqueci minha senha'));
+    h('a', { href: '/privacidade.html' }, 'Consultar privacidade e retenção'),
+    // Conta criada pelo gov.br não tem senha: confirma a exclusão entrando de novo no gov.br.
+    !conta.email && conta.govbr
+      ? h('div', {}, h('label', { class: 'caixa', for: 'exclusao-confirmada' }, concordo, h('span', {}, 'Entendo que a exclusão remove minha conta e os dados guardados neste serviço.')),
+        h('button', { type: 'button', class: 'btn btn-perigo', onclick: async (e) => {
+          if (!concordo.checked) { aviso('Marque a confirmação para continuar.'); return; }
+          e.currentTarget.disabled = true;
+          try { location.href = (await api('POST', '/api/conta/govbr/excluir', {})).url; } catch (err) { aviso(err.message, 7000); e.currentTarget.disabled = false; }
+        } }, 'Confirmar com gov.br e excluir'))
+      : h('div', {}, formulario, h('a', { href: '/recuperar-conta.html' }, 'Esqueci minha senha')));
   return { titulo: 'Conta', aba: 'perfil', node };
 }

@@ -100,7 +100,8 @@ function montar(n, { detalhe = false } = {}) {
         try {
           const r = await api('POST', `/api/notas/${n.id}/verificar`, {});
           if (r.nota.situacao === 'pendente') aviso('Ainda sem confirmação. Tentaremos de novo automaticamente.');
-          raiz.replaceChildren(...montar(r.nota, { detalhe }).childNodes);
+          // Troca o bloco inteiro: o novo botão precisa apontar para o bloco que está na tela.
+          raiz.replaceWith(montar(r.nota, { detalhe }));
         } catch (e) {
           aviso(e instanceof ErroApi ? e.message : 'Não foi possível consultar agora.');
           b.disabled = false; b.textContent = 'Verificar situação agora';

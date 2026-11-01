@@ -46,6 +46,13 @@ export async function definirConta(conta) {
   sinonimos = {};
   return contaAtiva;
 }
+// Encerra só nesta aba (memória), sem mexer na conta guardada que outras abas usam.
+export function esquecerContaNestaAba() {
+  epoca++;
+  contaAtiva = null;
+  definirIdentidadeApi(null);
+  for (const k of Object.keys(tabelas)) delete tabelas[k];
+}
 export const contaGuardada = () => op('contas', 'readonly', (s) => s.get('ativa'));
 export const sessaoEncerrada = () => op('contas', 'readonly', (s) => s.get('encerrada'));
 export async function recuperarContaOffline() {
