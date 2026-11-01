@@ -2,6 +2,7 @@ import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, buscaCom
 import { api, ErroApi } from '../api.js';
 import { buscarMunicipio } from '../store.js';
 import { sair, estado, carregarConta, ir } from '../app.js';
+import { copiarTexto } from '../ui.js';
 import { consultaAutomatica } from '../cnpj.js';
 
 function checklist(eleg) {
@@ -137,6 +138,73 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   return formPerfil;
 }
 
+// Procuração em uso: quem assina e como a empresa concede a procuração na Receita.
+function cartaoProcuracao(dados) {
+  const pr = dados.procurador;
+  return h('section', { class: `cartao ${pr ? 'cartao-ok' : 'cartao-alerta'}` },
+    pr ? h('div', {}, h('strong', {}, 'Assina pelo escritório: '), pr.titular, h('p', { class: 'suave' }, `${pr.documentoFormatado} · válido até ${data(pr.validoAte)}`))
+      : h('p', {}, h('strong', {}, 'Falta o certificado do escritório. '), 'Envie em Certificado do escritório.'),
+    h('p', {}, 'A empresa precisa conceder a procuração no ', h('strong', {}, 'Portal de Serviços da Receita'), ' (servicos.receitafederal.gov.br) › "Nova Autorização": informar o ',
+      pr ? `${pr.documentoFormatado} ` : 'CPF/CNPJ do procurador ', 'como procurador, a vigência e escolher o serviço ', h('strong', {}, 'NFS-e'), '. A Receita confere a procuração a cada envio.'),
+    pr ? h('button', { class: 'btn btn-pequeno', type: 'button', onclick: (e) => copiarTexto(pr.documentoFormatado.replace(/\W/g, ''), e.currentTarget) }, 'Copiar CPF/CNPJ do procurador') : null,
+    h('a', { class: 'btn btn-pequeno btn-texto', href: '#/procurador' }, 'Certificado do escritório'));
+}
+
+// Envio de certificado A1 (.pfx): da empresa ou do procurador da conta.
+export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certificado', aoEnviar, consentimentoTexto }) {
+  const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda, tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
+  const senha = campo({ rotulo: 'Senha do certificado', tipo: 'password', atributos: { autocomplete: 'off' } });
+  const idConsentimento = `consentimento-${url.replace(/\W/g, '')}`;
+  const consentimento = h('input', { type: 'checkbox', id: idConsentimento });
+  const erroCert = h('div', { class: 'erro-campo', role: 'alert', hidden: true });
+  const enviar = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
+  return h('form', {
+    novalidate: true,
+    onsubmit: async (e) => {
+      e.preventDefault();
+      erroCert.hidden = true;
+      const f = arquivo.entrada.files?.[0];
+      if (!f) { arquivo.erro('Escolha o arquivo do certificado.'); return; }
+      if (!consentimento.checked) { erroCert.textContent = 'Marque a autorização para continuar.'; erroCert.hidden = false; return; }
+      enviar.disabled = true;
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        await api('POST', url, { pfxBase64: btoa(bin), senha: senha.entrada.value, consentimento: true });
+        senha.entrada.value = '';
+        aoEnviar();
+      } catch (err) {
+        erroCert.replaceChildren(err.message, ...(err.dados?.problemas || []).map((x) => h('span', { style: 'display:block' }, `• ${x}`)));
+        erroCert.hidden = false;
+      } finally { enviar.disabled = false; }
+    },
+  }, arquivo, senha,
+  h('label', { class: 'caixa', for: idConsentimento }, consentimento,
+    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
+  erroCert, enviar);
+}
+
+// Como a empresa assina: certificado próprio ou procuração eletrônica NFS-e (certificado do escritório).
+function escolhaAssinatura(dados) {
+  const usaProc = !!dados.perfil?.usaProcuracao;
+  const definir = async (ativa) => {
+    if (ativa === usaProc) return;
+    try {
+      await api('PUT', '/api/perfil/procuracao', { ativa });
+      aviso(ativa ? 'Esta empresa passa a assinar com o certificado do escritório.' : 'Esta empresa volta a assinar com o próprio certificado.');
+      location.reload();
+    } catch (err) {
+      if (err.dados?.acao === 'procurador') { aviso(err.message, 7000); ir('/procurador'); } else aviso(err.message, 7000);
+    }
+  };
+  const opcao = (ativa, titulo, sub) => h('button', { class: 'item', type: 'button', 'aria-pressed': String(ativa === usaProc), onclick: () => definir(ativa) },
+    h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo', style: 'white-space:normal' }, titulo), h('div', { class: 'item-sub', style: 'white-space:normal' }, sub)));
+  return h('div', { role: 'group', 'aria-label': 'Como esta empresa assina as notas' },
+    opcao(false, 'Certificado A1 desta empresa', 'O e-CNPJ da própria empresa assina e envia as notas.'),
+    opcao(true, 'Certificado do escritório (procuração eletrônica)', 'Um só certificado, o do escritório ou do contador, para todas as empresas que concederam a procuração NFS-e na Receita.'));
+}
+
 export async function tela() {
   const dados = await api('GET', '/api/perfil');
   const p = dados.perfil || {};
@@ -152,38 +220,12 @@ export async function tela() {
   });
 
   // ----- Certificado -----
-  const cert = dados.certificado;
-  const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda: 'Formato .pfx ou .p12 (e-CNPJ).', tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
-  const senha = campo({ rotulo: 'Senha do certificado', tipo: 'password', atributos: { autocomplete: 'off' } });
-  const consentimento = h('input', { type: 'checkbox', id: 'consentimento' });
-  const erroCert = h('div', { class: 'erro-campo', role: 'alert', hidden: true });
-  const enviar = h('button', { class: 'btn btn-primario', type: 'submit' }, cert ? 'Trocar certificado' : 'Enviar certificado');
-  const formCert = h('form', {
-    novalidate: true,
-    onsubmit: async (e) => {
-      e.preventDefault();
-      erroCert.hidden = true;
-      const f = arquivo.entrada.files?.[0];
-      if (!f) { arquivo.erro('Escolha o arquivo do certificado.'); return; }
-      if (!consentimento.checked) { erroCert.textContent = 'Marque a autorização para continuar.'; erroCert.hidden = false; return; }
-      enviar.disabled = true;
-      try {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        await api('POST', '/api/certificado', { pfxBase64: btoa(bin), senha: senha.entrada.value, consentimento: true });
-        senha.entrada.value = '';
-        aviso('Certificado verificado e guardado com segurança.');
-        location.reload();
-      } catch (err) {
-        erroCert.replaceChildren(err.message, ...(err.dados?.problemas || []).map((x) => h('span', { style: 'display:block' }, `• ${x}`)));
-        erroCert.hidden = false;
-      } finally { enviar.disabled = false; }
-    },
-  }, arquivo, senha,
-  h('label', { class: 'caixa', for: 'consentimento' }, consentimento,
-    h('span', {}, 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
-  erroCert, enviar);
+  const cert = dados.certificadoEmpresa;
+  const usaProc = !!dados.perfil?.usaProcuracao;
+  const formCert = formularioCertificado({
+    url: '/api/certificado', ajuda: 'Formato .pfx ou .p12 (e-CNPJ desta empresa).', textoBotao: cert ? 'Trocar certificado' : 'Enviar certificado',
+    aoEnviar: () => { aviso('Certificado verificado e guardado com segurança.'); location.reload(); },
+  });
 
   const statusCert = cert
     ? h('div', { class: 'cartao cartao-ok' }, h('strong', {}, 'Certificado ativo'), h('p', {}, cert.titular), h('p', { class: 'suave' }, `Válido até ${data(cert.validoAte)} · ${cert.emissor}`),
@@ -202,11 +244,15 @@ export async function tela() {
     h('h3', {}, 'Dados fiscais'), formPerfil,
     h('h3', { id: 'certificado' }, 'Certificado digital'),
     h('details', { class: 'cartao' }, h('summary', {}, 'Por que preciso do certificado?'),
-      h('p', {}, 'A Receita só aceita notas enviadas por aplicativos quando elas são assinadas com o certificado digital ICP-Brasil do próprio CNPJ (e-CNPJ). Para ME/EPP, o certificado também é usado para consultar se o seu município está no Sistema Nacional. O login gov.br serve para o Emissor Nacional no site, mas não autoriza outros aplicativos a emitir por você.'),
+      h('p', {}, 'A Receita só aceita notas enviadas por aplicativos quando são assinadas com um certificado digital ICP-Brasil: o do próprio CNPJ (e-CNPJ) ou, desde 1º/11/2026, o de um procurador com procuração eletrônica NFS-e da empresa. O login gov.br e o usuário e senha do Portal servem para o Emissor Nacional no site, não para outros aplicativos.'),
       h('p', {}, 'Aceitamos o modelo A1 (arquivo). O modelo A3 (cartão ou token) não pode ser usado por um servidor.'),
       h('p', {}, 'Sem certificado, você pode continuar preparando rascunhos e emitir pelo Emissor Nacional.')),
-    statusCert,
-    !dados.perfil ? h('p', { class: 'suave' }, 'Salve o perfil primeiro.') : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
+    dados.perfil ? escolhaAssinatura(dados) : null,
+    usaProc ? cartaoProcuracao(dados) : null,
+    usaProc ? null : statusCert,
+    !dados.perfil ? h('p', { class: 'suave' }, 'Salve o perfil primeiro.')
+      : usaProc ? h('details', {}, h('summary', {}, 'Certificado próprio desta empresa (opcional)'), statusCert, formCert)
+        : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
     h('h3', {}, 'Empresa'),
     h('a', { class: 'btn', href: '#/empresas' }, 'Trocar de empresa'),
     h('button', {

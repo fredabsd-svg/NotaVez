@@ -1,27 +1,11 @@
 // Emitir pelo Emissor Nacional (site oficial, com usuário e senha ou gov.br), para
 // quem não tem certificado A1: o app mostra os dados na ordem das telas do site,
 // com botão de copiar, e depois recebe o XML da NFS-e emitida.
-import { h, aviso, icone, ICONES } from '../ui.js';
+import { h, aviso, icone, ICONES, copiarTexto } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { rascunhoLocal, removerLocal } from '../store.js';
 import { salvarAgora } from '../rascunho.js';
 import { ir } from '../app.js';
-
-async function copiar(texto, botao) {
-  try {
-    await navigator.clipboard.writeText(texto);
-  } catch {
-    // Navegadores sem a API de área de transferência.
-    const area = h('textarea', { style: 'position:fixed;opacity:0' });
-    area.value = texto;
-    document.body.append(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
-  }
-  botao.textContent = 'Copiado ✓';
-  setTimeout(() => { botao.textContent = 'Copiar'; }, 1500);
-}
 
 // Lê o XML escolhido e envia; com notaId, o rascunho passa a ser a nota emitida.
 export function botaoImportarXml({ notaId = null, texto = 'Enviar o XML da nota emitida', classe = 'btn btn-primario' } = {}) {
@@ -71,13 +55,13 @@ export async function tela({ id }) {
       h('dt', {}, c.rotulo),
       h('dd', { class: 'copiavel' },
         h('span', { style: 'white-space:pre-wrap' }, c.valor),
-        c.copiar ? h('button', { class: 'btn btn-pequeno', type: 'button', 'aria-label': `Copiar ${c.rotulo}`, onclick: (e) => copiar(c.copiar, e.currentTarget) }, 'Copiar') : null),
+        c.copiar ? h('button', { class: 'btn btn-pequeno', type: 'button', 'aria-label': `Copiar ${c.rotulo}`, onclick: (e) => copiarTexto(c.copiar, e.currentTarget) }, 'Copiar') : null),
       c.ajuda ? h('dd', { class: 'suave', style: 'font-weight:400' }, c.ajuda) : null))) : null);
 
   return {
     titulo: 'Emitir pelo Emissor Nacional', voltar: true, aba: 'inicio',
     node: h('div', {},
-      h('p', {}, 'Sem certificado digital, quem emite é você, no site oficial da NFS-e, entrando com ', h('strong', {}, 'CPF/CNPJ e senha ou gov.br'),
+      h('p', {}, 'Sem certificado digital no app, quem emite é você, no site oficial da NFS-e, entrando com ', h('strong', {}, 'usuário e senha, certificado ou gov.br'),
         '. Aqui estão os dados desta nota na ordem das telas do Emissor Nacional, com botão de copiar. O Nota Sem Stress não pede nem guarda essa senha.'),
       d.homologacao ? h('p', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Empresa no ambiente de testes: '), 'o link abre o Emissor Nacional de produção restrita, onde as notas não têm validade jurídica.') : null,
       d.avisos.length ? h('section', { class: 'cartao cartao-alerta', role: 'alert' },
@@ -87,7 +71,14 @@ export async function tela({ id }) {
         h('a', { class: 'btn btn-pequeno', href: `#/nota/${id}` }, 'Corrigir o rascunho')) : null,
       h('section', { class: 'cartao roteiro' },
         h('h2', {}, '1. Entre no Emissor Nacional'),
-        h('p', {}, 'Abra o site oficial em outra aba, entre com usuário e senha ou gov.br e escolha "Emissão completa".'),
+        h('p', {}, 'Abra o site oficial em outra aba e entre com ', h('strong', {}, 'usuário e senha, certificado digital ou gov.br'), ' (conta nível prata ou ouro).'),
+        h('p', {}, h('strong', {}, 'Contador ou procurador: '), 'depois de entrar, clique na seta ao lado do seu nome (canto superior direito) › ',
+          h('strong', {}, '"Procuração/Representação"'), ', informe o CNPJ abaixo e toque em ', h('strong', {}, '"Representar"'),
+          '. Vale para quem é responsável legal da empresa ou tem procuração eletrônica NFS-e dela.'),
+        h('dl', { class: 'dados' }, h('div', {}, h('dt', {}, `Empresa a representar — ${d.emitente.nome || ''}`),
+          h('dd', { class: 'copiavel' }, h('span', {}, d.emitente.documentoFormatado),
+            h('button', { class: 'btn btn-pequeno', type: 'button', 'aria-label': 'Copiar CNPJ da empresa a representar', onclick: (e) => copiarTexto(d.emitente.documento, e.currentTarget) }, 'Copiar')))),
+        h('p', {}, 'Na empresa certa, escolha ', h('strong', {}, '"Emissão completa"'), '.'),
         d.emissorNacional ? h('a', { class: 'btn btn-primario', href: d.emissorNacional, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'Abrir o Emissor Nacional') : null),
       d.roteiro.filter((s) => s.campos.length).map(secao),
       h('section', { class: 'cartao roteiro' },

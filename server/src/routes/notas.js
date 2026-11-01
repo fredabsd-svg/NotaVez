@@ -206,6 +206,7 @@ export async function rotasNotas(app) {
       // Pontos que a validação do app encontrou: o Emissor Nacional deve recusar os mesmos.
       avisos: v.erros.map((e) => ({ campo: e.campo, mensagem: e.mensagem, regra: e.regra })),
       emissorNacional: amb?.emissorNacional || null,
+      emitente: { nome: p.nome, documento: p.documento, documentoFormatado: formatarDocumento(p.tipoDocumento, p.documento) },
       homologacao: p.ambiente === 'producao_restrita',
     };
   });

@@ -1,5 +1,5 @@
 import { avaliarElegibilidade } from '../fiscal/elegibilidade.js';
-import { lerCertificado, verificarParaEmitente, ErroCertificado } from '../fiscal/certificado.js';
+import { lerCertificado, verificarParaEmitente, verificarParaProcurador, ErroCertificado } from '../fiscal/certificado.js';
 import { municipio } from '../fiscal/tabelas.js';
 import { lerDocumento, formatarDocumento, somenteDigitos } from '../util/documentos.js';
 import { ErroApp, invalido } from '../util/erros.js';
@@ -18,7 +18,7 @@ export const regimeDescricao = (p) => (p.opSimpNac === '1' ? (p.apuracao === 're
 export const perfilPublico = (p) => p && {
   tipoDocumento: p.tipoDocumento, documento: p.documento, documentoFormatado: formatarDocumento(p.tipoDocumento, p.documento),
   nome: p.nome, municipioIbge: p.municipioIbge, municipio: municipio(p.municipioIbge), opSimpNac: p.opSimpNac,
-  inscricaoMunicipal: p.inscricaoMunicipal, email: p.email, fone: p.fone, serieDps: p.serieDps, ambiente: p.ambiente,
+  inscricaoMunicipal: p.inscricaoMunicipal, email: p.email, fone: p.fone, serieDps: p.serieDps, ambiente: p.ambiente, usaProcuracao: !!p.usaProcuracao,
   regApTribSN: p.regApTribSN || null, pTotTribSN: p.pTotTribSN || null, aliqIssSN: p.aliqIssSN || null,
   apuracao: p.apuracao || null, cstPisCofins: p.cstPisCofins || null, aliqPis: p.aliqPis || null, aliqCofins: p.aliqCofins || null,
   pTotTribFed: p.pTotTribFed || null, pTotTribEst: p.pTotTribEst || null, pTotTribMun: p.pTotTribMun || null, aliqIss: p.aliqIss || null,
@@ -90,16 +90,33 @@ export function lerPerfil(b = {}) {
   };
 }
 
-const certPublico = (c) => c && { titular: c.titular, emissor: c.emissor, validoDe: c.validoDe, validoAte: c.validoAte, enviadoEm: c.criadoEm };
+export const certPublico = (c) => c && {
+  titular: c.titular, emissor: c.emissor, validoDe: c.validoDe, validoAte: c.validoAte, enviadoEm: c.criadoEm,
+  procurador: !!c.procurador, ...(c.procurador ? { tipoDocumento: c.tipoDocumento, documentoFormatado: formatarDocumento(c.tipoDocumento, c.documento) } : {}),
+};
+
+// Lê o .pfx enviado pelo app (empresa ou procurador) e devolve os dados do certificado.
+export function lerPfxEnviado(b = {}) {
+  if (b.consentimento !== true) throw invalido('Para emitir por você, precisamos da sua autorização para guardar o certificado com segurança.');
+  const pfx = Buffer.from(String(b.pfxBase64 || ''), 'base64');
+  if (pfx.length < 100 || pfx.length > 200_000) throw invalido('Envie o arquivo do certificado A1 (.pfx ou .p12).');
+  try { return { pfx, senha: String(b.senha || ''), info: lerCertificado(pfx, String(b.senha || '')) }; } catch (e) {
+    if (e instanceof ErroCertificado) throw invalido(e.message);
+    throw e;
+  }
+}
 
 export async function rotasPerfil(app) {
   const { repo, db, emissao } = app.ctx;
 
   app.get('/perfil', async (req) => {
-    const cert = req.prestador ? repo.certificadoAtivo(req.prestador.id) : null;
+    const cert = req.prestador ? repo.certificadoEmissao(req.prestador) : null;
     return {
       perfil: perfilPublico(req.prestador),
       certificado: certPublico(cert),
+      // O certificado próprio da empresa e o do procurador da conta, para a escolha na tela.
+      certificadoEmpresa: certPublico(req.prestador ? repo.certificadoAtivo(req.prestador.id) : null),
+      procurador: certPublico(repo.certificadoProcurador(req.usuario.id)),
       elegibilidade: await elegibilidadeDe(emissao, req.prestador, cert),
       producaoLiberada: config.producaoLiberada,
     };
@@ -110,28 +127,31 @@ export async function rotasPerfil(app) {
     const id = repo.salvarPrestador(req.usuario.id, req.prestador?.id || null, lerPerfil(req.body || {}));
     auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
     const p = repo.prestador(id);
-    return { perfil: perfilPublico(p), empresaId: id, elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoAtivo(id)) };
+    return { perfil: perfilPublico(p), empresaId: id, elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoEmissao(p)) };
   });
 
   // Envio do certificado A1: chega por HTTPS, é verificado e guardado cifrado.
   app.post('/certificado', async (req) => {
     const p = exigirPrestador(req);
-    const b = req.body || {};
-    if (b.consentimento !== true) throw invalido('Para emitir por você, precisamos da sua autorização para guardar o certificado com segurança.');
-    const pfx = Buffer.from(String(b.pfxBase64 || ''), 'base64');
-    if (pfx.length < 100 || pfx.length > 200_000) throw invalido('Envie o arquivo do certificado A1 (.pfx ou .p12).');
-    let info;
-    try { info = lerCertificado(pfx, String(b.senha || '')); } catch (e) {
-      if (e instanceof ErroCertificado) throw invalido(e.message);
-      throw e;
-    }
+    const { pfx, senha, info } = lerPfxEnviado(req.body);
     const problemas = verificarParaEmitente(info, p.documento);
     if (problemas.length) throw new ErroApp(422, 'Este certificado não pode ser usado para emitir.', { problemas });
-    repo.salvarCertificado(p.id, { pfx, senha: String(b.senha), info });
+    repo.salvarCertificado(p.id, { pfx, senha, info });
     emissao.fecharClientesDoPrestador(p.id);
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
-    const cert = repo.certificadoAtivo(p.id);
-    return { certificado: certPublico(cert), elegibilidade: await elegibilidadeDe(emissao, p, cert) };
+    return { certificado: certPublico(repo.certificadoAtivo(p.id)), elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoEmissao(p)) };
+  });
+
+  // Procuração eletrônica NFS-e: a empresa passa a assinar com o certificado do procurador da conta.
+  app.put('/perfil/procuracao', async (req) => {
+    const p = exigirPrestador(req);
+    const ativa = req.body?.ativa === true;
+    if (ativa && !repo.certificadoProcurador(req.usuario.id)) throw new ErroApp(409, 'Envie primeiro o certificado do escritório (procurador) em Empresas › Certificado do escritório.', { acao: 'procurador' });
+    repo.definirProcuracao(req.usuario.id, p.id, ativa);
+    emissao.fecharClientesDoPrestador(p.id);
+    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: ativa ? 'procuracao.ativada' : 'procuracao.desativada', ip: req.ip });
+    const atual = repo.prestador(p.id);
+    return { perfil: perfilPublico(atual), elegibilidade: await elegibilidadeDe(emissao, atual, repo.certificadoEmissao(atual)) };
   });
 
   app.delete('/certificado', async (req) => {
@@ -139,14 +159,14 @@ export async function rotasPerfil(app) {
     repo.removerCertificado(p.id);
     emissao.fecharClientesDoPrestador(p.id);
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
-    return { elegibilidade: avaliarElegibilidade(p, null) };
+    return { elegibilidade: avaliarElegibilidade(p, repo.certificadoEmissao(p)) };
   });
 
   // Tela Início: estado da última emissão, contadores e pendências.
   app.get('/inicio', async (req) => {
     const p = req.prestador;
     if (!p) return { perfil: null, elegibilidade: avaliarElegibilidade(null, null) };
-    const cert = repo.certificadoAtivo(p.id);
+    const cert = repo.certificadoEmissao(p);
     const ultima = repo.ultimaEnviada(p.id);
     const ultimaEmitida = repo.ultimaEmitida(p.id);
     const todas = repo.listarNotas(p.id, { limite: 500 });

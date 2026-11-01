@@ -16,6 +16,7 @@ import * as instalar from './views/instalar.js';
 import * as empresas from './views/empresas.js';
 import * as tomadas from './views/tomadas.js';
 import * as assistida from './views/assistida.js';
+import * as procurador from './views/procurador.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -39,11 +40,12 @@ const rotas = [
   ['/instalar', instalar.tela],
   ['/empresas', empresas.lista],
   ['/empresas/nova', empresas.nova],
+  ['/procurador', procurador.tela],
   ['/tomadas', tomadas.lista],
   ['/tomadas/:id', tomadas.detalhe],
 ];
 // Telas que funcionam sem uma empresa escolhida.
-const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova']);
+const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/procurador']);
 
 export const estado = { conta: null, inicio: null };
 

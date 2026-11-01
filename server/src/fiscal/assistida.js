@@ -47,7 +47,7 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
 
   const pessoas = secao('Pessoas', 'Primeira tela da emissão: data, emitente e tomador.', [
     campo('Data de competência', dataBr(r.competencia)),
-    campo('Emitente (você)', `${prestador.nome || ''} — ${formatarDocumento(prestador.tipoDocumento, prestador.documento)}`, { copiar: prestador.documento, ajuda: 'Confira se o Emissor Nacional abriu nesta empresa. Se você tem acesso a várias, escolha esta antes de começar.' }),
+    campo('Emitente (você)', `${prestador.nome || ''} — ${formatarDocumento(prestador.tipoDocumento, prestador.documento)}`, { copiar: prestador.documento, ajuda: 'Confira no canto superior direito do site se você está nesta empresa. Contador ou procurador: o site mostra que você está "atuando em nome de" esta empresa.' }),
     campo('Situação no Simples Nacional', SIMPLES[reg.opSimpNac], { copiar: false }),
     reg.regApTribSN ? campo('Regime de apuração (Simples)', APURACAO_SN[reg.regApTribSN], { copiar: false }) : null,
     t ? campo('Tomador', t.tipo === 'CNPJ' ? 'Brasil — pessoa jurídica (CNPJ)' : 'Brasil — pessoa física (CPF)', { copiar: false }) : campo('Tomador', 'Não informado', { copiar: false, ajuda: 'Nota sem tomador identificado.' }),

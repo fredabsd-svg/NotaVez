@@ -31,6 +31,7 @@ export function criarRepositorio(db) {
     ...(decifrarJson(row.contato_cifrado) || {}),
     serieDps: row.serie_dps,
     ambiente: row.ambiente,
+    usaProcuracao: !!row.usa_procuracao,
     ...(row.config_fiscal ? JSON.parse(row.config_fiscal) : {}),
   };
 
@@ -97,10 +98,11 @@ export function criarRepositorio(db) {
         FROM notas n JOIN prestadores p ON p.id = n.prestador_id WHERE p.usuario_id = ? GROUP BY n.prestador_id`, agora().slice(0, 7), usuarioId).map((r) => [r.prestador_id, r]));
       const tomadas = new Map(db.all(`SELECT t.prestador_id, count(*) n FROM notas_tomadas t JOIN prestadores p ON p.id = t.prestador_id
         WHERE p.usuario_id = ? GROUP BY t.prestador_id`, usuarioId).map((r) => [r.prestador_id, r.n]));
+      const procurador = db.get('SELECT valido_ate FROM certificados_procurador WHERE usuario_id = ? AND removido_em IS NULL ORDER BY criado_em DESC LIMIT 1', usuarioId);
       return db.all('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY lower(nome), criado_em', usuarioId).map((row) => {
         const n = notas.get(row.id) || {};
         return {
-          ...prestadorDe(row), certificadoValidoAte: certs.get(row.id) || null,
+          ...prestadorDe(row), certificadoValidoAte: (row.usa_procuracao ? procurador?.valido_ate : certs.get(row.id)) || null,
           rascunhos: n.rascunhos || 0, pendentes: n.pendentes || 0, emitidasNoMes: n.emitidas_mes || 0, ultimaEmissao: n.ultima_emissao || null,
           tomadas: tomadas.get(row.id) || 0,
         };
@@ -157,6 +159,35 @@ export function criarRepositorio(db) {
           VALUES (?,?,?,?,?,?,?,?,?,?)`, id, prestadorId, cifrar(pfx), cifrar(senha), info.titular, cifrar(info.cnpj || info.cpf || ''), info.emissor, info.validoDe, info.validoAte, agora());
         return id;
       });
+    },
+    // ---------- certificado do procurador (conta) ----------
+    certificadoProcurador(usuarioId) {
+      const r = db.get('SELECT * FROM certificados_procurador WHERE usuario_id = ? AND removido_em IS NULL ORDER BY criado_em DESC LIMIT 1', usuarioId);
+      return r && { id: r.id, procurador: true, titular: r.titular, emissor: r.emissor, tipoDocumento: r.tipo_documento, documento: decifrar(r.documento_cifrado),
+        validoDe: r.valido_de, validoAte: r.valido_ate, criadoEm: r.criado_em, _pfx: r.pfx_cifrado, _senha: r.senha_cifrada };
+    },
+    salvarCertificadoProcurador(usuarioId, { pfx, senha, info }) {
+      return db.transacao(() => {
+        db.run("UPDATE certificados_procurador SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '' WHERE usuario_id = ? AND removido_em IS NULL", agora(), usuarioId);
+        const id = novoId();
+        db.run(`INSERT INTO certificados_procurador (id, usuario_id, pfx_cifrado, senha_cifrada, titular, tipo_documento, documento_cifrado, emissor, valido_de, valido_ate, criado_em)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`, id, usuarioId, cifrar(pfx), cifrar(senha), info.titular, info.cnpj ? 'CNPJ' : 'CPF', cifrar(info.cnpj || info.cpf), info.emissor, info.validoDe, info.validoAte, agora());
+        return id;
+      });
+    },
+    removerCertificadoProcurador: (usuarioId) => db.run("UPDATE certificados_procurador SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '' WHERE usuario_id = ? AND removido_em IS NULL", agora(), usuarioId),
+    // Certificado que assina e conecta pela empresa: o dela ou, com procuração, o do procurador da conta.
+    certificadoEmissao(prestador) {
+      if (!prestador) return null;
+      // Sempre pelo cadastro atual (a nota pode carregar um retrato antigo da empresa).
+      const atual = prestadorDe(db.get('SELECT * FROM prestadores WHERE id = ?', prestador.id)) || prestador;
+      if (!atual) return null;
+      if (atual.usaProcuracao) return this.certificadoProcurador(atual.usuarioId);
+      return this.certificadoAtivo(atual.id);
+    },
+    definirProcuracao(usuarioId, prestadorId, ativa) {
+      const r = db.run('UPDATE prestadores SET usa_procuracao = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ativa ? 1 : 0, agora(), usuarioId, prestadorId);
+      if (r.changes !== 1) throw new ErroApp(404, 'Empresa não encontrada.');
     },
     // Remoção apaga o material criptográfico (não só marca).
     removerCertificado: (prestadorId) => db.run("UPDATE certificados SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '' WHERE prestador_id = ? AND removido_em IS NULL", agora(), prestadorId),
@@ -278,7 +309,12 @@ export function criarRepositorio(db) {
       if (esperado.versao !== undefined) { condicoes.push('versao = ?'); parametros.push(esperado.versao); }
       if (esperado.token !== undefined) { condicoes.push('processamento_token = ?'); parametros.push(esperado.token); }
       if (esperado.prestadorVersao !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM prestadores p WHERE p.id = notas.prestador_id AND p.versao = ?)'); parametros.push(esperado.prestadorVersao); }
-      if (esperado.certificadoId !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM certificados c WHERE c.id = ? AND c.prestador_id = notas.prestador_id AND c.removido_em IS NULL)'); parametros.push(esperado.certificadoId); }
+      if (esperado.certificadoId !== undefined) {
+        // O certificado precisa continuar sendo o de emissão desta empresa: o dela ou, com procuração, o do procurador.
+        condicoes.push(`(EXISTS (SELECT 1 FROM certificados c JOIN prestadores p ON p.id = c.prestador_id WHERE c.id = ? AND c.prestador_id = notas.prestador_id AND c.removido_em IS NULL AND p.usa_procuracao = 0)
+          OR EXISTS (SELECT 1 FROM certificados_procurador cp JOIN prestadores p ON p.usuario_id = cp.usuario_id WHERE cp.id = ? AND p.id = notas.prestador_id AND p.usa_procuracao = 1 AND cp.removido_em IS NULL))`);
+        parametros.push(esperado.certificadoId, esperado.certificadoId);
+      }
       return db.run(`UPDATE notas SET ${sets.join(', ')} WHERE id = ? AND situacao IN (${origem.map(() => '?').join(',')}) ${condicoes.length ? `AND ${condicoes.join(' AND ')}` : ''}`, ...vals, id, ...origem, ...parametros).changes === 1;
     },
 

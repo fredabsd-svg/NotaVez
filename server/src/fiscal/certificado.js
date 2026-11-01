@@ -82,3 +82,17 @@ export function verificarParaEmitente(info, documentoEmitente, agora = new Date(
   if (!info.icpBrasil) problemas.push('O certificado não parece ser ICP-Brasil. A Receita só aceita certificados ICP-Brasil.');
   return problemas;
 }
+
+// Procuração eletrônica NFS-e (Portal de Serviços da Receita, desde 01/11/2026):
+// o procurador (escritório com e-CNPJ ou contador com e-CPF) usa o PRÓPRIO
+// certificado na API em nome das empresas que o autorizaram. Aqui não há como
+// conferir a procuração; quem confere é a Receita, a cada envio.
+export function verificarParaProcurador(info, agora = new Date()) {
+  const problemas = [];
+  if (new Date(info.validoAte) < agora) problemas.push('O certificado está vencido. Renove com sua autoridade certificadora.');
+  if (new Date(info.validoDe) > agora) problemas.push('O certificado ainda não está válido.');
+  if (!info.cnpj && !info.cpf) problemas.push('Não encontramos CNPJ nem CPF no certificado. Use um e-CNPJ ou e-CPF A1 ICP-Brasil.');
+  if (!info.assinaturaDigital) problemas.push('O certificado não permite assinatura digital.');
+  if (!info.icpBrasil) problemas.push('O certificado não parece ser ICP-Brasil. A Receita só aceita certificados ICP-Brasil.');
+  return problemas;
+}

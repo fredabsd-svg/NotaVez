@@ -12,7 +12,8 @@ function marcadores(e) {
   const m = [];
   const mk = (texto, tipo = '') => m.push(h('span', { class: `marcador ${tipo}` }, texto));
   if (e.id === estado.conta?.prestadorId) mk('Aberta agora', 'marcador-ok');
-  if (!e.certificadoValidoAte) mk('Sem certificado', 'marcador-alerta');
+  if (e.porProcuracao) mk('Por procuração', 'marcador-ok');
+  if (!e.certificadoValidoAte) mk(e.porProcuracao ? 'Sem certificado do escritório' : 'Sem certificado', 'marcador-alerta');
   else if (e.certificadoVencido) mk('Certificado vencido', 'marcador-erro');
   else if (new Date(e.certificadoValidoAte) - Date.now() < 30 * 86400_000) mk(`Certificado vence ${data(e.certificadoValidoAte)}`, 'marcador-alerta');
   if (e.pendentes) mk(`${e.pendentes} pendente(s)`, 'marcador-erro');
@@ -73,6 +74,9 @@ export async function lista(_, query) {
     empresas.length > 3 ? campo({ rotulo: 'Pesquisar empresa', ajuda: 'Nome, CNPJ ou cidade', atributos: { type: 'search', autocomplete: 'off' }, oninput: (e) => { termo = e.target.value; mostrar(); } }) : null,
     empresas.length ? contador : null,
     ul,
+    h('h3', {}, 'Certificado do escritório'),
+    h('p', { class: 'suave' }, 'Com procuração eletrônica NFS-e, um único certificado (do escritório ou do contador) emite por todas as empresas que autorizaram.'),
+    h('a', { class: 'btn', href: '#/procurador' }, 'Certificado do escritório (procuração)'),
     h('h3', {}, 'Conta'),
     h('p', { class: 'suave' }, estado.conta?.email || ''),
     h('a', { class: 'btn btn-texto', href: '#/conta' }, 'Gerenciar e excluir conta'),

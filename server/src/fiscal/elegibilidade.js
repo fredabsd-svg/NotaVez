@@ -36,12 +36,20 @@ export function avaliarElegibilidade(prestador, certificado, { convenioEmissor =
   }
 
   const temCert = !!certificado;
-  item('certificado', temCert, 'Certificado digital A1 (e-CNPJ) enviado',
-    'Envie o arquivo .pfx/.p12 do seu e-CNPJ A1 em Dados da empresa › Certificado. Login gov.br não substitui o certificado na API.');
-  if (temCert) {
-    item('certificado_validade', new Date(certificado.validoAte) > agora, 'Certificado dentro da validade', 'Renove o certificado com sua autoridade certificadora e envie o novo arquivo.');
-    item('certificado_cnpj', !!prestador && certificado.documento === prestador.documento, 'Certificado do mesmo CNPJ do perfil',
-      'A nota precisa ser assinada pelo certificado do próprio CNPJ emitente (regra E0718).');
+  if (prestador?.usaProcuracao) {
+    // Procuração eletrônica NFS-e: assina e conecta com o certificado do procurador da conta.
+    item('certificado', temCert, 'Certificado do procurador (escritório) enviado',
+      'Envie o certificado A1 do escritório ou do contador em Empresas › Certificado do escritório, ou volte a usar o certificado desta empresa.',
+      temCert ? `Assina como procurador: ${certificado.titular || ''}. A procuração eletrônica (serviço NFS-e) desta empresa precisa estar vigente no Portal de Serviços da Receita; a Receita confere a cada envio.` : null);
+    if (temCert) item('certificado_validade', new Date(certificado.validoAte) > agora, 'Certificado do procurador dentro da validade', 'Renove o certificado do escritório e envie o novo arquivo.');
+  } else {
+    item('certificado', temCert, 'Certificado digital A1 (e-CNPJ) enviado',
+      'Envie o arquivo .pfx/.p12 do e-CNPJ A1 em Dados da empresa › Certificado, ou use o certificado do escritório por procuração eletrônica. Login gov.br não substitui o certificado na API.');
+    if (temCert) {
+      item('certificado_validade', new Date(certificado.validoAte) > agora, 'Certificado dentro da validade', 'Renove o certificado com sua autoridade certificadora e envie o novo arquivo.');
+      item('certificado_cnpj', !!prestador && certificado.documento === prestador.documento, 'Certificado do mesmo CNPJ do perfil',
+        'Sem procuração eletrônica, a nota precisa ser assinada pelo certificado do próprio CNPJ emitente (regra E0718).');
+    }
   }
   const ambiente = prestador?.ambiente || config.ambientePadrao;
   item('ambiente', ambiente === 'producao_restrita' || config.producaoLiberada, 'Ambiente liberado',

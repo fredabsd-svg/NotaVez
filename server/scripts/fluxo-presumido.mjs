@@ -47,7 +47,7 @@ await p.getByRole('button', { name: 'Cadastrar empresa' }).click();
 await p.waitForLoadState('load'); await esperar('Certificado digital');
 await p.getByLabel('Arquivo do certificado A1').setInputFiles(join(tmpdir(), 'notavez-certificado-DEMO.pfx'));
 await p.getByLabel('Senha do certificado').fill('demo1234');
-await p.locator('#consentimento').check();
+await p.getByLabel(/Autorizo o Nota Sem Stress a guardar/).check();
 await p.getByRole('button', { name: 'Enviar certificado' }).click();
 await esperar('Tudo pronto para emitir');
 

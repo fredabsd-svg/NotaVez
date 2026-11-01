@@ -34,7 +34,7 @@ export async function rotasTomadas(app) {
       tomadas: lista.map((t) => publica(t)),
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
       sincronizacao: repo.distribuicao(p.id, p.ambiente, p.documento),
-      temCertificado: !!repo.certificadoAtivo(p.id),
+      temCertificado: !!repo.certificadoEmissao(p),
     };
   });
 

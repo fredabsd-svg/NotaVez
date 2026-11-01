@@ -60,7 +60,7 @@ try {
   await page.getByRole('button', { name: 'Cadastrar empresa', exact: true }).click();
   await page.getByLabel('Arquivo do certificado A1').setInputFiles({ name: 'teste.pfx', mimeType: 'application/x-pkcs12', buffer: cert.pfx });
   await page.getByLabel('Senha do certificado').fill(cert.senha);
-  await page.locator('#consentimento').check();
+  await page.getByLabel(/Autorizo o Nota Sem Stress a guardar/).check();
   await page.getByRole('button', { name: 'Enviar certificado' }).click();
   await page.getByText('Tudo pronto para emitir', { exact: true }).waitFor();
   const post = async (url, data) => {
@@ -119,6 +119,17 @@ try {
   await page.getByLabel('Tributos municipais aproximados (%)').fill('5');
   await page.getByRole('button', { name: 'Cadastrar empresa', exact: true }).click();
   await page.locator('#empresa-ativa').getByText('CONSULTORIA FICTICIA LTDA').waitFor();
+  // Procuração eletrônica: certificado do escritório na conta e a empresa assinando por ele.
+  await page.goto(`${base}/#/procurador`);
+  await page.getByLabel('Arquivo do certificado A1').setInputFiles({ name: 'escritorio.pfx', mimeType: 'application/x-pkcs12', buffer: cert.pfx });
+  await page.getByLabel('Senha do certificado').fill(cert.senha);
+  await page.getByLabel(/Autorizo o Nota Sem Stress a guardar este certificado/).check();
+  await page.getByRole('button', { name: 'Enviar certificado do escritório' }).click();
+  await page.getByText('Certificado do escritório ativo').waitFor();
+  await page.goto(`${base}/#/perfil`);
+  await page.getByRole('button', { name: /Certificado do escritório \(procuração eletrônica\)/ }).click();
+  await page.getByText('Assina pelo escritório:').waitFor();
+  assert.equal(app.ctx.db.get("SELECT usa_procuracao u FROM prestadores WHERE nome = 'CONSULTORIA FICTICIA LTDA'").u, 1);
   const draftsSegunda = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsSegunda.length, 0, 'rascunhos ficam no ambiente da empresa');
   await page.goto(`${base}/#/empresas`);
@@ -163,7 +174,7 @@ try {
   await page.getByText('Responsável fictício de teste', { exact: false }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.violacoesCsp), []);
   assert.deepEqual(erros, []);
-  console.log('Smoke web aprovado: primeiro acesso e login por CPF, emissão assistida pelo Emissor Nacional, cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, isolamento A/B, exclusão e privacidade; CSP ativa.');
+  console.log('Smoke web aprovado: primeiro acesso e login por CPF, emissão assistida pelo Emissor Nacional, procuração eletrônica, cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, isolamento A/B, exclusão e privacidade; CSP ativa.');
 } catch (e) {
   if (page) {
     await mkdir('test-results', { recursive: true });

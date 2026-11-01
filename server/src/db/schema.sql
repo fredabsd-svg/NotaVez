@@ -189,3 +189,21 @@ CREATE TABLE IF NOT EXISTS distribuicao_dfe (
   sincronizado_em TEXT,
   PRIMARY KEY (prestador_id, ambiente, documento_indice)
 );
+
+-- Certificado do procurador (escritório/contador) da conta: usado pelas empresas
+-- que concederam procuração eletrônica NFS-e no Portal de Serviços da Receita.
+CREATE TABLE IF NOT EXISTS certificados_procurador (
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  pfx_cifrado TEXT NOT NULL,
+  senha_cifrada TEXT NOT NULL,
+  titular TEXT,
+  tipo_documento TEXT,
+  documento_cifrado TEXT,
+  emissor TEXT,
+  valido_de TEXT,
+  valido_ate TEXT,
+  criado_em TEXT NOT NULL,
+  removido_em TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_cert_procurador_usuario ON certificados_procurador(usuario_id, removido_em);
