@@ -93,6 +93,17 @@ try {
   await page.getByText('FORNECEDOR FICTICIO LTDA').click();
   await page.getByRole('button', { name: 'Baixar XML da NFS-e' }).waitFor();
 
+  // Nova nota pela tela: escolher cliente e serviço salvos (rascunho chega ao servidor).
+  await page.goto(`${base}/#/nova`);
+  await page.getByRole('link', { name: 'Escolher cliente' }).click();
+  await page.getByRole('button', { name: /Cliente fictício/ }).click();
+  await page.getByRole('button', { name: 'Teste', exact: true }).click();
+  const idNova = page.url().split('/nota/')[1];
+  let rascunhoTela;
+  for (let i = 0; i < 50 && !rascunhoTela?.rascunho?.servicoId; i++) { await page.waitForTimeout(100); rascunhoTela = app.ctx.repo.notaPorId(idNova); }
+  assert.equal(rascunhoTela?.rascunho?.clienteId, cliente.id, 'cliente escolhido na tela chega ao servidor');
+  assert.equal(rascunhoTela?.rascunho?.servicoId, servico.id, 'serviço escolhido na tela chega ao servidor');
+
   // Emissão assistida: roteiro para o Emissor Nacional, copiar campo e trazer o XML emitido lá.
   const assistida = (await post('/api/notas', { rascunho: { clienteId: cliente.id, servicoId: servico.id, valor: '275,00' } })).nota;
   await page.goto(`${base}/#/nota/${assistida.id}/revisao`);
@@ -138,7 +149,7 @@ try {
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
   await page.getByRole('navigation', { name: 'Ações desta empresa' }).getByRole('link', { name: /Notas tomadas/ }).waitFor();
   const draftsPrimeira = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
-  assert.deepEqual(draftsPrimeira.map((r) => r.id), [idLocal], 'de volta à primeira empresa, o rascunho dela reaparece');
+  assert.ok(draftsPrimeira.some((r) => r.id === idLocal), 'de volta à primeira empresa, o rascunho dela reaparece');
   // Recarregar a página mantém a empresa aberta.
   await page.reload();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();

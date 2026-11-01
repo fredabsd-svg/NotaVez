@@ -66,6 +66,7 @@ export async function aplicar(id, patch, metaPatch = {}) {
   const atual = await carregar(id);
   conferirContexto(ctx);
   if (!['rascunho', 'rejeitada'].includes(atual.situacao)) throw new ErroApi(409, { erro: 'Esta nota já foi enviada e não pode mais ser alterada. Use "Clonar" para criar outra.', notaId: id });
+  const rascunho = { ...atual.rascunho, ...patch };
   const meta = { ...atual.meta, ...metaPatch };
   await salvarLocal(id, rascunho, { meta }, ctx);
   try { await sincronizar(id); } catch { /* fica no aparelho */ }

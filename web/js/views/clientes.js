@@ -109,14 +109,26 @@ export async function formulario({ id }, query) {
 
   // CNPJ completo: nome, contato e endereço vêm da base pública da Receita.
   // Lembra o que veio da consulta: ao corrigir o CNPJ, e-mail e telefone da empresa errada são trocados.
-  const preenchido = { email: null, fone: null };
+  const preenchido = { email: null, fone: null, nome: null, endereco: false };
   const trocarSeAutomatico = (cmp, chave, valor) => {
     if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
   };
   const consulta = consultaAutomatica(doc.entrada, {
     inicial: c.tipo === 'CNPJ' ? c.documento : null,
+    aoFalhar: () => {
+      if (preenchido.nome && nome.entrada.value === preenchido.nome) nome.entrada.value = '';
+      for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+      if (preenchido.endereco) {
+        for (const cmp of [cep, numero, logradouro, complemento, bairro, municipio]) cmp.entrada.value = '';
+        municipioIbge = '';
+        preenchido.endereco = false;
+      }
+      preenchido.nome = null;
+    },
     aoEncontrar: async (d) => {
       nome.entrada.value = d.razaoSocial;
+      preenchido.nome = d.razaoSocial;
+      preenchido.endereco = true;
       trocarSeAutomatico(email, 'email', d.email);
       trocarSeAutomatico(fone, 'fone', d.fone);
       const e = d.endereco || {};

@@ -102,15 +102,21 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
 
   // Lembra o que veio da consulta: ao corrigir o CNPJ, o que era da empresa errada é trocado.
-  const preenchido = { email: null, fone: null, municipio: null };
+  const preenchido = { email: null, fone: null, municipio: null, nome: null };
   const trocarSeAutomatico = (cmp, chave, valor) => {
     if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
   };
   // CNPJ completo: razão social, município e enquadramento vêm da base pública.
   const consulta = consultaAutomatica(cnpj.entrada, {
     inicial: p.documento,
+    aoFalhar: () => {
+      if (preenchido.nome && nome.entrada.value === preenchido.nome) { nome.entrada.value = ''; preenchido.nome = null; }
+      if (preenchido.municipio && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
+      for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+    },
     aoEncontrar: (d) => {
       nome.entrada.value = d.razaoSocial;
+      preenchido.nome = d.razaoSocial;
       // Sem município na base, não fica o da consulta anterior (CNPJ corrigido).
       if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
       else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }

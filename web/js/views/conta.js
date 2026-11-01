@@ -58,9 +58,10 @@ export async function tela(_, query = {}) {
     !conta.email && conta.govbr
       ? h('div', {}, h('label', { class: 'caixa', for: 'exclusao-confirmada' }, concordo, h('span', {}, 'Entendo que a exclusão remove minha conta e os dados guardados neste serviço.')),
         h('button', { type: 'button', class: 'btn btn-perigo', onclick: async (e) => {
+          const botao = e.currentTarget; // depois do await, currentTarget já é null
           if (!concordo.checked) { aviso('Marque a confirmação para continuar.'); return; }
-          e.currentTarget.disabled = true;
-          try { location.href = (await api('POST', '/api/conta/govbr/excluir', {})).url; } catch (err) { aviso(err.message, 7000); e.currentTarget.disabled = false; }
+          botao.disabled = true;
+          try { location.href = (await api('POST', '/api/conta/govbr/excluir', {})).url; } catch (err) { aviso(err.message, 7000); botao.disabled = false; }
         } }, 'Confirmar com gov.br e excluir'))
       : h('div', {}, formulario, h('a', { href: '/recuperar-conta.html' }, 'Esqueci minha senha')));
   return { titulo: 'Conta', aba: 'perfil', node };

@@ -41,7 +41,7 @@ export async function tela({ id }) {
   const meta = { ...dados.meta };
   // Perfil atual da empresa (o regime pode ter mudado); sem internet, a última cópia.
   let perfil = null;
-  try { perfil = (await comCache('perfil', () => api('GET', '/api/perfil'))).perfil; } catch { perfil = estado.inicio?.perfil || (await kvLer('inicio'))?.perfil; }
+  try { perfil = (await comCache('perfil', () => api('GET', '/api/perfil?leve=1'))).perfil; } catch { perfil = estado.inicio?.perfil || (await kvLer('inicio'))?.perfil; }
   if (!meta.servicoNacional && r.cTribNac) meta.servicoNacional = await servicoNacionalPorCodigo(r.cTribNac);
   let servicos = [];
   try { servicos = (await comCache('servicos', () => api('GET', '/api/servicos'))).servicos; } catch { /* sem cache */ }

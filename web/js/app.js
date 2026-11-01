@@ -87,6 +87,7 @@ async function renderizar() {
     if (!(e instanceof ErroApi)) console.error(e);
   }
   if (meu !== renderizando || !tela) return; // navegação mais nova em andamento
+  estado.telaComErro = tela.titulo === 'Ops';
   document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
   document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;
@@ -116,15 +117,18 @@ export async function carregarConta({ permitirOffline = true, substituirTitular 
     if (usuarioEsperado && usuarioEsperado !== conta.usuarioId) throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.' });
     if (!substituirTitular && estado.conta && estado.conta.usuarioId !== conta.usuarioId) {
       window.dispatchEvent(new CustomEvent('notavez:sessao-expirada'));
-      throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.' });
+      // Outra conta entrou noutra aba: o tratador do evento cuida desta aba sem apagar a conta guardada da outra.
+      throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.', trocaTitular: true });
     }
     estado.inicio = null;
     estado.conta = await definirConta(conta);
   } catch (e) {
-    const semRede = e instanceof ErroApi && e.status === 0;
-    // Falha de rede não encerra a sessão: só uma resposta do servidor (401, conta trocada) encerra.
-    if (semRede) { if (permitirOffline || !estado.conta) estado.conta = await recuperarContaOffline(); }
-    else estado.conta = await definirConta(null);
+    // Sem rede, servidor fora (5xx), limite (429) ou resposta estranha não encerram a sessão:
+    // só a resposta "sessão inválida" (401/403) encerra; conta trocada é tratada pelo evento.
+    const semRede = e instanceof ErroApi && (e.status === 0 || e.status === 429 || e.status >= 500);
+    const encerra = e instanceof ErroApi && [401, 403].includes(e.status) && !e.dados?.trocaTitular;
+    if (semRede || !(e instanceof ErroApi)) { if (permitirOffline || !estado.conta) estado.conta = await recuperarContaOffline(); }
+    else if (encerra) estado.conta = await definirConta(null);
     if (!permitirOffline) throw e;
   }
   return estado.conta;
@@ -157,7 +161,7 @@ function atualizarOnline() {
   const antes = `${estado.conta.usuarioId}:${estado.conta.prestadorId}`;
   // Re-desenha só se a conta ou a empresa mudaram: não apaga o que a pessoa está digitando.
   carregarConta({ permitirOffline: false })
-    .then(() => { if (`${estado.conta?.usuarioId}:${estado.conta?.prestadorId}` !== antes) renderizar(); return sincronizarTodos(); })
+    .then(() => { if (estado.telaComErro || `${estado.conta?.usuarioId}:${estado.conta?.prestadorId}` !== antes) renderizar(); return sincronizarTodos(); })
     .catch((e) => { if (!(e instanceof ErroApi && e.status === 0)) ir('/entrar'); });
 }
 
@@ -181,13 +185,17 @@ window.addEventListener('notavez:sessao-expirada', async () => {
     if (!guardada || !usuario || guardada.usuarioId === usuario) await definirConta(null); else esquecerContaNestaAba();
   } catch { /* identidade em memória já encerrada */ }
   if (tinhaSessao) aviso('Sua sessão terminou. Seus rascunhos continuam guardados para a mesma conta. Entre novamente.');
-  ir('/entrar');
+  // Já na tela de entrada (ex.: retorno do gov.br com mensagem): não perde o que veio no endereço.
+  if (!location.hash.startsWith('#/entrar')) ir('/entrar');
 });
 
 window.addEventListener('notavez:empresa-indisponivel', async () => {
   if (!estado.conta?.prestadorId) return;
   renderizando++;
-  try { await carregarConta({ permitirOffline: false, empresa: null }); } catch { return; }
+  try { await carregarConta({ permitirOffline: false, empresa: null }); } catch {
+    // Sem resposta do servidor: a empresa sai da sessão desta aba mesmo assim (evita repetir o pedido em laço).
+    if (estado.conta?.prestadorId) estado.conta = await definirConta({ ...estado.conta, prestadorId: null, empresaNome: null });
+  }
   aviso('Esta empresa não está mais disponível na sua conta. Escolha outra.');
   // Já em #/empresas o hash não muda: desenha direto.
   if (location.hash === '#/empresas') renderizar(); else ir('/empresas', { substituir: true });

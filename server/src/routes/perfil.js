@@ -110,6 +110,8 @@ export async function rotasPerfil(app) {
   const { repo, db, emissao } = app.ctx;
 
   app.get('/perfil', async (req) => {
+    // ?leve=1: só os dados da empresa, sem consultar a Receita (telas que só precisam do regime).
+    if (req.query?.leve === '1') return { perfil: perfilPublico(req.prestador) };
     const cert = req.prestador ? repo.certificadoEmissao(req.prestador) : null;
     return {
       perfil: perfilPublico(req.prestador),
