@@ -10,6 +10,10 @@ export function pendenciasCartao(eleg, { compacto = false } = {}) {
     h('p', {}, 'Você já pode preparar notas. Elas ficam como rascunho até tudo estar pronto:'),
     h('ul', { class: 'check' }, eleg.pendencias.map((p) => h('li', {}, h('span', { class: 'nao', 'aria-hidden': 'true' }, '✕'),
       h('span', {}, h('strong', {}, p.titulo), h('br'), h('span', { class: 'suave' }, p.comoResolver))))),
+    // Sem A1 ainda dá para emitir: no site oficial, com usuário e senha ou gov.br.
+    eleg.pendencias.some((p) => String(p.id).startsWith('cert'))
+      ? h('p', { class: 'suave' }, 'Sem certificado? Você pode emitir pelo Emissor Nacional com usuário e senha ou gov.br: crie a nota e, na revisão, toque em "Emitir pelo Emissor Nacional".')
+      : null,
     compacto ? null : h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Resolver nos dados da empresa'));
 }
 

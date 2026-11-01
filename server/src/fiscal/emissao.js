@@ -13,7 +13,7 @@ import { municipioIncidencia } from './regras/comum.js';
 import { montarDps, dataHoraBrasilia, hojeBrasilia } from './dps.js';
 import { validarXsd } from './xsd.js';
 import { assinarDps } from './assinatura.js';
-import { lerCertificado, verificarParaEmitente } from './certificado.js';
+import { lerCertificado, verificarParaEmitente, verificarParaProcurador } from './certificado.js';
 import { avaliarElegibilidade } from './elegibilidade.js';
 import { explicar, MOTIVOS_NAO_ENVIADA } from './mensagens.js';
 import { ErroApp } from '../util/erros.js';
@@ -53,6 +53,9 @@ export function validarRascunho(prestador, rascunho, hoje = hojeBrasilia(), para
   return { ok: erros.length === 0, erros, pacote: escolha.pacote, contexto, exigencias: escolha.pacote.exigencias(ctx) };
 }
 
+// Com procuração eletrônica NFS-e, o certificado é do procurador (outro CPF/CNPJ).
+const problemasCertificado = (mat, certificado, prestador) => (certificado.procurador ? verificarParaProcurador(mat) : verificarParaEmitente(mat, prestador.documento));
+
 function materialCertificado(certificado) {
   const pfx = decifrarBuffer(certificado._pfx);
   return lerCertificado(pfx, decifrar(certificado._senha));
@@ -61,11 +64,11 @@ function materialCertificado(certificado) {
 export function criarServicoEmissao({ repo, fabricaCliente }) {
   const clientes = new Map();
   function certificadoCompativel(prestador, certificado) {
-    if (!certificado || certificado.documento !== prestador.documento
+    if (!certificado || (!certificado.procurador && certificado.documento !== prestador.documento)
       || !(new Date(certificado.validoDe) <= new Date()) || !(new Date(certificado.validoAte) > new Date())) {
       throw new ErroApp(403, 'Envie um certificado válido do emitente original para verificar esta nota.');
     }
-    if (repo.certificadoAtivo(prestador.id)?.id !== certificado.id) {
+    if (repo.certificadoEmissao(prestador)?.id !== certificado.id) {
       throw new ErroApp(409, 'O certificado foi removido ou atualizado. Verifique novamente com o certificado atual.');
     }
   }
@@ -78,7 +81,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     if (!clientes.has(chave)) {
       for (const [k, c] of clientes) if (k.startsWith(`${prestador.id}:`) && !k.startsWith(`${prestador.id}:${certificado.id}:`)) { c.fechar?.(); clientes.delete(k); }
       const mat = materialCertificado(certificado);
-      const problemas = verificarParaEmitente(mat, prestador.documento);
+      const problemas = problemasCertificado(mat, certificado, prestador);
       if (problemas.length) throw new ErroApp(403, 'O certificado atual não é compatível com o emitente original.', { problemas });
       const amb = ambientesSefin[prestador.ambiente];
       if (!amb) throw new ErroApp(409, 'Ambiente original da nota indisponível. Procure o suporte.');
@@ -131,14 +134,14 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
   }
 
   async function validar(prestador, rascunho) {
-    const certificado = repo.certificadoAtivo(prestador.id);
+    const certificado = repo.certificadoEmissao(prestador);
     const parametros = await parametrosPara(prestador, certificado, rascunho);
     return validarRascunho(prestador, rascunho, hojeBrasilia(), parametros);
   }
 
   async function convenioEmissor(prestador) {
     if (!prestador || prestador.opSimpNac === '2' || !prestador.municipioIbge) return null;
-    return convenio(prestador, repo.certificadoAtivo(prestador.id), prestador.municipioIbge);
+    return convenio(prestador, repo.certificadoEmissao(prestador), prestador.municipioIbge);
   }
 
   async function comTrava(notaId, fn) {
@@ -183,7 +186,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       if (aprovado.versao !== undefined && (nota.versao !== aprovado.versao || aprovado.revisao !== revisao(prestador, nota))) {
         throw new ErroApp(409, 'Os dados mudaram desde a revisão. Revise novamente antes de emitir.');
       }
-      const certificado = repo.certificadoAtivo(prestador.id);
+      const certificado = repo.certificadoEmissao(prestador);
       const parametros = await parametrosPara(prestador, certificado, nota.rascunho);
       const eleg = avaliarElegibilidade(prestador, certificado, { convenioEmissor: parametros.convenioEmissor });
       if (!eleg.podeEmitir) throw new ErroApp(403, 'Ainda falta algo para emitir pelo Nota Sem Stress.', { pendencias: eleg.pendencias });
@@ -200,7 +203,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       });
       certificadoCompativel(prestador, certificado);
       const mat = materialCertificado(certificado);
-      const problemas = verificarParaEmitente(mat, prestador.documento);
+      const problemas = problemasCertificado(mat, certificado, prestador);
       if (problemas.length) throw new ErroApp(403, 'O certificado não pode assinar esta nota.', { problemas });
       const assinado = assinarDps(xml, mat);
       const xsd = await validarXsd(assinado);
@@ -292,7 +295,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const nota = repo.nota(prestador.id, notaId);
       if (!nota) throw new ErroApp(404, 'Nota não encontrada.');
       if (!['pendente', 'enviando'].includes(nota.situacao)) return nota;
-      const certificado = repo.certificadoAtivo(prestador.id);
+      const certificado = repo.certificadoEmissao(prestador);
       return reconciliar(notaId, prestador, certificado);
     });
   }
@@ -301,7 +304,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
   async function buscarXml(prestador, notaId) {
     const nota = repo.nota(prestador.id, notaId);
     if (!nota || nota.situacao !== 'emitida' || nota.temXml) return nota;
-    const certificado = repo.certificadoAtivo(prestador.id);
+    const certificado = repo.certificadoEmissao(prestador);
     if (!certificado) return nota;
     if (!nota.contextoEmitente) throw incerto(nota);
     const n = await clienteSefin({ ...nota.contextoEmitente, id: nota.prestadorId, ambiente: nota.ambiente }, certificado).consultarNfse(nota.chaveAcesso);
@@ -312,8 +315,8 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
 
   // Notas recebidas pela empresa (ADN), com o certificado ativo dela.
   async function distribuirDfe(prestador, nsu) {
-    const certificado = repo.certificadoAtivo(prestador.id);
-    if (!certificado) throw new ErroApp(409, 'Envie o certificado A1 desta empresa para baixar as notas tomadas.', { acao: 'certificado' });
+    const certificado = repo.certificadoEmissao(prestador);
+    if (!certificado) throw new ErroApp(409, 'Envie o certificado A1 desta empresa (ou use o do escritório, por procuração eletrônica) para baixar as notas tomadas.', { acao: 'certificado' });
     const cliente = clienteSefin(prestador, certificado);
     if (typeof cliente.distribuirDfe !== 'function') throw new ErroApp(503, 'Consulta de notas tomadas indisponível neste servidor.');
     return cliente.distribuirDfe(nsu, prestador.documento);
@@ -324,7 +327,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     for (const nota of repo.pendentes()) {
       if (travas.has(nota.id)) continue;
       const prestador = repo.prestador(nota.prestadorId);
-      const certificado = prestador && repo.certificadoAtivo(prestador.id);
+      const certificado = prestador && repo.certificadoEmissao(prestador);
       if (!certificado) {
         repo.transicionar(nota.id, nota.situacao, 'pendente', { processamentoToken: null, processamentoAte: null, proximaVerificacaoEm: proxima(nota.verificacoes), verificacoes: nota.verificacoes + 1 }, { versao: nota.versao });
         continue;

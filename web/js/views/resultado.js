@@ -67,14 +67,15 @@ function blocoEmitida(n) {
 function montar(n, { detalhe = false } = {}) {
   const icones = { emitida: '✓', rejeitada: '✕', pendente: '…', enviando: '…', rascunho: '!' };
   const titulos = {
-    emitida: estado.demo ? 'Emitida (simulação)' : 'Emitida',
+    emitida: n.canal === 'emissor_nacional' ? 'Emitida no Emissor Nacional' : estado.demo ? 'Emitida (simulação)' : 'Emitida',
     rejeitada: 'Rejeitada',
     pendente: 'Pendente de confirmação',
     enviando: 'Pendente de confirmação',
     rascunho: n.erros?.some((e) => e.codigo === 'NAO_ENVIADA') ? 'Não enviada' : 'Rascunho',
   };
   const orientacao = {
-    emitida: 'A Receita confirmou a sua NFS-e. Compartilhe com o cliente.',
+    // XML trazido pela pessoa: o app não falou com a Receita sobre esta nota.
+    emitida: n.canal === 'emissor_nacional' ? n.aviso : 'A Receita confirmou a sua NFS-e. Compartilhe com o cliente.',
     rejeitada: 'A Receita recusou. Nenhuma nota fiscal foi emitida. Veja o motivo, corrija e envie de novo.',
     pendente: 'A Receita não confirmou a tempo. A nota pode ter sido emitida ou não. NÃO emita de novo: vamos consultar a Receita antes de qualquer reenvio.',
     enviando: 'Aguardando a resposta da Receita. Não emita de novo.',

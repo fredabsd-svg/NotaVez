@@ -143,3 +143,22 @@ export function buscaComSugestoes({ rotulo, ajuda, placeholder, buscar, formatar
   c.append(lista);
   return c;
 }
+
+// Copia para a área de transferência e confirma no próprio botão.
+export async function copiarTexto(texto, botao) {
+  try {
+    await navigator.clipboard.writeText(texto);
+  } catch {
+    const area = h('textarea', { style: 'position:fixed;opacity:0' });
+    area.value = texto;
+    document.body.append(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+  if (botao) {
+    const antes = botao.textContent;
+    botao.textContent = 'Copiado ✓';
+    setTimeout(() => { botao.textContent = antes; }, 1500);
+  }
+}

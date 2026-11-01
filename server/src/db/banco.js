@@ -49,6 +49,10 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'govbr_indice', 'TEXT'],
   // "Manter conectado neste aparelho": sessão longa renovada a cada uso.
   ['sessoes', 'lembrar', 'INTEGER NOT NULL DEFAULT 1'],
+  // Por onde a nota foi emitida: NULL = API pelo app; 'emissor_nacional' = XML importado.
+  ['notas', 'canal', 'TEXT'],
+  // 1 = a empresa assina com o certificado do procurador da conta (procuração eletrônica NFS-e).
+  ['prestadores', 'usa_procuracao', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 function migrar(db) {
   db.exec('BEGIN IMMEDIATE');
