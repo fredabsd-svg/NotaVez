@@ -250,10 +250,13 @@ test('redefinir a senha desfaz o gov.br vinculado por outra pessoa (tomada de co
   assert.equal((await navegador().pedir('POST', '/api/conta/recuperar', { usuario: 'vitima-gov@exemplo.test' })).status, 200);
   const { token } = entregas.at(-1);
   assert.equal((await navegador().pedir('POST', '/api/conta/redefinir', { token, senha: 'senha-da-vitima' })).status, 200);
-  // O gov.br do atacante não entra mais nessa conta.
-  const volta = await navegador().entrarGovbr();
-  assert.notEqual(volta.headers.location, '/#/?govbr=entrou');
-  assert.equal(app.ctx.db.get("SELECT govbr_indice FROM usuarios WHERE email = 'vitima-gov@exemplo.test'").govbr_indice, null);
+  // O gov.br do atacante não entra mais nessa conta (no máximo cria uma conta própria, vazia).
+  const vitima = app.ctx.db.get("SELECT id, govbr_indice, documento_indice FROM usuarios WHERE email = 'vitima-gov@exemplo.test'");
+  assert.equal(vitima.govbr_indice, null);
+  assert.equal(vitima.documento_indice, null, 'o CPF que veio do gov.br alheio sai junto');
+  const atacanteDepois = navegador();
+  await atacanteDepois.entrarGovbr();
+  assert.notEqual((await atacanteDepois.pedir('GET', '/api/conta')).body.usuarioId, vitima.id);
 });
 
 test('"Sair" encerra a sessão mesmo com conta ou empresa trocadas em outra aba', async () => {

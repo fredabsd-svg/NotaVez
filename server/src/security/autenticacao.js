@@ -44,7 +44,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
     const t = Date.now();
     db.transacao(() => {
       db.run('DELETE FROM limites_conta WHERE ate_ms <= ?', t);
-      const chaves = [`${acao}:ip:${ip || 'desconhecido'}`, ...(identidade ? [`${acao}:identidade:${identidade}`] : [])].map(hashToken);
+      // ip === false: limite só da identidade (não cria um contador de IP compartilhado).
+      const chaves = [...(ip === false ? [] : [`${acao}:ip:${ip || 'desconhecido'}`]), ...(identidade ? [`${acao}:identidade:${identidade}`] : [])].map(hashToken);
       for (const chave of chaves) {
         const r = db.get('SELECT quantidade FROM limites_conta WHERE chave_hash = ?', chave);
         if (r && r.quantidade >= max) throw new ErroApp(429, 'Muitas tentativas. Aguarde 15 minutos e tente de novo.');
@@ -142,7 +143,9 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
     entrar(identificador, senha, ip, { lembrar = true } = {}) {
       // Limite por CONTA quando ela existe: e-mail e CPF da mesma conta somam tentativas.
       const u = usuarioPorIdentificador(identificador);
-      limitar('entrada', u ? `conta:${u.id}` : chaveIdentificador(identificador), ip, 15);
+      // Por conta E por IP (15): quem erra a senha de longe não tranca o dono; teto global por conta (100).
+      limitar('entrada', u ? `conta:${u.id}:ip:${ip}` : chaveIdentificador(identificador), ip, 15);
+      if (u) limitar('entrada-conta', `conta:${u.id}`, false, 100);
       if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Usuário ou senha incorretos.');
       return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar };
     },
@@ -186,6 +189,11 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         db.run('DELETE FROM recuperacoes_senha WHERE usuario_id = ?', r.usuario_id);
         db.run('DELETE FROM sessoes WHERE usuario_id = ?', r.usuario_id);
         // Quem redefine a senha retoma a conta: um gov.br vinculado por outra pessoa não pode continuar entrando.
+        // O CPF "confirmado" que veio desse gov.br também sai (era a identidade de quem vinculou).
+        const u = db.get('SELECT documento_cifrado, documento_verificado, govbr_indice FROM usuarios WHERE id = ?', r.usuario_id);
+        if (u?.govbr_indice && u.documento_verificado && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
+          db.run('UPDATE usuarios SET tipo_documento = NULL, documento_cifrado = NULL, documento_indice = NULL, documento_verificado = 0 WHERE id = ?', r.usuario_id);
+        }
         db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', r.usuario_id);
         if (db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'govbr_fluxos'")) db.run('DELETE FROM govbr_fluxos WHERE usuario_id = ?', r.usuario_id);
         return r.usuario_id;

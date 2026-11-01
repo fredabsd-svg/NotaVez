@@ -125,7 +125,8 @@ export function criarRepositorio(db) {
       // Com histórico fiscal (notas enviadas ou tomadas) ou certificado do CNPJ, o CNPJ não muda:
       // o histórico e o certificado pertencem ao CNPJ antigo. Outro CNPJ = outra empresa.
       if (atual && prestadorDe(atual).documento !== p.documento && (
-        db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao <> 'rascunho' LIMIT 1", atual.id)
+        // Rejeitada não conta: a própria rejeição (ex.: E0082) pode mandar corrigir o CNPJ.
+        db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao NOT IN ('rascunho','rejeitada') LIMIT 1", atual.id)
         || db.get('SELECT 1 FROM notas_tomadas WHERE prestador_id = ? LIMIT 1', atual.id)
         || db.get('SELECT 1 FROM certificados WHERE prestador_id = ? AND removido_em IS NULL LIMIT 1', atual.id))) {
         throw new ErroApp(409, 'Esta empresa já tem notas ou certificado deste CNPJ e o CNPJ não pode ser trocado. Cadastre o novo CNPJ como outra empresa em Empresas › Adicionar empresa.',
@@ -274,6 +275,9 @@ export function criarRepositorio(db) {
     // notaId, o rascunho que gerou o roteiro passa a ser a nota emitida.
     notaPorIdDps: (prestadorId, idDps) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id_dps_indice = ?', prestadorId, indiceCego(idDps))),
     removerImportadaDuplicada: (prestadorId, chave, exceto) => db.run("DELETE FROM notas WHERE prestador_id = ? AND chave_indice = ? AND canal = 'emissor_nacional' AND id <> ?", prestadorId, indiceCego(chave), exceto),
+    // Nota importada "não conferida" que agora foi conferida: guarda a versão oficial.
+    reconferirImportada: (prestadorId, id, { xml, nNfse, emitidaEm }) => db.run(`UPDATE notas SET nfse_xml_cifrado = ?, n_nfse = ?, emitida_em = ?, importada_conferida = 1,
+      atualizado_em = ?, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND canal = 'emissor_nacional' AND importada_conferida = 0`, cifrar(xml), nNfse, emitidaEm, agora(), prestadorId, id).changes === 1,
     registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto, conferida = false }) {
       // Só dentro da empresa: a mesma NFS-e pode estar também na conta do contador ou do dono.
       const minha = db.get('SELECT id FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chaveAcesso));

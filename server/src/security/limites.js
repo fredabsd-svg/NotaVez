@@ -32,7 +32,11 @@ export function criarLimites(db, { agora = Date.now } = {}) {
       if (typeof identificador === 'string') {
         // Qualquer grafia do mesmo CPF/CNPJ conta como a mesma identidade.
         const chave = identificador.includes('@') ? identificador.trim().toLowerCase() : identificador.toUpperCase().replace(/[^0-9A-Z]/g, '');
-        consumir(`conta:${rota}:${chave}`, rota.endsWith('/entrar') ? 15 : 5, janela);
+        if (rota.endsWith('/entrar')) {
+          // Por identidade E IP: tentativas de outro lugar não trancam o dono; teto global maior.
+          consumir(`conta:${rota}:${chave}:ip:${req.ip}`, 15, janela);
+          consumir(`conta:${rota}:${chave}`, 100, janela);
+        } else consumir(`conta:${rota}:${chave}`, 5, janela);
       }
     } else if (req.usuario) {
       consumir(`mutacao:${req.usuario.id}`, 300, 60_000);

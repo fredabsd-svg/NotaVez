@@ -334,7 +334,8 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     if (!certificado) return null;
     let cliente;
     try { cliente = clienteSefin(prestador, certificado); } catch { return null; }
-    const r = await cliente.consultarNfse(chave);
+    let r;
+    try { r = await cliente.consultarNfse(chave); } catch (e) { r = { tipo: 'falha', detalhe: e.message }; }
     repo.registrarChamada(null, 'consulta_nfse_importada', r);
     return r;
   }

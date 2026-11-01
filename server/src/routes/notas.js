@@ -29,7 +29,7 @@ export function resumoNota(repo, prestador, n, completo = false) {
     ...(n.situacao === 'emitida' && n.canal === 'emissor_nacional'
       ? { rotulo: 'Emitida (Emissor Nacional)', aviso: n.importadaConferida
         ? 'Emitida por você no Emissor Nacional; o app buscou a versão oficial na Receita.'
-        : 'Emitida por você no Emissor Nacional; o XML enviado não pôde ser conferido com a Receita (sem certificado). Confira na Consulta Pública: o PDF sai com a marca "NÃO CONFERIDA".' } : {}),
+        : 'Emitida por você no Emissor Nacional; o XML enviado não foi conferido com a Receita porque a empresa não tinha certificado no app. Confira na Consulta Pública: o PDF sai com a marca "NÃO CONFERIDA". Depois de enviar o certificado, importe o mesmo XML de novo para conferir.' } : {}),
     importadaConferida: n.canal === 'emissor_nacional' ? n.importadaConferida : undefined,
     canal: n.canal,
     clienteNome: r.tomador?.nome || null,
@@ -232,12 +232,21 @@ export async function rotasNotas(app) {
     let conferida = false;
     const conf = await emissao.conferirNfse(p, dados.chaveAcesso);
     if (conf?.tipo === 'nao_encontrada') throw new ErroApp(422, 'A Receita não encontrou NFS-e com a chave deste arquivo. Confira se é o XML certo, baixado do Emissor Nacional.');
+    // Com certificado, só entra o que a Receita confirmou: se ela não respondeu, nada é gravado.
+    if (conf && conf.tipo !== 'ok') throw new ErroApp(503, 'A Receita não respondeu para conferir esta NFS-e. Nada foi gravado; tente de novo em alguns minutos.');
     if (conf?.tipo === 'ok') {
       const oficial = await lerNfseImportada(conf.nfseXml, { exigirAssinatura: false });
       if (oficial.chaveAcesso !== dados.chaveAcesso || oficial.emitente?.documento !== p.documento) throw new ErroApp(422, 'O XML enviado não corresponde à NFS-e registrada na Receita.');
       dados = oficial;
       xml = conf.nfseXml;
       conferida = true;
+    }
+    // Já importada sem conferência e agora conferida: atualiza para a versão oficial.
+    const existente = repo.notaPorChave(p.id, dados.chaveAcesso);
+    if (existente && conferida && existente.canal === 'emissor_nacional' && !existente.importadaConferida) {
+      repo.reconferirImportada(p.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm });
+      auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.reconferida', entidade: 'nota', entidadeId: existente.id, ip: req.ip });
+      return { nota: resumoNota(repo, p, repo.nota(p.id, existente.id), true), conferida: true, reconferida: true };
     }
     let rascunho = dados.rascunho;
     if (notaId) {
@@ -261,7 +270,8 @@ export async function rotasNotas(app) {
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.xml_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/xml; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="NFSe-${n.chaveAcesso}.xml"`).send(xml);
+      // XML trazido pela pessoa e não conferido com a Receita: o nome do arquivo avisa.
+      .header('Content-Disposition', `attachment; filename="${n.canal === 'emissor_nacional' && !n.importadaConferida ? 'NAO-CONFERIDA-' : ''}NFSe-${n.chaveAcesso}.xml"`).send(xml);
   });
 
   // DANFSe (NT 008) em PDF, gerado SÓ a partir do XML oficial da NFS-e.

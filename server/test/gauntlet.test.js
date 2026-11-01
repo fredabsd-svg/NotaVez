@@ -1,6 +1,7 @@
 // Regressões dos achados confirmados no Gauntlet Loop (críticos independentes,
 // cada achado reproduzido antes da correção): isolamento, CNPJ, certificados.
 process.env.NODE_ENV = 'test';
+process.env.NOTAVEZ_TIMEOUT_SEFIN_MS = '1500';
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -121,4 +122,60 @@ test('evento malformado no lote do ADN não trava a sincronização das notas to
   const servico = criarServicoTomadas({ repo: app.ctx.repo, emissao: { distribuirDfe: async (_p, nsu) => ({ tipo: 'ok', documentos: nsu < 1 ? lote : [] }) } });
   const r = await servico.sincronizar(p);
   assert.equal(r.ultimoNsu, 1, 'o NSU avança além do evento ruim');
+});
+
+// ---------- Segunda rodada (críticos novos sobre as correções) ----------
+
+test('nota rejeitada não impede corrigir o CNPJ que a própria rejeição manda corrigir', async () => {
+  const c = await conta('rejeitada@exemplo.test', { documento: '11444777000161', nome: 'Errado', municipioIbge: '3550308', opSimpNac: '2' });
+  const n = (await c.api('POST', '/api/notas', { rascunho: { valor: '10' } })).body.nota;
+  app.ctx.db.run("UPDATE notas SET situacao = 'rejeitada' WHERE id = ?", n.id);
+  assert.equal((await c.api('PUT', '/api/perfil', { documento: '06990590000123', nome: 'Certo', municipioIbge: '3550308', opSimpNac: '2' })).status, 200);
+});
+
+test('senhas erradas de outro IP não trancam o dono da conta', async () => {
+  const dono = await conta('trancar@exemplo.test');
+  const tentar = (ipOrigem, senha) => app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: ipOrigem, headers: { 'x-notavez': '1' }, payload: { usuario: 'trancar@exemplo.test', senha } });
+  for (let i = 0; i < 16; i++) await tentar('203.0.113.66', 'errada-errada');
+  assert.equal((await tentar('203.0.113.66', 'errada-errada')).statusCode, 429);
+  assert.equal((await tentar('198.51.100.7', 'senha-segura')).statusCode, 200);
+  assert.ok(dono);
+});
+
+test('XML com chave de acesso que não bate com emitente/número é recusado', async () => {
+  const c = await conta('chave@exemplo.test');
+  const xml = nfseAssinada().replace(/<nNFSe>(\d+)<\/nNFSe>/, (_, n) => `<nNFSe>${Number(n) + 1000}</nNFSe>`);
+  const r = await c.api('POST', '/api/notas/importar', { xml });
+  assert.equal(r.status, 422);
+  assert.match(r.body.erro, /chave de acesso/);
+});
+
+test('com certificado: Receita fora não grava nada; nota "não conferida" é conferida ao importar de novo', async () => {
+  let receitaOk = false;
+  const xml = nfseAssinada();
+  const fake = () => ({ consultarNfse: async () => (receitaOk ? { tipo: 'ok', nfseXml: xml } : { tipo: 'falha' }), consultarConvenio: async () => ({ situacao: 'desconhecido' }), fechar() {} });
+  const app2 = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, fabricaCliente: fake });
+  try {
+    let cookie = '';
+    const api = async (method, url, payload) => {
+      const r = await app2.inject({ method, url, payload, remoteAddress: '192.0.2.200', headers: { cookie, ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
+      if (r.headers['set-cookie']) cookie = [r.headers['set-cookie']].flat().map((x) => x.split(';')[0]).join('; ');
+      return { status: r.statusCode, body: r.json() };
+    };
+    await api('POST', '/api/conta/cadastrar', { email: 'reconfere@exemplo.test', senha: 'senha-segura' });
+    await api('POST', '/api/empresas', { documento: CNPJ, nome: 'Cliente', municipioIbge: '3550308', opSimpNac: '2' });
+    // Sem certificado: entra como "não conferida".
+    const sem = await api('POST', '/api/notas/importar', { xml });
+    assert.equal(sem.body.conferida, false);
+    // Com certificado e a Receita fora: 503 e nada muda.
+    assert.equal((await api('POST', '/api/certificado', { pfxBase64: cert.pfx.toString('base64'), senha: cert.senha, consentimento: true })).status, 200);
+    assert.equal((await api('POST', '/api/notas/importar', { xml })).status, 503);
+    // Receita de volta: o mesmo XML confere a nota existente.
+    receitaOk = true;
+    const de = await api('POST', '/api/notas/importar', { xml });
+    assert.equal(de.status, 200, JSON.stringify(de.body));
+    assert.equal(de.body.reconferida, true);
+    assert.equal(de.body.nota.id, sem.body.nota.id);
+    assert.equal(de.body.nota.importadaConferida, true);
+  } finally { await app2.close(); }
 });

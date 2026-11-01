@@ -161,6 +161,14 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
     const xsd = await validarXsd(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
     if (!xsd.valido) throw new ErroApp(422, 'Este arquivo não segue o leiaute oficial da NFS-e. Baixe o XML da nota emitida no Emissor Nacional.', { detalhes: xsd.erros.slice(0, 3) });
   }
+  // A chave carrega o município emissor, a inscrição do emitente e o número da NFS-e:
+  // precisam bater com o próprio conteúdo (chave inventada ou trocada é recusada).
+  const emit = docDe(inf.emit) || docDe(dps.prest);
+  const inscricao = emit && /^\d+$/.test(emit.documento) ? emit.documento.padStart(14, '0') : null;
+  if ((inscricao && chave.slice(9, 23) !== inscricao) || (txt(inf.nNFSe) && Number(chave.slice(23, 36)) !== Number(txt(inf.nNFSe)))
+    || (txt(dps.cLocEmi) && chave.slice(0, 7) !== txt(dps.cLocEmi))) {
+    throw new ErroApp(422, 'A chave de acesso deste XML não corresponde ao emitente, ao município ou ao número da nota. Baixe o XML de novo no Emissor Nacional.');
+  }
   const assinatura = assinaturaNfse(xml, chave);
   if (assinatura.presente && !assinatura.valida) throw new ErroApp(422, 'A assinatura deste XML não confere: o arquivo foi alterado depois de emitido. Baixe de novo no Emissor Nacional.');
   if (!assinatura.presente && exigirAssinatura) throw new ErroApp(422, 'Este XML não tem a assinatura da Receita. Baixe o XML da nota emitida no Emissor Nacional (não o da DPS).');
