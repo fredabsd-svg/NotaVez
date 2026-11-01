@@ -276,8 +276,11 @@ export function criarRepositorio(db) {
     notaPorIdDps: (prestadorId, idDps) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id_dps_indice = ?', prestadorId, indiceCego(idDps))),
     removerImportadaDuplicada: (prestadorId, chave, exceto) => db.run("DELETE FROM notas WHERE prestador_id = ? AND chave_indice = ? AND canal = 'emissor_nacional' AND id <> ?", prestadorId, indiceCego(chave), exceto),
     // Nota importada "não conferida" que agora foi conferida: guarda a versão oficial.
-    reconferirImportada: (prestadorId, id, { xml, nNfse, emitidaEm }) => db.run(`UPDATE notas SET nfse_xml_cifrado = ?, n_nfse = ?, emitida_em = ?, importada_conferida = 1,
-      atualizado_em = ?, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND canal = 'emissor_nacional' AND importada_conferida = 0`, cifrar(xml), nNfse, emitidaEm, agora(), prestadorId, id).changes === 1,
+    // Tudo o que aparece na tela (valor, tomador, descrição, competência) passa a vir do XML oficial.
+    reconferirImportada: (prestadorId, id, { xml, nNfse, emitidaEm, rascunho, ambiente }) => db.run(`UPDATE notas SET nfse_xml_cifrado = ?, n_nfse = ?, emitida_em = ?,
+      rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?, importada_conferida = 1,
+      atualizado_em = ?, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND canal = 'emissor_nacional' AND importada_conferida = 0`,
+    cifrar(xml), nNfse, emitidaEm, cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, agora(), prestadorId, id).changes === 1,
     registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto, conferida = false }) {
       // Só dentro da empresa: a mesma NFS-e pode estar também na conta do contador ou do dono.
       const minha = db.get('SELECT id FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chaveAcesso));

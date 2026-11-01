@@ -47,6 +47,8 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'documento_verificado', 'INTEGER NOT NULL DEFAULT 0'],
   ['usuarios', 'nome', 'TEXT'],
   ['usuarios', 'govbr_indice', 'TEXT'],
+  // 'vinculo_govbr' = o CPF-usuário veio de um gov.br vinculado depois (não foi digitado pelo titular).
+  ['usuarios', 'documento_origem', 'TEXT'],
   // "Manter conectado neste aparelho": sessão longa renovada a cada uso.
   ['sessoes', 'lembrar', 'INTEGER NOT NULL DEFAULT 1'],
   // Por onde a nota foi emitida: NULL = API pelo app; 'emissor_nacional' = XML importado.

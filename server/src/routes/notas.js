@@ -244,7 +244,9 @@ export async function rotasNotas(app) {
     // Já importada sem conferência e agora conferida: atualiza para a versão oficial.
     const existente = repo.notaPorChave(p.id, dados.chaveAcesso);
     if (existente && conferida && existente.canal === 'emissor_nacional' && !existente.importadaConferida) {
-      repo.reconferirImportada(p.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm });
+      // Mantém só o vínculo com cliente e serviço salvos; o resto vem da versão oficial.
+      const rascunhoOficial = { ...dados.rascunho, clienteId: existente.rascunho?.clienteId || null, servicoId: existente.rascunho?.servicoId || null };
+      repo.reconferirImportada(p.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm, rascunho: rascunhoOficial, ambiente: dados.ambiente });
       auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.reconferida', entidade: 'nota', entidadeId: existente.id, ip: req.ip });
       return { nota: resumoNota(repo, p, repo.nota(p.id, existente.id), true), conferida: true, reconferida: true };
     }

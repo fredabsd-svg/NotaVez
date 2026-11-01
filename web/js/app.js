@@ -179,7 +179,8 @@ function atualizarOnline() {
   // Re-desenha só se a conta ou a empresa mudaram: não apaga o que a pessoa está digitando.
   carregarConta({ permitirOffline: false })
     .then(() => { if (estado.telaComErro || `${estado.conta?.usuarioId}:${estado.conta?.prestadorId}` !== antes) renderizar(); return sincronizarTodos(); })
-    .catch((e) => { if (!(e instanceof ErroApi && e.status === 0)) ir('/entrar'); });
+    // Servidor em 5xx/429 não encerra a sessão: só volta a "Entrar" quem de fato ficou sem conta.
+    .catch((e) => { if (!(e instanceof ErroApi && e.status === 0) && !estado.conta) ir('/entrar'); });
 }
 
 document.getElementById('voltar').addEventListener('click', () => {

@@ -111,26 +111,30 @@ export async function formulario({ id }, query) {
 
   // CNPJ completo: nome, contato e endereço vêm da base pública da Receita.
   // Lembra o que veio da consulta: ao corrigir o CNPJ, e-mail e telefone da empresa errada são trocados.
-  const preenchido = { email: null, fone: null, nome: null, endereco: false };
+  const preenchido = { email: null, fone: null, nome: null, endereco: null, cnpj: null };
+  const camposEndereco = () => [cep, numero, logradouro, complemento, bairro, municipio];
   const trocarSeAutomatico = (cmp, chave, valor) => {
     if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
   };
   const consulta = consultaAutomatica(doc.entrada, {
     inicial: c.tipo === 'CNPJ' ? c.documento : null,
-    aoFalhar: () => {
+    aoFalhar: (_, cnpjFalhou) => {
+      if (cnpjFalhou && cnpjFalhou === preenchido.cnpj) return;
+      preenchido.cnpj = null;
       if (preenchido.nome && nome.entrada.value === preenchido.nome) nome.entrada.value = '';
       for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+      // Do endereço, só sai o que ainda é exatamente o que a consulta trouxe; o digitado à mão fica.
       if (preenchido.endereco) {
-        for (const cmp of [cep, numero, logradouro, complemento, bairro, municipio]) cmp.entrada.value = '';
-        municipioIbge = '';
-        preenchido.endereco = false;
+        camposEndereco().forEach((cmp, i) => { if (cmp.entrada.value === preenchido.endereco.valores[i]) cmp.entrada.value = ''; });
+        if (municipioIbge === preenchido.endereco.municipioIbge && !municipio.entrada.value) municipioIbge = '';
+        preenchido.endereco = null;
       }
       preenchido.nome = null;
     },
-    aoEncontrar: async (d) => {
+    aoEncontrar: async (d, cnpjAchado) => {
+      preenchido.cnpj = cnpjAchado;
       nome.entrada.value = d.razaoSocial;
       preenchido.nome = d.razaoSocial;
-      preenchido.endereco = true;
       trocarSeAutomatico(email, 'email', d.email);
       trocarSeAutomatico(fone, 'fone', d.fone);
       const e = d.endereco || {};
@@ -142,6 +146,7 @@ export async function formulario({ id }, query) {
       municipioIbge = e.municipioIbge || '';
       const m = municipioIbge ? await municipioPorCodigo(municipioIbge) : null;
       municipio.entrada.value = m ? `${m.nome} - ${m.uf}` : '';
+      preenchido.endereco = { valores: camposEndereco().map((cmp) => cmp.entrada.value), municipioIbge };
       blocoEndereco.open = true;
     },
   });

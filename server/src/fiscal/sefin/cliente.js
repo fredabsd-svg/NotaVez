@@ -124,7 +124,10 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
       const base = { http: r.status ?? null, ms: r.ms };
       if (r.erroRede) return { ...base, tipo: 'falha', detalhe: r.erroRede.code || r.erroRede.message };
       const xmlB64 = pegar(r.json, 'nfseXmlGZipB64', 'NfseXmlGZipB64');
-      if (r.status === 200 && xmlB64) return { ...base, tipo: 'ok', nfseXml: ungz64(xmlB64) };
+      if (r.status === 200 && xmlB64) {
+        // Resposta corrompida (gzip/base64 inválido) é falha da Receita, não erro 500 do app.
+        try { return { ...base, tipo: 'ok', nfseXml: ungz64(xmlB64) }; } catch { return { ...base, tipo: 'falha', detalhe: 'xml_corrompido' }; }
+      }
       if (r.status === 404) return { ...base, tipo: 'nao_encontrada' };
       return { ...base, tipo: 'falha', detalhe: `http_${r.status}` };
     },

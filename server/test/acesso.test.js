@@ -212,10 +212,11 @@ test('manter conectado: sessão longa renovada a cada uso; sem marcar, cookie de
   const n = navegador();
   await n.pedir('POST', '/api/conta/cadastrar', { documento: '29537914852', email: 'lembrar@exemplo.test', senha: 'senha-segura' });
   const longa = await navegador().pedir('POST', '/api/conta/entrar', { usuario: '29537914852', senha: 'senha-segura' });
-  assert.match(longa.headers['set-cookie'], /Max-Age=7776000/, 'marcado por padrão: 90 dias');
+  const sessao = (r) => [r.headers['set-cookie']].flat().find((c) => c?.startsWith('nv_sessao=')) || '';
+  assert.match(sessao(longa), /Max-Age=7776000/, 'marcado por padrão: 90 dias');
   const curta = navegador();
   const r = await curta.pedir('POST', '/api/conta/entrar', { usuario: '29537914852', senha: 'senha-segura', lembrar: false });
-  assert.doesNotMatch(r.headers['set-cookie'], /Max-Age/, 'some ao fechar o navegador');
+  assert.doesNotMatch(sessao(r), /Max-Age/, 'some ao fechar o navegador');
 
   const { db } = app.ctx;
   const sessoes = () => db.all("SELECT s.token_hash, s.expira_em, s.lembrar FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = 'lembrar@exemplo.test' ORDER BY s.criado_em");

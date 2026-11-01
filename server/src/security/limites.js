@@ -27,15 +27,16 @@ export function criarLimites(db, { agora = Date.now } = {}) {
     if (!rota.startsWith('/api/')) return;
     const janela = 15 * 60_000;
     if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(rota)) {
-      consumir(`conta:ip:${req.ip}`, 60, janela);
+      // Escritórios com muita gente atrás do mesmo IP: o limite fino (só tentativas erradas) fica na autenticação.
+      consumir(`conta:ip:${req.ip}`, 120, janela);
       const identificador = req.body?.usuario ?? req.body?.email;
       if (typeof identificador === 'string') {
         // Qualquer grafia do mesmo CPF/CNPJ conta como a mesma identidade.
         const chave = identificador.includes('@') ? identificador.trim().toLowerCase() : identificador.toUpperCase().replace(/[^0-9A-Z]/g, '');
         if (rota.endsWith('/entrar')) {
-          // Por identidade E IP: tentativas de outro lugar não trancam o dono; teto global maior.
+          // Por identidade E IP: tentativas de outro lugar não trancam o dono. O teto global da
+          // conta fica na autenticação, que conta só erros e isenta o aparelho do dono.
           consumir(`conta:${rota}:${chave}:ip:${req.ip}`, 15, janela);
-          consumir(`conta:${rota}:${chave}`, 100, janela);
         } else consumir(`conta:${rota}:${chave}`, 5, janela);
       }
     } else if (req.usuario) {

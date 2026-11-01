@@ -42,12 +42,12 @@ export function consultaAutomatica(entrada, { aoEncontrar, aoFalhar = () => {}, 
     try {
       const d = await consultarCnpj(cnpj);
       if (cnpjCompleto(entrada.value) !== cnpj) return;
-      aoEncontrar(d);
+      aoEncontrar(d, cnpj);
       status.replaceChildren(cartaoCnpj(d));
     } catch (e) {
       ultimo = null; // permite tentar de novo o mesmo CNPJ
       if (cnpjCompleto(entrada.value) !== cnpj) return;
-      aoFalhar(e); // tira o que a consulta anterior (de outro CNPJ) tinha preenchido
+      aoFalhar(e, cnpj); // tira o que a consulta anterior (de outro CNPJ) tinha preenchido
       status.replaceChildren(h('p', { class: 'suave' }, e instanceof ErroApi && e.status === 0 ? 'Sem internet: preencha os dados manualmente.' : e.message));
     }
   }

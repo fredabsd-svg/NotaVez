@@ -102,26 +102,36 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
 
   // Lembra o que veio da consulta: ao corrigir o CNPJ, o que era da empresa errada é trocado.
-  const preenchido = { email: null, fone: null, municipio: null, nome: null };
+  const preenchido = { email: null, fone: null, municipio: null, nome: null, cnpj: null, regime: null, apuracao: null };
+  const regimeInicial = regime.entrada.value;
+  const apuracaoInicial = apuracao.entrada.value;
   const trocarSeAutomatico = (cmp, chave, valor) => {
     if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
   };
   // CNPJ completo: razão social, município e enquadramento vêm da base pública.
   const consulta = consultaAutomatica(cnpj.entrada, {
     inicial: p.documento,
-    aoFalhar: () => {
+    aoFalhar: (_, cnpjFalhou) => {
+      // Falhou a nova consulta do MESMO CNPJ ("Atualizar"): o que veio antes continua certo.
+      if (cnpjFalhou && cnpjFalhou === preenchido.cnpj) return;
+      preenchido.cnpj = null;
       if (preenchido.nome && nome.entrada.value === preenchido.nome) { nome.entrada.value = ''; preenchido.nome = null; }
+      // Regime e apuração da empresa errada voltam ao que estava antes da consulta.
+      if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); }
+      if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) apuracao.entrada.value = apuracaoInicial;
+      preenchido.regime = null; preenchido.apuracao = null;
       if (preenchido.municipio && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
       for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
     },
-    aoEncontrar: (d) => {
+    aoEncontrar: (d, cnpjAchado) => {
+      preenchido.cnpj = cnpjAchado;
       nome.entrada.value = d.razaoSocial;
       preenchido.nome = d.razaoSocial;
       // Sem município na base, não fica o da consulta anterior (CNPJ corrigido).
       if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
       else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
-      if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); }
-      if (d.enquadramento?.apuracao) apuracao.entrada.value = d.enquadramento.apuracao;
+      if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); preenchido.regime = regime.entrada.value; }
+      if (d.enquadramento?.apuracao) { apuracao.entrada.value = d.enquadramento.apuracao; preenchido.apuracao = apuracao.entrada.value; }
       if (regime.entrada.value === '1' && cstPisCofins.entrada.value === '01' && !aliqPis.entrada.value && !aliqCofins.entrada.value) padroes.click();
       trocarSeAutomatico(email, 'email', d.email);
       trocarSeAutomatico(fone, 'fone', d.fone);
