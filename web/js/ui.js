@@ -28,6 +28,11 @@ export const data = (iso) => {
   const [a, m, d] = String(iso).slice(0, 10).split('-');
   return `${d}/${m}/${a}`;
 };
+// Formatos do Emissor Nacional: código de tributação 01.07.01 e CEP 01001-000.
+export const codigoServico = (c) => (/^\d{6}$/.test(String(c || '')) ? String(c).replace(/^(\d{2})(\d{2})(\d{2})$/, '$1.$2.$3') : (c || ''));
+export const cep = (c) => (/^\d{8}$/.test(String(c || '')) ? String(c).replace(/^(\d{5})(\d{3})$/, '$1-$2') : (c || ''));
+// Plural de verdade: plural(3, 'nota pendente', 'notas pendentes') → "3 notas pendentes".
+export const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 export const hoje = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 export const chaveFormatada = (c) => (c ? c.replace(/(\d{4})(?=\d)/g, '$1 ') : '');

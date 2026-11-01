@@ -107,7 +107,7 @@ try {
   // Emissão assistida: roteiro para o Emissor Nacional, copiar campo e trazer o XML emitido lá.
   const assistida = (await post('/api/notas', { rascunho: { clienteId: cliente.id, servicoId: servico.id, valor: '275,00' } })).nota;
   await page.goto(`${base}/#/nota/${assistida.id}/revisao`);
-  await page.getByRole('link', { name: /Emitir pelo Emissor Nacional/ }).click();
+  await page.getByRole('link', { name: /emitir pelo Emissor Nacional/i }).click();
   await page.getByRole('link', { name: 'Abrir o Emissor Nacional' }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'Abrir o Emissor Nacional' }).getAttribute('target'), '_blank');
   await page.getByRole('button', { name: 'Copiar Valor do serviço prestado' }).click();
@@ -144,10 +144,10 @@ try {
   const draftsSegunda = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsSegunda.length, 0, 'rascunhos ficam no ambiente da empresa');
   await page.goto(`${base}/#/empresas`);
-  await page.getByText('2 de 2 empresa(s)').waitFor();
+  await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: /EMPRESA FICTICIA SMOKE MEI/ }).click();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
-  await page.getByRole('navigation', { name: 'Ações desta empresa' }).getByRole('link', { name: /Notas tomadas/ }).waitFor();
+  await page.getByRole('link', { name: 'Emitir nota', exact: true }).first().waitFor();
   const draftsPrimeira = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.ok(draftsPrimeira.some((r) => r.id === idLocal), 'de volta à primeira empresa, o rascunho dela reaparece');
   // Recarregar a página mantém a empresa aberta.
@@ -156,14 +156,14 @@ try {
 
   // Conectado no aparelho: a saída fica à vista no Início e volta à tela de usuário e senha.
   await page.goto(`${base}/#/`);
-  await page.getByText('Conectado como 529.982.247-25.').waitFor();
+  await page.getByText('Conectado como 529.982.247-25').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await page.getByLabel('CPF, CNPJ ou e-mail').waitFor();
   // Volta entrando com o CPF como usuário: com duas empresas, cai na lista.
   await page.getByLabel('CPF, CNPJ ou e-mail').fill('52998224725');
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-  await page.getByText('2 de 2 empresa(s)').waitFor();
+  await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await page.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
   await page.getByLabel(/^E-mail/).fill('smoke-b@example.invalid');

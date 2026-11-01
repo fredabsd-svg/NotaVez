@@ -1,4 +1,4 @@
-import { h, campo, mostrarErros, aviso, moeda, icone, ICONES, buscaComSugestoes } from '../ui.js';
+import { h, campo, mostrarErros, aviso, moeda, icone, ICONES, buscaComSugestoes, codigoServico } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { comCache, buscarServicoNacional, servicoNacionalPorCodigo } from '../store.js';
 import { aplicar } from '../rascunho.js';
@@ -24,14 +24,14 @@ export async function lista(_, query) {
   },
   h('div', { class: 'item-corpo' },
     h('div', { class: 'item-titulo' }, s.apelido),
-    h('div', { class: 'item-sub' }, `${s.cTribNac} · ${s.descricao}`)),
+    h('div', { class: 'item-sub' }, `${codigoServico(s.cTribNac)} · ${s.descricao}`)),
   s.valorPadrao ? h('div', { class: 'item-valor' }, moeda(s.valorPadrao)) : null)));
   return {
-    titulo: para ? 'Escolher serviço' : 'Serviços salvos', aba: 'inicio', voltar: true,
+    titulo: para ? 'Escolher serviço' : 'Serviços salvos', aba: 'servicos', voltar: true,
     node: h('div', {},
-      h('p', { class: 'suave' }, 'Guarde os serviços que você presta com frequência. Na nota, é só escolher.'),
-      itens.length ? h('ul', { class: 'lista' }, itens) : h('p', {}, 'Nenhum serviço salvo ainda.'),
-      h('div', { class: 'rodape-fixo' }, h('a', { class: 'btn btn-primario', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço'))),
+      h('div', { class: 'cabecalho-acoes' }, h('p', { class: 'suave', style: 'margin:0;flex:1' }, 'Guarde os serviços que você presta com frequência. Na nota, é só escolher.'),
+        h('a', { class: 'btn btn-pequeno btn-primario', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço')),
+      itens.length ? h('ul', { class: 'lista duas-colunas' }, itens) : h('p', {}, 'Nenhum serviço salvo ainda.')),
   };
 }
 
@@ -44,7 +44,7 @@ export async function formulario({ id }, query) {
   const apelido = campo({ rotulo: 'Nome curto', ajuda: 'Só para você reconhecer. Ex.: "Manutenção mensal"', valor: s.apelido, atributos: { maxlength: 80, required: true } });
   const escolhido = h('p', { class: 'suave', 'aria-live': 'polite' });
   const mostrarEscolhido = () => {
-    escolhido.replaceChildren(nacional ? h('span', {}, 'Escolhido: ', h('strong', {}, `${nacional.codigo} — ${nacional.descricao}`)) : 'Nenhum código escolhido.');
+    escolhido.replaceChildren(nacional ? h('span', {}, 'Escolhido: ', h('strong', {}, `${codigoServico(nacional.codigo)} — ${nacional.descricao}`)) : 'Nenhum código escolhido.');
     if (nacional?.grupoExigido) escolhido.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Atenção: este código exige dados de obra/evento, ainda não suportados. Use o Emissor Nacional para ele.'));
   };
   mostrarEscolhido();
@@ -53,7 +53,7 @@ export async function formulario({ id }, query) {
     ajuda: 'Digite uma palavra (ex.: "manutenção", "design") ou o código',
     placeholder: 'Buscar na lista nacional',
     buscar: buscarServicoNacional,
-    formatar: (x) => `${x.codigo} — ${x.descricao}`,
+    formatar: (x) => `${codigoServico(x.codigo)} — ${x.descricao}`,
     aoEscolher: (x, c) => {
       nacional = x;
       c.entrada.value = '';
@@ -97,5 +97,5 @@ export async function formulario({ id }, query) {
       history.back();
     },
   }, 'Excluir serviço') : null;
-  return { titulo: id ? 'Editar serviço' : 'Novo serviço', aba: 'inicio', voltar: true, node: h('div', {}, form, excluir) };
+  return { titulo: id ? 'Editar serviço' : 'Novo serviço', tarefa: true, aba: 'servicos', voltar: true, node: h('div', {}, form, excluir) };
 }

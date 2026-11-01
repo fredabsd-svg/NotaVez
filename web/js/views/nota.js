@@ -1,4 +1,4 @@
-import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES } from '../ui.js';
+import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES, codigoServico } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { salvarLocal, removerLocal, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
@@ -7,8 +7,8 @@ import { ir, estado } from '../app.js';
 
 export async function nova() {
   const id = crypto.randomUUID();
+  // Só fica no aparelho até a primeira escolha: abrir "Emitir" e voltar não deixa rascunho vazio na conta.
   await salvarLocal(id, rascunhoVazio(), { meta: {} });
-  try { await salvarAgora(id); } catch { /* segue no aparelho */ }
   ir(`/nota/${id}`, { substituir: true });
   return null;
 }
@@ -92,7 +92,7 @@ export async function tela({ id }) {
   const mostrarNacional = () => {
     atualizarIbs?.();
     const n = meta.servicoNacional;
-    nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${n.codigo} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
+    nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${codigoServico(n.codigo)} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
     if (n?.grupoExigido) nacionalTexto.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Este serviço exige dados de obra/evento, ainda não suportados. Use o Emissor Nacional para ele.'));
     blocoLocal.open = n?.incidencia === 'LP';
     avisoLocal.replaceChildren(n?.incidencia === 'LP'
@@ -115,7 +115,7 @@ export async function tela({ id }) {
   }, s.apelido)));
   const buscaNacional = buscaComSugestoes({
     rotulo: 'Ou busque na lista nacional', placeholder: 'Ex.: manutenção, design, aula',
-    buscar: buscarServicoNacional, formatar: (x) => `${x.codigo} — ${x.descricao}`,
+    buscar: buscarServicoNacional, formatar: (x) => `${codigoServico(x.codigo)} — ${x.descricao}`,
     aoEscolher: (x, c) => {
       c.entrada.value = '';
       if (r.cTribNac !== x.codigo) { r.cNBS = null; r.cIndOp = null; r.cClassTrib = null; }
@@ -312,7 +312,7 @@ export async function tela({ id }) {
     : null;
 
   return {
-    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', voltar: true, aba: 'inicio',
+    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', tarefa: true, voltar: true, aba: 'emitir',
     node: h('div', {},
       rejeitada,
       dados.conflito ? h('div', { class: 'cartao cartao-alerta', role: 'alert' },
@@ -329,9 +329,10 @@ export async function tela({ id }) {
           try { conferirContexto(ctx); await resolverConflito(id, false); window.dispatchEvent(new HashChangeEvent('hashchange')); }
           catch (e) { aviso(e.message); }
         } }, 'Usar versão da conta')) : null,
-      h('p', { class: 'suave' }, 'Rascunho: tudo é salvo automaticamente. Você pode sair e continuar depois.'),
+      // "Salvo" no topo: no rodapé ele cobria o campo de descrição.
+      h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Tudo é salvo automaticamente. Pode sair e continuar depois.'), status),
       blocoCliente, blocoServico, blocoQuando, blocoTrib, blocoLocal,
-      h('div', { class: 'rodape-fixo' }, status,
+      h('div', { class: 'rodape-fixo' },
         h('button', {
           class: 'btn btn-primario', type: 'button',
           onclick: async () => {

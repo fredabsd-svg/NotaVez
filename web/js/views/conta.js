@@ -49,6 +49,7 @@ export async function tela(_, query = {}) {
     acessoGovbr(conta),
     h('button', { class: 'btn', type: 'button', onclick: sair }, 'Sair da conta'),
     h('p', { class: 'suave' }, 'Ao sair, o app volta para a tela de usuário (CPF, CNPJ ou e-mail) e senha.'),
+    h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Instalar na tela inicial'),
     h('h2', {}, 'Excluir conta'),
     h('p', {}, 'Antes de excluir, baixe os documentos de que precisa. A conta, sessões, perfil, clientes, serviços, rascunhos, notas, registros associados e certificado A1 serão apagados do banco ativo do serviço.'),
     h('p', {}, 'Notas em envio ou com resultado incerto precisam ser verificadas primeiro. Excluir aqui não cancela documentos já emitidos nem apaga registros mantidos pelos sistemas fiscais oficiais.'),
@@ -64,5 +65,5 @@ export async function tela(_, query = {}) {
           try { location.href = (await api('POST', '/api/conta/govbr/excluir', {})).url; } catch (err) { aviso(err.message, 7000); botao.disabled = false; }
         } }, 'Confirmar com gov.br e excluir'))
       : h('div', {}, formulario, h('a', { href: '/recuperar-conta.html' }, 'Esqueci minha senha')));
-  return { titulo: 'Conta', aba: 'perfil', node };
+  return { titulo: 'Conta', aba: 'conta', node };
 }

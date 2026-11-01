@@ -1,7 +1,7 @@
 import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, buscaComSugestoes } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { buscarMunicipio } from '../store.js';
-import { sair, estado, carregarConta, ir } from '../app.js';
+import { estado, carregarConta, ir } from '../app.js';
 import { copiarTexto } from '../ui.js';
 import { consultaAutomatica } from '../cnpj.js';
 
@@ -166,6 +166,14 @@ function cartaoProcuracao(dados) {
 // Envio de certificado A1 (.pfx): da empresa ou do procurador da conta.
 export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certificado', aoEnviar, consentimentoTexto }) {
   const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda, tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
+  // Botão próprio em português no lugar do "Choose File" do navegador; o input continua ligado ao rótulo.
+  arquivo.entrada.classList.add('visualmente-oculto');
+  const nomeArquivo = h('span', { class: 'suave', 'aria-live': 'polite' }, 'Nenhum arquivo escolhido.');
+  arquivo.entrada.addEventListener('change', () => { nomeArquivo.textContent = arquivo.entrada.files?.[0]?.name || 'Nenhum arquivo escolhido.'; arquivo.erro(''); });
+  arquivo.entrada.after(h('div', { class: 'arquivo-escolha' },
+    h('button', { class: 'btn', type: 'button', tabindex: '-1', 'aria-hidden': 'true', onclick: () => arquivo.entrada.click() }, 'Escolher arquivo .pfx'), nomeArquivo));
+  arquivo.entrada.addEventListener('focus', () => arquivo.classList.add('com-foco'));
+  arquivo.entrada.addEventListener('blur', () => arquivo.classList.remove('com-foco'));
   const senha = campo({ rotulo: 'Senha do certificado', tipo: 'password', atributos: { autocomplete: 'off' } });
   const idConsentimento = `consentimento-${url.replace(/\W/g, '')}`;
   const consentimento = h('input', { type: 'checkbox', id: idConsentimento });
@@ -267,7 +275,6 @@ export async function tela() {
       : usaProc ? h('details', {}, h('summary', {}, 'Certificado próprio desta empresa (opcional)'), statusCert, formCert)
         : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
     h('h3', {}, 'Empresa'),
-    h('a', { class: 'btn', href: '#/empresas' }, 'Trocar de empresa'),
     h('button', {
       class: 'btn btn-texto btn-perigo', type: 'button',
       onclick: async () => {
@@ -280,12 +287,6 @@ export async function tela() {
         } catch (err) { aviso(err.message, 8000); }
       },
     }, 'Remover empresa da conta'),
-    h('h3', {}, 'Conta'),
-    h('a', { class: 'btn', href: '#/conta' }, 'Gerenciar e excluir conta'),
-    h('a', { class: 'btn btn-texto', href: '/privacidade.html' }, 'Privacidade'),
-    h('a', { class: 'btn btn-texto', href: '/recuperar-conta.html' }, 'Recuperar senha'),
-    h('a', { class: 'btn', href: '#/instalar' }, 'Instalar na tela inicial'),
-    h('button', { class: 'btn btn-texto', type: 'button', onclick: sair }, 'Sair da conta'),
   );
-  return { titulo: 'Dados da empresa', aba: 'inicio', voltar: true, node };
+  return { titulo: 'Dados da empresa', aba: 'perfil', voltar: true, node };
 }

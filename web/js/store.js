@@ -212,9 +212,10 @@ export async function resolverConflito(id, manterLocal) {
       ...(!manterLocal ? { meta: { cliente: nota.tomadorExibicao, servicoNacional: nota.servicoNacional } } : {}) }, ctx);
   return manterLocal ? sincronizar(id) : nota;
 }
+const emBranco = (r) => !!r && !r.clienteId && !r.tomador && !r.servicoId && !r.cTribNac && !r.descricao && !r.valor;
 export async function sincronizarTodos() {
   for (const r of await rascunhosLocais()) {
-    if (!r.sincronizado && !r.conflito) { try { await sincronizar(r.id); } catch (e) { if (e.status === 401 || e.dados?.codigo === 'CONTA_ALTERADA') break; } }
+    if (!r.sincronizado && !r.conflito && !(!r.noServidor && emBranco(r.rascunho))) { try { await sincronizar(r.id); } catch (e) { if (e.status === 401 || e.dados?.codigo === 'CONTA_ALTERADA') break; } }
   }
 }
 

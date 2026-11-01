@@ -91,10 +91,21 @@ async function renderizar() {
   document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
   document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;
-  document.getElementById('abas').hidden = !estado.conta || tela.semAbas || !estado.conta.prestadorId;
+  // Telas de conta/escritório não são de uma empresa; telas de tarefa (nova nota, revisão…) escondem as abas no celular.
+  const naEmpresa = !!estado.conta?.prestadorId && !SEM_EMPRESA.has(caminho) && !tela.semAbas;
+  document.getElementById('abas').hidden = !estado.conta || !estado.conta.prestadorId || tela.semAbas;
+  document.body.classList.toggle('sem-abas', !!tela.tarefa || !!tela.semAbas);
+  document.body.classList.toggle('sem-empresa', !estado.conta?.prestadorId || !!tela.semAbas);
   const empresa = document.getElementById('empresa-ativa');
-  empresa.hidden = !estado.conta?.prestadorId || tela.semAbas;
-  empresa.querySelector('span').textContent = estado.conta?.empresaNome || 'Empresa';
+  empresa.hidden = !naEmpresa;
+  empresa.querySelector('.ctx-nome').textContent = estado.conta?.empresaNome || 'Empresa';
+  empresa.querySelector('.ctx-cnpj').textContent = estado.conta?.empresaDocumentoFormatado || '';
+  const amb = empresa.querySelector('.ctx-ambiente');
+  const ambiente = estado.conta?.empresaAmbiente;
+  amb.hidden = !ambiente;
+  amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes';
+  amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
+  empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
   for (const a of document.querySelectorAll('.abas a')) {
     if (a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
@@ -103,9 +114,15 @@ async function renderizar() {
   window.scrollTo(0, 0);
 }
 
+// O ambiente agora aparece na barra da empresa; o selo do topo fica só para quando não há empresa aberta.
 export async function atualizarSelo() {
   const ambiente = estado.inicio?.perfil?.ambiente;
-  document.getElementById('selo-ambiente').hidden = !(ambiente === 'producao_restrita' || !estado.inicio?.perfil);
+  document.getElementById('selo-ambiente').hidden = true;
+  if (ambiente && estado.conta && estado.conta.empresaAmbiente !== ambiente) {
+    estado.conta = { ...estado.conta, empresaAmbiente: ambiente };
+    const amb = document.querySelector('#empresa-ativa .ctx-ambiente');
+    if (amb) { amb.hidden = false; amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes'; amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`; }
+  }
 }
 
 // `empresa`: a empresa que esta aba quer abrir (padrão: a que já estava aberta).

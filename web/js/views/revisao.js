@@ -1,4 +1,4 @@
-import { h, moeda, data, carregando, aviso } from '../ui.js';
+import { h, moeda, data, carregando, aviso, cep, codigoServico } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { rascunhoLocal, removerLocal, contextoConta, conferirContexto } from '../store.js';
 import { salvarAgora } from '../rascunho.js';
@@ -68,7 +68,7 @@ export async function tela({ id }) {
   const local = await rascunhoLocal(id);
   if (!navigator.onLine || (local && !local.sincronizado)) {
     return {
-      titulo: 'Revisão', voltar: true, aba: 'inicio',
+      titulo: 'Revisão', tarefa: true, voltar: true, aba: 'emitir',
       node: h('div', { class: 'cartao cartao-alerta', role: 'alert' },
         h('h2', {}, navigator.onLine ? 'Rascunho ainda não sincronizado' : 'Sem internet'),
         h('p', {}, 'Esta nota ', h('strong', {}, 'ainda não foi emitida'), '. Ela está salva como rascunho neste aparelho.'),
@@ -101,7 +101,13 @@ export async function tela({ id }) {
     : null;
 
   const botao = h('button', { class: 'btn btn-primario btn-grande', type: 'button', disabled: !pode }, 'Emitir nota');
+  // Sem certificado no app, o caminho principal é o Emissor Nacional (usuário e senha ou gov.br).
+  const semCertificado = !eleg.podeEmitir && eleg.pendencias.every((p) => String(p.id).startsWith('cert'));
+  const assistida = h('a', { class: `btn ${semCertificado ? 'btn-primario btn-grande' : 'btn-texto'}`, href: `#/nota/${id}/assistida` },
+    semCertificado ? 'Emitir pelo Emissor Nacional' : 'Prefiro emitir pelo Emissor Nacional (usuário e senha ou gov.br)');
   const corpo = h('div', {},
+    h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Confira os dados antes de enviar à Receita.'),
+      h('a', { class: 'btn btn-pequeno', href: `#/nota/${id}` }, 'Editar')),
     nota.homologacao ? h('p', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Ambiente de testes: '), 'a nota será emitida sem validade jurídica.') : null,
     erros,
     pendenciasCartao(eleg),
@@ -111,20 +117,19 @@ export async function tela({ id }) {
     h('div', { class: 'cartao' }, h('dl', { class: 'dados' },
       linha('Emitente (você)', `${perfil.perfil.nome || ''} ${perfil.perfil.documentoFormatado}`, h('br'), h('span', { class: 'suave' }, `${perfil.perfil.municipio?.nome || ''} - ${perfil.perfil.municipio?.uf || ''} · ${{ 2: 'MEI', 3: 'ME/EPP (Simples Nacional)', 1: perfil.perfil.apuracao === 'real' ? 'Lucro Real' : 'Lucro Presumido' }[perfil.perfil.opSimpNac] || ''}`)),
       linha('Cliente', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
-        end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${end.cep}`) : null),
-      linha('Serviço (lista nacional)', nota.servicoNacional ? `${nota.servicoNacional.codigo} — ${nota.servicoNacional.descricao}` : '—'),
+        end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${cep(end.cep)}`) : null),
+      linha('Serviço (lista nacional)', nota.servicoNacional ? `${codigoServico(nota.servicoNacional.codigo)} — ${nota.servicoNacional.descricao}` : '—'),
       linha('Descrição na nota', h('span', { style: 'white-space:pre-wrap;font-weight:400' }, r.descricao || '—')),
       linha('Competência', data(r.competencia)),
       linha('Local da prestação', nota.localPrestacao ? `${nota.localPrestacao.nome} - ${nota.localPrestacao.uf}` : '—'),
       linha('Tributação', ...textoTributacao(perfil.perfil, r, validacao.exigencias, nota.valor)),
       r.cTribMun ? linha('Código municipal', r.cTribMun) : null,
       r.cNBS ? linha('Código NBS', r.cNBS) : null)),
-    h('div', { class: 'rodape-fixo' },
-      botao,
-      // Sem certificado A1, a pessoa emite no site oficial com usuário e senha ou gov.br.
-      h('a', { class: `btn ${eleg.podeEmitir ? 'btn-texto' : ''}`, href: `#/nota/${id}/assistida` }, 'Emitir pelo Emissor Nacional (usuário e senha ou gov.br)'),
-      h('a', { class: 'btn btn-texto', href: `#/nota/${id}` }, 'Editar'),
-      !pode ? h('p', { class: 'suave centro' }, 'O rascunho continua salvo. Nada foi enviado à Receita.') : null));
+    // Fora do rodapé: o caminho alternativo, no fim do conteúdo.
+    semCertificado ? null : assistida,
+    !pode ? h('p', { class: 'suave centro' }, 'O rascunho continua salvo. Nada foi enviado à Receita.') : null,
+    // No rodapé fixo, só a ação principal desta tela.
+    h('div', { class: 'rodape-fixo' }, semCertificado ? assistida : botao));
 
   botao.addEventListener('click', async () => {
     conferirContexto(ctx);
@@ -149,5 +154,5 @@ export async function tela({ id }) {
     ir(`/nota/${id}/resultado`, { substituir: true });
   });
 
-  return { titulo: 'Revisão', voltar: true, aba: 'inicio', node: corpo };
+  return { titulo: 'Revisão', tarefa: true, voltar: true, aba: 'emitir', node: corpo };
 }

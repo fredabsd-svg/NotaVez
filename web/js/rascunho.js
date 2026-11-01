@@ -9,6 +9,9 @@ export const rascunhoVazio = () => ({
   issRetido: false, pAliq: null, pTotTribSN: null,
 });
 
+// Rascunho recém-aberto e nunca preenchido: não vai para a conta nem aparece nas listas.
+export const rascunhoEmBranco = (r) => !!r && !r.clienteId && !r.tomador && !r.servicoId && !r.cTribNac && !r.descricao && !r.valor;
+
 // Carrega a versão mais recente: local (não sincronizada) ou do servidor.
 export async function carregar(id) {
   const ctx = contextoConta();

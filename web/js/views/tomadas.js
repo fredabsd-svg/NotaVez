@@ -1,6 +1,6 @@
 // Notas tomadas: NFS-e que fornecedores emitiram para a empresa ativa,
 // baixadas do Ambiente de Dados Nacional com o certificado da empresa.
-import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES } from '../ui.js';
+import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade } from '../api.js';
 import { comCache } from '../store.js';
 import { ir } from '../app.js';
@@ -27,7 +27,7 @@ async function baixar(t, tipo, { abrir = false } = {}) {
 export async function lista(_, query) {
   const mes = /^\d{4}-\d{2}$/.test(query.mes || '') ? query.mes : '';
   const dados = await comCache(`tomadas:${mes}`, () => api('GET', `/api/tomadas${mes ? `?competencia=${mes}` : ''}`));
-  const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
+  const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
   const contador = h('p', { class: 'suave', role: 'status' });
 
   const item = (t) => h('li', {}, h('a', { class: 'item', href: `#/tomadas/${t.id}` },
@@ -42,7 +42,7 @@ export async function lista(_, query) {
     const dig = s.replace(/[^0-9a-z]/g, '');
     const visiveis = dados.tomadas.filter((t) => !s || semAcento(t.emitente?.nome).includes(s)
       || (dig.length >= 3 && [t.emitente?.documentoFormatado, t.nNfse, t.chaveAcesso].some((x) => semAcento(x).replace(/[^0-9a-z]/g, '').includes(dig))));
-    contador.textContent = `${visiveis.length} nota(s)`;
+    contador.textContent = plural(visiveis.length, 'nota', 'notas');
     ul.replaceChildren(...visiveis.map(item));
     if (!visiveis.length) ul.append(h('li', { class: 'suave' }, dados.tomadas.length ? 'Nenhuma nota encontrada.' : 'Nenhuma nota tomada baixada ainda. Toque em "Buscar notas na Receita".'));
   }
@@ -54,7 +54,7 @@ export async function lista(_, query) {
     try {
       const r = await api('POST', '/api/tomadas/sincronizar', {});
       aviso(r.novas || r.canceladas
-        ? `${r.novas} nota(s) nova(s)${r.canceladas ? ` e ${r.canceladas} cancelamento(s)` : ''}.`
+        ? `${plural(r.novas, 'nota nova', 'notas novas')}${r.canceladas ? ` e ${plural(r.canceladas, 'cancelamento', 'cancelamentos')}` : ''}.`
         : 'Nenhuma nota nova desde a última busca.');
       window.dispatchEvent(new HashChangeEvent('hashchange')); // recarrega a lista
     } catch (e) {
@@ -62,9 +62,16 @@ export async function lista(_, query) {
     } finally { buscar.disabled = false; }
   });
 
-  const meses = [['', 'Todas'], [mesAtual(), 'Este mês'], [mesAnterior(), 'Mês passado']];
+  // Seletor de mês em português (o <input type=month> aparece vazio ou em inglês em vários navegadores).
+  const ultimos = [];
+  for (let i = 0, [a, m] = mesAtual().split('-').map(Number); i < 24; i++) {
+    ultimos.push(`${a}-${String(m).padStart(2, '0')}`);
+    m -= 1; if (m === 0) { m = 12; a -= 1; }
+  }
+  if (mes && !ultimos.includes(mes)) ultimos.push(mes);
+  const rotuloMes = (m) => (m === mesAtual() ? `Este mês (${nomeMes(m)})` : m === mesAnterior() ? `Mês passado (${nomeMes(m)})` : nomeMes(m));
   const filtroMes = campo({
-    rotulo: 'Competência', tipo: 'month', valor: mes,
+    rotulo: 'Competência', valor: mes, opcoes: [['', 'Todas as competências'], ...ultimos.map((m) => [m, rotuloMes(m)])],
     onchange: (e) => ir(`/tomadas${e.target.value ? `?mes=${e.target.value}` : ''}`, { substituir: true }),
   });
   const s = dados.sincronizacao || {};
@@ -82,12 +89,9 @@ export async function lista(_, query) {
           : h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado A1 desta empresa'),
             h('p', {}, 'A Receita só entrega as notas recebidas para quem apresenta o certificado digital do CNPJ (ou do escritório, por procuração).'),
             h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
-      h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrar por mês' }, meses.map(([v, t]) => h('button', {
-        class: 'chip', type: 'button', 'aria-pressed': String(v === mes), onclick: () => ir(`/tomadas${v ? `?mes=${v}` : ''}`, { substituir: true }),
-      }, t))),
       filtroMes,
       h('section', { class: 'cartao', 'aria-label': 'Totais' },
-        h('p', { class: 'suave', style: 'margin:0' }, `${mes ? nomeMes(mes) : 'Todas as competências'} · ${dados.totais.quantidade} nota(s) válida(s)`),
+        h('p', { class: 'suave', style: 'margin:0' }, `${mes ? nomeMes(mes) : 'Todas as competências'} · ${plural(dados.totais.quantidade, 'nota válida', 'notas válidas')}`),
         h('div', { class: 'totais' },
           h('div', {}, h('span', { class: 'suave' }, 'Valor dos serviços'), h('strong', {}, moeda(dados.totais.valor))),
           h('div', {}, h('span', { class: 'suave' }, 'Valor líquido'), h('strong', {}, moeda(dados.totais.valorLiquido))))),
