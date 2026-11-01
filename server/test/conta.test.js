@@ -8,7 +8,7 @@ const { criarEntregaRecuperacao } = await import('../src/security/recuperacao-en
 const { agora } = await import('../src/db/banco.js');
 const { hashToken } = await import('../src/security/cripto.js');
 const post = (app, url, payload, cookie) => app.inject({ method: 'POST', url, payload, headers: { 'x-notavez': '1', ...(cookie ? { cookie } : {}) } });
-const sessao = (r) => r.headers['set-cookie'].split(';')[0];
+const sessao = (r) => [r.headers['set-cookie']].flat().find((c) => c.startsWith('nv_sessao=')).split(';')[0];
 
 test('conta expõe identidade; exclusão exige senha, impede pendência e apaga cascatas, chamadas e auditoria apenas do titular', async (t) => {
   const app = await criarApp({ banco: ':memory:', logger: false, servirWeb: true });

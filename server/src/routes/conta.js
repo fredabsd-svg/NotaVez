@@ -1,3 +1,4 @@
+import { formatarDocumento } from '../util/documentos.js';
 import { COOKIE, opcoesCookie } from '../security/autenticacao.js';
 import { auditar } from '../security/auditoria.js';
 import { excluirConta } from '../conta/exclusao.js';
@@ -7,17 +8,21 @@ import { ErroApp } from '../util/erros.js';
 export async function rotasConta(app) {
   const { auth, db } = app.ctx;
   const gravarCookie = (reply, token, lembrar = true) => reply.setCookie(COOKIE, token, opcoesCookie(lembrar, config.cookieSeguro));
+  const gravarAparelho = (reply, nome, t) => reply.setCookie(nome, t, { path: '/api/conta/entrar', httpOnly: true, sameSite: 'strict', secure: config.cookieSeguro, maxAge: 400 * 86400 });
   // "Manter conectado neste aparelho" vem marcado; só false explícito pede sessão curta.
   const lembrar = (req) => req.body?.lembrar !== false;
   app.post('/cadastrar', async (req, reply) => {
     const { usuarioId, token } = auth.cadastrar(req.body?.email, req.body?.senha, req.ip, { documento: req.body?.documento, nome: req.body?.nome, lembrar: lembrar(req) });
     auditar(db, { usuarioId, acao: 'conta.cadastro', ip: req.ip });
     gravarCookie(reply, token, lembrar(req));
+    gravarAparelho(reply, auth.nomeCookieAparelho(usuarioId), auth.marcarAparelho(usuarioId));
     return { ok: true, usuarioId };
   });
   app.post('/entrar', async (req, reply) => {
     // `usuario`: CPF, CNPJ ou e-mail (o campo `email` continua aceito).
-    const { usuarioId, token } = auth.entrar(req.body?.usuario ?? req.body?.email, req.body?.senha, req.ip, { lembrar: lembrar(req) });
+    const { usuarioId, token, aparelho, nomeAparelho } = auth.entrar(req.body?.usuario ?? req.body?.email, req.body?.senha, req.ip, { lembrar: lembrar(req), cookieAparelho: (nome) => req.cookies?.[nome] });
+    // Marca o aparelho onde o dono já entrou: ele fica fora do teto global de tentativas da conta.
+    if (aparelho) gravarAparelho(reply, nomeAparelho, aparelho);
     auditar(db, { usuarioId, acao: 'conta.entrada', ip: req.ip });
     gravarCookie(reply, token, lembrar(req));
     return { ok: true, usuarioId };
@@ -33,6 +38,7 @@ export async function rotasConta(app) {
     const prestador = req.empresaPedida || empresas === 1 ? req.prestador : null;
     const t = auth.titular(req.usuario.id);
     return { usuarioId: req.usuario.id, prestadorId: prestador?.id ?? null, email: t.email, temPerfil: !!prestador, empresas, empresaNome: prestador?.nome ?? null,
+      empresaDocumentoFormatado: prestador?.documento ? formatarDocumento(prestador.tipoDocumento, prestador.documento) : null, empresaAmbiente: prestador?.ambiente ?? null,
       nome: t.nome, documentoFormatado: t.documentoFormatado, documentoVerificado: t.documentoVerificado, govbr: t.govbr, govbrDisponivel: app.ctx.govbr.configurado };
   });
   app.delete('/', async (req, reply) => {
@@ -74,9 +80,16 @@ export async function rotasConta(app) {
     gravarFluxo(reply, token);
     return { url };
   });
+  // Conta criada pelo gov.br não tem senha: a exclusão é confirmada entrando de novo no gov.br.
+  app.post('/govbr/excluir', async (req, reply) => {
+    if (!auth.titular(req.usuario.id)?.govbr) throw new ErroApp(409, 'Esta conta não está vinculada ao gov.br. Exclua informando a senha.');
+    const { token, url } = app.ctx.govbr.iniciar({ modo: 'excluir', usuarioId: req.usuario.id });
+    gravarFluxo(reply, token);
+    return { url };
+  });
   app.delete('/govbr', async (req) => {
     // Conta criada pelo gov.br sem e-mail não teria outra forma de entrar.
-    if (!auth.titular(req.usuario.id)?.email) throw new ErroApp(409, 'Esta conta só entra pelo gov.br. Cadastre um e-mail e uma senha antes de desvincular.');
+    if (!auth.titular(req.usuario.id)?.email) throw new ErroApp(409, 'Esta conta foi criada pelo gov.br e só entra por ele: o vínculo não pode ser removido.');
     auth.desvincularGovbr(req.usuario.id);
     auditar(db, { usuarioId: req.usuario.id, acao: 'conta.govbr_desvinculado', ip: req.ip });
     return { ok: true };
@@ -87,6 +100,17 @@ export async function rotasConta(app) {
     if (q.error) return voltar(reply, '/#/entrar?govbr=cancelado');
     try {
       const r = await app.ctx.govbr.concluir({ token: req.cookies[COOKIE_GOVBR], state: q.state, code: q.code });
+      if (r.modo === 'excluir') {
+        if (!r.usuarioId || !auth.govbrConfere(r.usuarioId, r.cpf)) return voltar(reply, '/#/conta?govbr=outro');
+        const prestadores = db.all('SELECT id FROM prestadores WHERE usuario_id = ?', r.usuarioId);
+        try { excluirConta(db, r.usuarioId); } catch (e) {
+          if (e.extra?.codigo === 'CONTA_COM_EMISSAO_PENDENTE') return voltar(reply, '/#/conta?govbr=pendente');
+          throw e;
+        }
+        for (const p of prestadores) app.ctx.emissao.fecharClientesDoPrestador(p.id);
+        reply.clearCookie(COOKIE, { path: '/' });
+        return voltar(reply, `/#/entrar?govbr=excluida&u=${encodeURIComponent(r.usuarioId)}`);
+      }
       if (r.modo === 'vincular') {
         auth.vincularGovbr(r.usuarioId, r);
         auditar(db, { usuarioId: r.usuarioId, acao: 'conta.govbr_vinculado', ip: req.ip });

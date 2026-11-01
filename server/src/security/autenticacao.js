@@ -21,6 +21,8 @@ const indiceGovbr = (cpf) => indiceCego(`govbr:${cpf}`);
 // Conta criada pelo gov.br sem e-mail informado: endereço interno, nunca usado para envio.
 const SEM_EMAIL = '@sem-email.nota-sem-stress.invalid';
 const semEmail = (email) => String(email).endsWith(SEM_EMAIL);
+// Chave dos limites de tentativa: a mesma para qualquer grafia do e-mail ou do CPF/CNPJ.
+const chaveIdentificador = (x) => (String(x || '').includes('@') ? normalizarEmail(x) : String(x || '').toUpperCase().replace(/[^0-9A-Z]/g, ''));
 const validarSenha = (senha) => {
   if (typeof senha !== 'string' || senha.length < 8 || senha.length > 256) throw new ErroApp(422, 'A senha precisa ter entre 8 e 256 caracteres.');
 };
@@ -35,20 +37,44 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
   CREATE INDEX IF NOT EXISTS ix_recuperacoes_usuario ON recuperacoes_senha(usuario_id);
   CREATE TABLE IF NOT EXISTS limites_conta (
     chave_hash TEXT PRIMARY KEY, quantidade INTEGER NOT NULL, ate_ms INTEGER NOT NULL
-  );`);
+  );
+  CREATE TABLE IF NOT EXISTS aparelhos_confiaveis (
+    token_hash TEXT PRIMARY KEY,
+    usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    criado_em TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS ix_aparelhos_usuario ON aparelhos_confiaveis(usuario_id);`);
   if (!Number.isFinite(recuperacaoTtlMs) || recuperacaoTtlMs <= 0 || recuperacaoTtlMs > 86400_000) throw new Error('TTL de recuperação inválido.');
 
+  // ip === false: limite só da identidade (não cria um contador de IP compartilhado).
+  const chavesLimite = (acao, identidade, ip) => [...(ip === false ? [] : [`${acao}:ip:${ip || 'desconhecido'}`]), ...(identidade ? [`${acao}:identidade:${identidade}`] : [])].map(hashToken);
+  function conferirLimite(acao, identidade, ip, max) {
+    db.run('DELETE FROM limites_conta WHERE ate_ms <= ?', Date.now());
+    for (const chave of chavesLimite(acao, identidade, ip)) {
+      const r = db.get('SELECT quantidade FROM limites_conta WHERE chave_hash = ?', chave);
+      if (r && r.quantidade >= max) throw new ErroApp(429, 'Muitas tentativas. Aguarde 15 minutos e tente de novo.');
+    }
+  }
+  function contarLimite(acao, identidade, ip) {
+    const ate = Date.now() + JANELA_MS;
+    for (const chave of chavesLimite(acao, identidade, ip)) db.run('INSERT INTO limites_conta (chave_hash, quantidade, ate_ms) VALUES (?,1,?) ON CONFLICT(chave_hash) DO UPDATE SET quantidade = quantidade + 1', chave, ate);
+  }
   function limitar(acao, identidade, ip, max = 5) {
-    const t = Date.now();
+    db.transacao(() => { conferirLimite(acao, identidade, ip, max); contarLimite(acao, identidade, ip); });
+  }
+  // Aparelho onde o dono já entrou (cookie próprio de cada conta, guardado só como hash):
+  // num computador compartilhado, a entrada de outra conta não apaga a marca desta.
+  const nomeCookieAparelho = (usuarioId) => `nv_ap_${hashToken(`nome-aparelho:${usuarioId}`).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`;
+  function marcarAparelho(usuarioId) {
+    const t = tokenAleatorio();
     db.transacao(() => {
-      db.run('DELETE FROM limites_conta WHERE ate_ms <= ?', t);
-      const chaves = [`${acao}:ip:${ip || 'desconhecido'}`, ...(identidade ? [`${acao}:identidade:${identidade}`] : [])].map(hashToken);
-      for (const chave of chaves) {
-        const r = db.get('SELECT quantidade FROM limites_conta WHERE chave_hash = ?', chave);
-        if (r && r.quantidade >= max) throw new ErroApp(429, 'Muitas tentativas. Aguarde 15 minutos e tente de novo.');
-      }
-      for (const chave of chaves) db.run('INSERT INTO limites_conta (chave_hash, quantidade, ate_ms) VALUES (?,1,?) ON CONFLICT(chave_hash) DO UPDATE SET quantidade = quantidade + 1', chave, t + JANELA_MS);
+      // Vale 400 dias e no máximo 20 aparelhos por conta (os mais antigos saem).
+      db.run('DELETE FROM aparelhos_confiaveis WHERE criado_em < ?', new Date(Date.now() - 400 * 86400_000).toISOString());
+      db.run('INSERT INTO aparelhos_confiaveis (token_hash, usuario_id, criado_em) VALUES (?,?,?)', hashToken(`aparelho:${t}`), usuarioId, agora());
+      db.run(`DELETE FROM aparelhos_confiaveis WHERE usuario_id = ? AND token_hash NOT IN
+        (SELECT token_hash FROM aparelhos_confiaveis WHERE usuario_id = ? ORDER BY criado_em DESC, rowid DESC LIMIT 20)`, usuarioId, usuarioId);
     });
+    return t;
   }
   function criarSessao(usuarioId, lembrar = true) {
     const token = tokenAleatorio();
@@ -90,8 +116,8 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       }
       const id = novoId();
       return db.transacao(() => {
-        db.run(`INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, documento_verificado, nome, govbr_indice)
-          VALUES (?,?,?,?,?,?,?,1,?,?)`, id, emailOk || `govbr-${indiceGovbr(cpf).slice(0, 16)}${SEM_EMAIL}`,
+        db.run(`INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, documento_verificado, nome, govbr_indice, documento_origem)
+          VALUES (?,?,?,?,?,?,?,1,?,?,'govbr_conta')`, id, emailOk || `govbr-${indiceGovbr(cpf).slice(0, 16)}${SEM_EMAIL}`,
         // Senha aleatória descartada: quem entra pelo gov.br não tem senha até pedir uma.
         hashSenha(tokenAleatorio()), agora(), 'CPF', cifrar(cpf), indiceDocumento(cpf), String(nome || '').trim().slice(0, 200) || null, indiceGovbr(cpf));
         return { usuarioId: id, token: criarSessao(id), novo: true };
@@ -107,12 +133,14 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         db.run('UPDATE usuarios SET govbr_indice = ? WHERE id = ?', indiceGovbr(cpf), usuarioId);
         // Sem usuário CPF/CNPJ ainda: o CPF confirmado pelo gov.br passa a ser o usuário.
         if (!u.documento_indice && !donoDoCpf) {
-          db.run("UPDATE usuarios SET tipo_documento = 'CPF', documento_cifrado = ?, documento_indice = ?, documento_verificado = 1 WHERE id = ?", cifrar(cpf), indiceDocumento(cpf), usuarioId);
+          db.run("UPDATE usuarios SET tipo_documento = 'CPF', documento_cifrado = ?, documento_indice = ?, documento_verificado = 1, documento_origem = 'vinculo_govbr' WHERE id = ?", cifrar(cpf), indiceDocumento(cpf), usuarioId);
         } else if (u.documento_indice === indiceDocumento(cpf)) {
           db.run('UPDATE usuarios SET documento_verificado = 1 WHERE id = ?', usuarioId);
         }
       });
     },
+    // Confere que o CPF autenticado agora no gov.br é o vinculado à conta (reautenticação).
+    govbrConfere: (usuarioId, cpf) => !!db.get('SELECT 1 FROM usuarios WHERE id = ? AND govbr_indice = ?', usuarioId, indiceGovbr(cpf)),
     desvincularGovbr: (usuarioId) => db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', usuarioId),
 
     // Primeiro acesso: CPF/CNPJ (usuário), e-mail (para recuperar a senha) e senha.
@@ -129,26 +157,43 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       }
       const id = novoId();
       return db.transacao(() => {
-        db.run('INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, nome) VALUES (?,?,?,?,?,?,?,?)',
+        db.run('INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, nome, documento_origem) VALUES (?,?,?,?,?,?,?,?,?)',
           id, email, hashSenha(senha), agora(), doc?.tipo ?? null, doc ? cifrar(doc.numero) : null, doc ? indiceDocumento(doc.numero) : null,
-          String(nome || '').trim().slice(0, 200) || null);
+          String(nome || '').trim().slice(0, 200) || null, doc ? 'digitado' : null);
         return { usuarioId: id, token: criarSessao(id, lembrar), lembrar };
       });
     },
-    entrar(identificador, senha, ip, { lembrar = true } = {}) {
-      const chave = String(identificador || '').includes('@') ? normalizarEmail(identificador) : (lerDocumento(identificador)?.numero || normalizarEmail(identificador));
-      limitar('entrada', chave, ip, 15);
+    // Só tentativas ERRADAS contam: um escritório com muita gente atrás do mesmo IP não se tranca.
+    // Limites: conta+IP (15), IP (50) e conta em qualquer IP (100). O aparelho onde o dono já
+    // entrou (cookie próprio por conta) fica isento: tentativas de terceiros não o trancam.
+    // Identificador inexistente tem os mesmos limites (sem revelar se a conta existe).
+    entrar(identificador, senha, ip, { lembrar = true, cookieAparelho = () => null } = {}) {
+      // Limite por CONTA quando ela existe: e-mail e CPF da mesma conta somam tentativas.
       const u = usuarioPorIdentificador(identificador);
-      if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Usuário ou senha incorretos.');
-      return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar };
+      const quem = u ? `conta:${u.id}` : `id:${chaveIdentificador(identificador)}`;
+      const aparelho = u ? cookieAparelho(nomeCookieAparelho(u.id)) : null;
+      const confiavel = !!(u && typeof aparelho === 'string' && aparelho.length === 43
+        && db.get('SELECT 1 FROM aparelhos_confiaveis WHERE token_hash = ? AND usuario_id = ? AND criado_em >= ?', hashToken(`aparelho:${aparelho}`), u.id, new Date(Date.now() - 400 * 86400_000).toISOString()));
+      // Aparelho conhecido tem um contador só dele (quem não tem o cookie não consegue gastá-lo).
+      const limites = confiavel ? [['entrada', `${quem}:aparelho:${hashToken(aparelho)}`, false, 15]]
+        : [['entrada', `${quem}:ip:${ip}`, false, 15], ['entrada-ip', null, ip, 50], ['entrada-conta', quem, false, 100]];
+      for (const [acao, id, ipL, max] of limites) conferirLimite(acao, id, ipL, max);
+      if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) {
+        db.transacao(() => { for (const [acao, id, ipL] of limites) contarLimite(acao, id, ipL); });
+        throw new ErroApp(401, 'Usuário ou senha incorretos.');
+      }
+      return { usuarioId: u.id, token: criarSessao(u.id, lembrar), lembrar, aparelho: confiavel ? null : marcarAparelho(u.id), nomeAparelho: nomeCookieAparelho(u.id) };
     },
+    nomeCookieAparelho: (usuarioId) => nomeCookieAparelho(usuarioId),
+    marcarAparelho: (usuarioId) => marcarAparelho(usuarioId),
     reautenticar(usuarioId, senha, ip) {
       limitar('exclusao', usuarioId, ip);
       const u = db.get('SELECT senha_hash FROM usuarios WHERE id = ?', usuarioId);
       if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Senha incorreta. A conta não foi excluída.');
     },
     async recuperar(identificador, ip) {
-      limitar('recuperacao', normalizarEmail(identificador), ip);
+      const alvo = usuarioPorIdentificador(identificador);
+      limitar('recuperacao', alvo ? `conta:${alvo.id}` : chaveIdentificador(identificador), ip);
       if (typeof entregarRecuperacao !== 'function') throw new ErroApp(503, 'Recuperação de senha indisponível. O responsável precisa configurar a entrega de mensagens.');
       db.run('DELETE FROM recuperacoes_senha WHERE expira_em <= ?', agora());
       const u = usuarioPorIdentificador(identificador);
@@ -180,6 +225,17 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         db.run('UPDATE usuarios SET senha_hash = ? WHERE id = ?', senhaHash, r.usuario_id);
         db.run('DELETE FROM recuperacoes_senha WHERE usuario_id = ?', r.usuario_id);
         db.run('DELETE FROM sessoes WHERE usuario_id = ?', r.usuario_id);
+        db.run('DELETE FROM aparelhos_confiaveis WHERE usuario_id = ?', r.usuario_id);
+        // Quem redefine a senha retoma a conta: um gov.br vinculado por outra pessoa não pode continuar entrando.
+        // O CPF "confirmado" que veio desse gov.br também sai (era a identidade de quem vinculou).
+        // Só o CPF que entrou pelo vínculo do gov.br; o que o titular digitou no cadastro continua.
+        const u = db.get('SELECT documento_cifrado, documento_origem, govbr_indice FROM usuarios WHERE id = ?', r.usuario_id);
+        // Contas anteriores ao registro da origem (NULL): vale a regra antiga, mais segura.
+        if (u?.govbr_indice && (u.documento_origem === 'vinculo_govbr' || u.documento_origem == null) && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
+          db.run('UPDATE usuarios SET tipo_documento = NULL, documento_cifrado = NULL, documento_indice = NULL, documento_verificado = 0, documento_origem = NULL WHERE id = ?', r.usuario_id);
+        }
+        db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', r.usuario_id);
+        if (db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'govbr_fluxos'")) db.run('DELETE FROM govbr_fluxos WHERE usuario_id = ?', r.usuario_id);
         return r.usuario_id;
       });
     },

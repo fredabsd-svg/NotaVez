@@ -91,12 +91,34 @@ try {
   await page.getByRole('button', { name: 'Buscar notas na Receita' }).click();
   await page.getByText('FORNECEDOR FICTICIO LTDA').waitFor();
   await page.getByText('FORNECEDOR FICTICIO LTDA').click();
-  await page.getByRole('button', { name: 'Baixar XML da NFS-e' }).waitFor();
+  await page.getByRole('button', { name: 'Baixar XML' }).waitFor();
+
+  // Nova nota pela tela: escolher cliente e serviço salvos (rascunho chega ao servidor).
+  await page.goto(`${base}/#/nova`);
+  await page.getByRole('link', { name: 'Escolher cliente' }).click();
+  await page.getByRole('button', { name: /Cliente fictício/ }).click();
+  await page.getByRole('button', { name: 'Teste', exact: true }).click();
+  const idNova = page.url().split('/nota/')[1];
+  let rascunhoTela;
+  for (let i = 0; i < 50 && !rascunhoTela?.rascunho?.servicoId; i++) { await page.waitForTimeout(100); rascunhoTela = app.ctx.repo.notaPorId(idNova); }
+  assert.equal(rascunhoTela?.rascunho?.clienteId, cliente.id, 'cliente escolhido na tela chega ao servidor');
+  assert.equal(rascunhoTela?.rascunho?.servicoId, servico.id, 'serviço escolhido na tela chega ao servidor');
+
+  // Rascunho aberto e abandonado não vai para a conta; mexer só na competência já conta como rascunho.
+  await page.goto(`${base}/#/nova`); await page.getByLabel(/^Competência/).waitFor();
+  const idVazio = page.url().split('/nota/')[1];
+  await page.goto(`${base}/#/nova`); await page.getByLabel(/^Competência/).waitFor();
+  const idCompet = page.url().split('/nota/')[1];
+  await page.getByLabel(/^Competência/).fill('15/08/2026');
+  let soCompetencia;
+  for (let i = 0; i < 50 && !soCompetencia; i++) { await page.waitForTimeout(100); soCompetencia = app.ctx.repo.notaPorId(idCompet); }
+  assert.equal(soCompetencia?.rascunho?.competencia, '2026-08-15', 'rascunho só com a competência chega à conta');
+  assert.ok(!app.ctx.repo.notaPorId(idVazio), 'rascunho em branco abandonado não vai para a conta');
 
   // Emissão assistida: roteiro para o Emissor Nacional, copiar campo e trazer o XML emitido lá.
   const assistida = (await post('/api/notas', { rascunho: { clienteId: cliente.id, servicoId: servico.id, valor: '275,00' } })).nota;
   await page.goto(`${base}/#/nota/${assistida.id}/revisao`);
-  await page.getByRole('link', { name: /Emitir pelo Emissor Nacional/ }).click();
+  await page.getByRole('link', { name: /emitir pelo Emissor Nacional/i }).click();
   await page.getByRole('link', { name: 'Abrir o Emissor Nacional' }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'Abrir o Emissor Nacional' }).getAttribute('target'), '_blank');
   await page.getByRole('button', { name: 'Copiar Valor do serviço prestado' }).click();
@@ -133,26 +155,26 @@ try {
   const draftsSegunda = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsSegunda.length, 0, 'rascunhos ficam no ambiente da empresa');
   await page.goto(`${base}/#/empresas`);
-  await page.getByText('2 de 2 empresa(s)').waitFor();
+  await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: /EMPRESA FICTICIA SMOKE MEI/ }).click();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
-  await page.getByRole('navigation', { name: 'Ações desta empresa' }).getByRole('link', { name: /Notas tomadas/ }).waitFor();
+  await page.getByRole('link', { name: 'Nova nota', exact: true }).first().waitFor();
   const draftsPrimeira = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
-  assert.deepEqual(draftsPrimeira.map((r) => r.id), [idLocal], 'de volta à primeira empresa, o rascunho dela reaparece');
+  assert.ok(draftsPrimeira.some((r) => r.id === idLocal), 'de volta à primeira empresa, o rascunho dela reaparece');
   // Recarregar a página mantém a empresa aberta.
   await page.reload();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
 
   // Conectado no aparelho: a saída fica à vista no Início e volta à tela de usuário e senha.
   await page.goto(`${base}/#/`);
-  await page.getByText('Conectado como 529.982.247-25.').waitFor();
+  await page.getByText('Conectado como 529.982.247-25').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await page.getByLabel('CPF, CNPJ ou e-mail').waitFor();
   // Volta entrando com o CPF como usuário: com duas empresas, cai na lista.
   await page.getByLabel('CPF, CNPJ ou e-mail').fill('52998224725');
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-  await page.getByText('2 de 2 empresa(s)').waitFor();
+  await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await page.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
   await page.getByLabel(/^E-mail/).fill('smoke-b@example.invalid');

@@ -63,7 +63,7 @@ test('identidade esperada recusa mutação após troca de cookie', async () => {
     await cadastrar('a@example.com');
     const idA = app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'a@example.com').id;
     const b = await cadastrar('b@example.com');
-    const cookie = b.headers['set-cookie'].split(';')[0];
+    const cookie = [b.headers['set-cookie']].flat().find((c) => c.startsWith('nv_sessao=')).split(';')[0];
     const r = await app.inject({ method: 'PUT', url: '/api/perfil', headers: { cookie, 'x-notavez': '1', 'x-notavez-usuario': idA }, payload: {} });
     assert.equal(r.statusCode, 409);
     assert.equal(r.json().codigo, 'CONTA_ALTERADA');

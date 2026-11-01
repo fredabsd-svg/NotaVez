@@ -70,7 +70,11 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   app.addHook('preHandler', async (req, reply) => {
     if (!rotaApi(req)) return;
     const rota = req.routeOptions.url;
-    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia|govbr|govbr\/entrar|govbr\/retorno)$|saude$|tabelas\/)/.test(rota) || (config.demo && rota.startsWith('/api/demo/'));
+    // "sair" é livre: encerra a sessão mesmo se a conta ou a empresa mudaram em outra aba.
+    // gov.br: só as rotas GET (descoberta, início e retorno) dispensam sessão.
+    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia|sair)$|saude$|tabelas\/)/.test(rota)
+      || (req.method === 'GET' && /^\/api\/conta\/govbr(\/(entrar|retorno))?$/.test(rota))
+      || (config.demo && rota.startsWith('/api/demo/'));
     req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);
     if (req.usuario?.renovada) reply.setCookie(COOKIE, req.cookies[COOKIE], opcoesCookie(true, config.cookieSeguro));
     if (!req.usuario && !livre) throw new ErroApp(401, 'Entre na sua conta para continuar.');

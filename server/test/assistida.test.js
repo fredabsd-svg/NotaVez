@@ -124,6 +124,6 @@ test('importação sem rascunho cria a nota; recusa outro CNPJ, XML alterado, se
   assert.equal(r1.status, 422);
   assert.match(r1.body.erro, /alterado/);
   const semAssinatura = sefin.adicionarTomada({ prestador: CNPJ, tomador: '11444777000161' }).xml;
-  assert.match((await api('POST', '/api/notas/importar', { xml: semAssinatura })).body.erro, /assinatura/);
+  assert.match((await api('POST', '/api/notas/importar', { xml: semAssinatura })).body.erro, /assinatura|leiaute oficial/);
   assert.equal((await api('POST', '/api/notas/importar', { xml: '<DPS>'.padEnd(300, ' ') + '</DPS>' })).status, 422);
 });

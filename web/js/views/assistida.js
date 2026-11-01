@@ -37,7 +37,7 @@ export async function tela({ id }) {
   const local = await rascunhoLocal(id);
   if (!navigator.onLine || (local && !local.sincronizado)) {
     return {
-      titulo: 'Emissor Nacional', voltar: true, aba: 'inicio',
+      titulo: 'Emissor Nacional', voltar: true, aba: 'emitir', tarefa: true,
       node: h('div', { class: 'cartao cartao-alerta', role: 'alert' }, h('p', {}, 'Conecte-se à internet e aguarde o rascunho salvar na conta para montar o roteiro.'),
         h('a', { class: 'btn', href: `#/nota/${id}` }, 'Voltar ao rascunho')),
     };
@@ -59,7 +59,7 @@ export async function tela({ id }) {
       c.ajuda ? h('dd', { class: 'suave', style: 'font-weight:400' }, c.ajuda) : null))) : null);
 
   return {
-    titulo: 'Emitir pelo Emissor Nacional', voltar: true, aba: 'inicio',
+    titulo: 'Emissor Nacional', voltar: true, aba: 'emitir', tarefa: true,
     node: h('div', {},
       h('p', {}, 'Sem certificado digital no app, quem emite é você, no site oficial da NFS-e, entrando com ', h('strong', {}, 'usuário e senha, certificado ou gov.br'),
         '. Aqui estão os dados desta nota na ordem das telas do Emissor Nacional, com botão de copiar. O Nota Sem Stress não pede nem guarda essa senha.'),

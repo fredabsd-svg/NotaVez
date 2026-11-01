@@ -40,7 +40,14 @@ async function provedor(url, opts = {}) {
 }
 
 let app;
-before(async () => { app = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, govbr: { ...CLIENTE, buscar: provedor } }); });
+const entregas = [];
+before(async () => { app = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, govbr: { ...CLIENTE, buscar: provedor }, entregarRecuperacao: async (r) => entregas.push(r) }); });
+// CPF válido a partir de 9 dígitos (para não colidir entre testes).
+function cpf(base) {
+  const d = String(base).split('').map(Number);
+  for (const n of [9, 10]) { const s = d.slice(0, n).reduce((t, x, i) => t + x * (n + 1 - i), 0); d.push((s * 10) % 11 % 10); }
+  return d.join('');
+}
 after(() => app.close());
 
 let ip = 0;
@@ -56,8 +63,8 @@ function navegador() {
       if (v) cookies.set(k, v); else cookies.delete(k);
     }
   };
-  const pedir = async (method, url, payload) => {
-    const r = await app.inject({ method, url, payload, remoteAddress, headers: { cookie: cookie(), ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
+  const pedir = async (method, url, payload, extra = {}) => {
+    const r = await app.inject({ method, url, payload, remoteAddress, headers: { cookie: cookie(), ...(method !== 'GET' ? { 'x-notavez': '1' } : {}), ...extra } });
     guardar(r);
     return { status: r.statusCode, body: r.headers['content-type']?.includes('json') ? r.json() : r.body, headers: r.headers };
   };
@@ -205,10 +212,11 @@ test('manter conectado: sessão longa renovada a cada uso; sem marcar, cookie de
   const n = navegador();
   await n.pedir('POST', '/api/conta/cadastrar', { documento: '29537914852', email: 'lembrar@exemplo.test', senha: 'senha-segura' });
   const longa = await navegador().pedir('POST', '/api/conta/entrar', { usuario: '29537914852', senha: 'senha-segura' });
-  assert.match(longa.headers['set-cookie'], /Max-Age=7776000/, 'marcado por padrão: 90 dias');
+  const sessao = (r) => [r.headers['set-cookie']].flat().find((c) => c?.startsWith('nv_sessao=')) || '';
+  assert.match(sessao(longa), /Max-Age=7776000/, 'marcado por padrão: 90 dias');
   const curta = navegador();
   const r = await curta.pedir('POST', '/api/conta/entrar', { usuario: '29537914852', senha: 'senha-segura', lembrar: false });
-  assert.doesNotMatch(r.headers['set-cookie'], /Max-Age/, 'some ao fechar o navegador');
+  assert.doesNotMatch(sessao(r), /Max-Age/, 'some ao fechar o navegador');
 
   const { db } = app.ctx;
   const sessoes = () => db.all("SELECT s.token_hash, s.expira_em, s.lembrar FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = 'lembrar@exemplo.test' ORDER BY s.criado_em");
@@ -228,4 +236,67 @@ test('manter conectado: sessão longa renovada a cada uso; sem marcar, cookie de
   const antes = sessoes()[2].expira_em;
   assert.equal((await curta.pedir('GET', '/api/conta')).headers['set-cookie'], undefined);
   assert.equal(sessoes()[2].expira_em, antes);
+});
+
+// ---------- Regressões do Gauntlet Loop (achados confirmados por críticos independentes) ----------
+
+test('redefinir a senha desfaz o gov.br vinculado por outra pessoa (tomada de conta pelo e-mail)', async () => {
+  const cpfAtacante = cpf('123456789');
+  const atacante = navegador();
+  await atacante.pedir('POST', '/api/conta/cadastrar', { email: 'vitima-gov@exemplo.test', senha: 'senha-do-atacante' });
+  govbr.titular = { sub: cpfAtacante, name: 'Atacante' };
+  const v = await atacante.pedir('POST', '/api/conta/govbr/vincular', {});
+  assert.equal((await atacante.viaGovbr(v.body.url)).headers.location, '/#/conta?govbr=vinculado');
+  // A dona do e-mail recupera a conta pela senha.
+  assert.equal((await navegador().pedir('POST', '/api/conta/recuperar', { usuario: 'vitima-gov@exemplo.test' })).status, 200);
+  const { token } = entregas.at(-1);
+  assert.equal((await navegador().pedir('POST', '/api/conta/redefinir', { token, senha: 'senha-da-vitima' })).status, 200);
+  // O gov.br do atacante não entra mais nessa conta (no máximo cria uma conta própria, vazia).
+  const vitima = app.ctx.db.get("SELECT id, govbr_indice, documento_indice FROM usuarios WHERE email = 'vitima-gov@exemplo.test'");
+  assert.equal(vitima.govbr_indice, null);
+  assert.equal(vitima.documento_indice, null, 'o CPF que veio do gov.br alheio sai junto');
+  const atacanteDepois = navegador();
+  await atacanteDepois.entrarGovbr();
+  assert.notEqual((await atacanteDepois.pedir('GET', '/api/conta')).body.usuarioId, vitima.id);
+});
+
+test('"Sair" encerra a sessão mesmo com conta ou empresa trocadas em outra aba', async () => {
+  const n = navegador();
+  await n.pedir('POST', '/api/conta/cadastrar', { email: 'sair@exemplo.test', senha: 'senha-segura' });
+  const r = await n.pedir('POST', '/api/conta/sair', {}, { 'x-notavez-usuario': 'outra-conta', 'x-notavez-prestador': 'empresa-removida' });
+  assert.equal(r.status, 200);
+  assert.equal((await n.pedir('GET', '/api/conta')).status, 401);
+});
+
+test('rotas de gov.br que alteram a conta exigem sessão e conferem a identidade', async () => {
+  assert.equal((await navegador().pedir('DELETE', '/api/conta/govbr', {})).status, 401);
+  assert.equal((await navegador().pedir('POST', '/api/conta/govbr/excluir', {})).status, 401);
+});
+
+test('limite de recuperação vale para qualquer grafia do mesmo CPF', async () => {
+  const doc = cpf('987654321');
+  await navegador().pedir('POST', '/api/conta/cadastrar', { documento: doc, email: 'grafias@exemplo.test', senha: 'senha-segura' });
+  const grafias = [doc, doc.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'), ` ${doc} `, `${doc.slice(0, 3)} ${doc.slice(3)}`, `${doc.slice(0, 9)}-${doc.slice(9)}`, doc, doc];
+  const status = [];
+  for (const g of grafias) status.push((await navegador().pedir('POST', '/api/conta/recuperar', { usuario: g })).status);
+  assert.ok(status.includes(429), status.join(','));
+});
+
+test('conta criada pelo gov.br sem e-mail pode ser excluída confirmando no gov.br (e só pelo mesmo CPF)', async () => {
+  const dono = cpf('555666777');
+  govbr.titular = { sub: dono, name: 'Só gov.br' };
+  const n = navegador();
+  await n.entrarGovbr();
+  const conta = (await n.pedir('GET', '/api/conta')).body;
+  assert.equal(conta.email, null);
+  // Outro CPF no gov.br não confirma a exclusão.
+  const r1 = await n.pedir('POST', '/api/conta/govbr/excluir', {});
+  govbr.titular = { sub: cpf('111222333'), name: 'Outra pessoa' };
+  assert.equal((await n.viaGovbr(r1.body.url)).headers.location, '/#/conta?govbr=outro');
+  assert.ok(app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId));
+  // O mesmo CPF confirma e a conta some.
+  govbr.titular = { sub: dono, name: 'Só gov.br' };
+  const r2 = await n.pedir('POST', '/api/conta/govbr/excluir', {});
+  assert.equal((await n.viaGovbr(r2.body.url)).headers.location, `/#/entrar?govbr=excluida&u=${conta.usuarioId}`);
+  assert.equal(app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId), undefined);
 });

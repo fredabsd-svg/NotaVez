@@ -30,7 +30,7 @@ export function cartaoCnpj(d) {
 
 // Observa o campo de CNPJ: com os 14 caracteres, consulta e chama aoEncontrar(dados).
 // `inicial` evita consultar de novo o CNPJ que já está salvo.
-export function consultaAutomatica(entrada, { aoEncontrar, inicial = null }) {
+export function consultaAutomatica(entrada, { aoEncontrar, aoFalhar = () => {}, inicial = null }) {
   const status = h('div', { role: 'status' });
   let ultimo = cnpjCompleto(inicial);
   let espera;
@@ -42,10 +42,12 @@ export function consultaAutomatica(entrada, { aoEncontrar, inicial = null }) {
     try {
       const d = await consultarCnpj(cnpj);
       if (cnpjCompleto(entrada.value) !== cnpj) return;
-      aoEncontrar(d);
+      aoEncontrar(d, cnpj);
       status.replaceChildren(cartaoCnpj(d));
     } catch (e) {
+      ultimo = null; // permite tentar de novo o mesmo CNPJ
       if (cnpjCompleto(entrada.value) !== cnpj) return;
+      aoFalhar(e, cnpj); // tira o que a consulta anterior (de outro CNPJ) tinha preenchido
       status.replaceChildren(h('p', { class: 'suave' }, e instanceof ErroApi && e.status === 0 ? 'Sem internet: preencha os dados manualmente.' : e.message));
     }
   }

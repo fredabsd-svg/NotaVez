@@ -27,7 +27,7 @@ export async function api(metodo, url, corpo) {
   if (!navigator.onLine) throw new ErroApi(0);
   const identidadePedido = identidade;
   const epocaPedido = epoca;
-  const descoberta = (metodo === 'GET' && /^\/api\/conta(\?|$)/.test(url)) || /^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(url);
+  const descoberta = (metodo === 'GET' && /^\/api\/conta(\?|$)/.test(url)) || /^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir|sair)$/.test(url);
   let r;
   try {
     r = await fetch(url, {

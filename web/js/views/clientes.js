@@ -1,4 +1,4 @@
-import { h, campo, mostrarErros, aviso, mascaraDocumento, icone, ICONES, buscaComSugestoes } from '../ui.js';
+import { h, campo, mostrarErros, aviso, mascaraDocumento, icone, ICONES, buscaComSugestoes, plural } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { comCache, buscarMunicipio, municipioPorCodigo } from '../store.js';
 import { aplicar } from '../rascunho.js';
@@ -6,7 +6,13 @@ import { ir } from '../app.js';
 import { consultaAutomatica } from '../cnpj.js';
 
 async function escolherParaNota(notaId, c) {
-  await aplicar(notaId, { clienteId: c.id }, { cliente: { nome: c.nome, documentoExibicao: c.documentoExibicao, tipo: c.tipo } });
+  try {
+    await aplicar(notaId, { clienteId: c.id }, { cliente: { nome: c.nome, documentoExibicao: c.documentoExibicao, tipo: c.tipo } });
+  } catch (e) {
+    // Nota já enviada (ex.: voltou pelo histórico do navegador): mostra a nota, não um rascunho novo.
+    if (e instanceof ErroApi && e.dados?.notaId) { aviso(e.message); ir(`/notas/${notaId}`, { substituir: true }); return; }
+    throw e;
+  }
   ir(`/nota/${notaId}`, { substituir: true });
 }
 
@@ -14,7 +20,7 @@ export async function lista(_, query) {
   const para = query.para;
   const { clientes } = await comCache('clientes', () => api('GET', '/api/clientes'));
   const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
+  const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
   const contador = h('p', { class: 'suave', role: 'status' });
 
   const itemCliente = (c) => h('li', {}, h('button', {
@@ -25,7 +31,7 @@ export async function lista(_, query) {
   para ? h('span', { class: 'selo selo-teste' }, 'Escolher') : null));
 
   function exibir(itens, filtrando) {
-    contador.textContent = filtrando ? `${itens.length} encontrado(s)` : `${itens.length} cliente(s)`;
+    contador.textContent = filtrando ? plural(itens.length, 'encontrado', 'encontrados') : plural(itens.length, 'cliente', 'clientes');
     ul.replaceChildren(...itens.map(itemCliente));
     if (!itens.length) ul.append(h('li', { class: 'suave' }, filtrando ? 'Nenhum cliente encontrado. Cadastre um novo abaixo.' : 'Nenhum cliente ainda.'));
   }
@@ -55,8 +61,10 @@ export async function lista(_, query) {
   return {
     titulo: para ? 'Escolher cliente' : 'Clientes', aba: 'clientes', voltar: !!para,
     node: h('div', {},
-      busca, contador, ul,
-      h('div', { class: 'rodape-fixo' }, h('a', { class: 'btn btn-primario', href: `#/clientes/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo cliente'))),
+      busca,
+      h('div', { class: 'cabecalho-acoes' }, contador,
+        h('a', { class: 'btn btn-pequeno', href: `#/clientes/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo cliente')),
+      ul),
   };
 }
 
@@ -102,12 +110,33 @@ export async function formulario({ id }, query) {
   atualizarEndereco();
 
   // CNPJ completo: nome, contato e endereço vêm da base pública da Receita.
+  // Lembra o que veio da consulta: ao corrigir o CNPJ, e-mail e telefone da empresa errada são trocados.
+  const preenchido = { email: null, fone: null, nome: null, endereco: null, cnpj: null };
+  const camposEndereco = () => [cep, numero, logradouro, complemento, bairro, municipio];
+  const trocarSeAutomatico = (cmp, chave, valor) => {
+    if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
+  };
   const consulta = consultaAutomatica(doc.entrada, {
     inicial: c.tipo === 'CNPJ' ? c.documento : null,
-    aoEncontrar: async (d) => {
+    aoFalhar: (_, cnpjFalhou) => {
+      if (cnpjFalhou && cnpjFalhou === preenchido.cnpj) return;
+      preenchido.cnpj = null;
+      if (preenchido.nome && nome.entrada.value === preenchido.nome) nome.entrada.value = '';
+      for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+      // Do endereço, só sai o que ainda é exatamente o que a consulta trouxe; o digitado à mão fica.
+      if (preenchido.endereco) {
+        camposEndereco().forEach((cmp, i) => { if (cmp.entrada.value === preenchido.endereco.valores[i]) cmp.entrada.value = ''; });
+        if (municipioIbge === preenchido.endereco.municipioIbge && !municipio.entrada.value) municipioIbge = '';
+        preenchido.endereco = null;
+      }
+      preenchido.nome = null;
+    },
+    aoEncontrar: async (d, cnpjAchado) => {
+      preenchido.cnpj = cnpjAchado;
       nome.entrada.value = d.razaoSocial;
-      if (!email.entrada.value && d.email) email.entrada.value = d.email;
-      if (!fone.entrada.value && d.fone) fone.entrada.value = d.fone;
+      preenchido.nome = d.razaoSocial;
+      trocarSeAutomatico(email, 'email', d.email);
+      trocarSeAutomatico(fone, 'fone', d.fone);
       const e = d.endereco || {};
       cep.entrada.value = e.cep || '';
       numero.entrada.value = e.numero || '';
@@ -117,6 +146,7 @@ export async function formulario({ id }, query) {
       municipioIbge = e.municipioIbge || '';
       const m = municipioIbge ? await municipioPorCodigo(municipioIbge) : null;
       municipio.entrada.value = m ? `${m.nome} - ${m.uf}` : '';
+      preenchido.endereco = { valores: camposEndereco().map((cmp) => cmp.entrada.value), municipioIbge };
       blocoEndereco.open = true;
     },
   });
@@ -167,5 +197,5 @@ export async function formulario({ id }, query) {
     },
   }, 'Excluir cliente') : null;
 
-  return { titulo: id ? 'Editar cliente' : 'Novo cliente', aba: 'clientes', voltar: true, node: h('div', {}, form, excluir) };
+  return { titulo: id ? 'Editar cliente' : 'Novo cliente', tarefa: true, aba: 'clientes', voltar: true, node: h('div', {}, form, excluir) };
 }

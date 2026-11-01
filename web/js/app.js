@@ -1,7 +1,7 @@
 // Roteador e inicialização do PWA.
 import { api, ErroApi, urlConta } from './api.js';
 import { h, aviso, carregando } from './ui.js';
-import { definirConta, recuperarContaOffline, sessaoEncerrada, temLegadoEmQuarentena, excluirDadosDaConta, sincronizarTodos, contaGuardada } from './store.js';
+import { definirConta, recuperarContaOffline, sessaoEncerrada, temLegadoEmQuarentena, excluirDadosDaConta, sincronizarTodos, contaGuardada, esquecerContaNestaAba } from './store.js';
 import * as entrar from './views/entrar.js';
 import * as conta from './views/conta.js';
 import * as inicio from './views/inicio.js';
@@ -78,22 +78,41 @@ async function renderizar() {
   try {
     tela = await rota.fn(rota.params, query);
   } catch (e) {
+    // Sem internet não é erro: tela neutra, com o que dá para fazer agora e "Tentar de novo".
+    const semRede = e instanceof ErroApi && e.status === 0;
     tela = {
-      titulo: 'Ops',
-      node: h('div', { class: 'cartao cartao-erro', role: 'alert' },
-        h('p', {}, e instanceof ErroApi ? e.message : 'Não foi possível abrir esta tela.'),
-        h('a', { class: 'btn', href: '#/' }, 'Voltar ao início')),
+      titulo: semRede ? 'Sem internet' : 'Não foi possível abrir', erro: true,
+      node: h('div', { class: `cartao ${semRede ? 'cartao-alerta' : 'cartao-erro'}`, role: 'alert' },
+        h('p', {}, semRede ? 'Esta tela precisa de conexão. Você pode continuar preparando notas: elas ficam salvas como rascunho neste aparelho.'
+          : e instanceof ErroApi ? e.message : 'Não foi possível abrir esta tela.'),
+        // Veio de um rascunho (escolher cliente/serviço): o caminho principal é voltar a ele, não abrir outro.
+        semRede && query.para ? h('a', { class: 'btn btn-primario', href: `#/nota/${encodeURIComponent(query.para)}` }, 'Voltar ao rascunho') : null,
+        h('button', { class: `btn ${semRede ? '' : 'btn-primario'}`, type: 'button', onclick: () => renderizar() }, 'Tentar de novo'),
+        semRede && !query.para && estado.conta?.prestadorId ? h('a', { class: 'btn btn-primario', href: '#/nova' }, 'Preparar uma nota') : null,
+        h('a', { class: 'btn btn-texto', href: '#/' }, 'Voltar ao início')),
     };
     if (!(e instanceof ErroApi)) console.error(e);
   }
   if (meu !== renderizando || !tela) return; // navegação mais nova em andamento
+  estado.telaComErro = !!tela.erro;
   document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
   document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;
-  document.getElementById('abas').hidden = !estado.conta || tela.semAbas || !estado.conta.prestadorId;
+  // Telas de conta/escritório não são de uma empresa; telas de tarefa (nova nota, revisão…) escondem as abas no celular.
+  const naEmpresa = !!estado.conta?.prestadorId && !SEM_EMPRESA.has(caminho) && !tela.semAbas;
+  document.getElementById('abas').hidden = !estado.conta || !estado.conta.prestadorId || tela.semAbas;
+  document.body.classList.toggle('sem-abas', !!tela.tarefa || !!tela.semAbas);
+  document.body.classList.toggle('sem-empresa', !estado.conta?.prestadorId || !!tela.semAbas);
   const empresa = document.getElementById('empresa-ativa');
-  empresa.hidden = !estado.conta?.prestadorId || tela.semAbas;
-  empresa.querySelector('span').textContent = estado.conta?.empresaNome || 'Empresa';
+  empresa.hidden = !naEmpresa;
+  empresa.querySelector('.ctx-nome').textContent = estado.conta?.empresaNome || 'Empresa';
+  empresa.querySelector('.ctx-cnpj').textContent = estado.conta?.empresaDocumentoFormatado || '';
+  const amb = empresa.querySelector('.ctx-ambiente');
+  const ambiente = estado.conta?.empresaAmbiente;
+  amb.hidden = !ambiente;
+  amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes';
+  amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
+  empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
   for (const a of document.querySelectorAll('.abas a')) {
     if (a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
@@ -102,9 +121,15 @@ async function renderizar() {
   window.scrollTo(0, 0);
 }
 
+// O ambiente agora aparece na barra da empresa; o selo do topo fica só para quando não há empresa aberta.
 export async function atualizarSelo() {
   const ambiente = estado.inicio?.perfil?.ambiente;
-  document.getElementById('selo-ambiente').hidden = !(ambiente === 'producao_restrita' || !estado.inicio?.perfil);
+  document.getElementById('selo-ambiente').hidden = true;
+  if (ambiente && estado.conta && estado.conta.empresaAmbiente !== ambiente) {
+    estado.conta = { ...estado.conta, empresaAmbiente: ambiente };
+    const amb = document.querySelector('#empresa-ativa .ctx-ambiente');
+    if (amb) { amb.hidden = false; amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes'; amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`; }
+  }
 }
 
 // `empresa`: a empresa que esta aba quer abrir (padrão: a que já estava aberta).
@@ -116,12 +141,18 @@ export async function carregarConta({ permitirOffline = true, substituirTitular 
     if (usuarioEsperado && usuarioEsperado !== conta.usuarioId) throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.' });
     if (!substituirTitular && estado.conta && estado.conta.usuarioId !== conta.usuarioId) {
       window.dispatchEvent(new CustomEvent('notavez:sessao-expirada'));
-      throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.' });
+      // Outra conta entrou noutra aba: o tratador do evento cuida desta aba sem apagar a conta guardada da outra.
+      throw new ErroApi(401, { erro: 'A conta mudou em outra aba. Entre novamente.', trocaTitular: true });
     }
     estado.inicio = null;
     estado.conta = await definirConta(conta);
   } catch (e) {
-    estado.conta = permitirOffline && e instanceof ErroApi && e.status === 0 ? await recuperarContaOffline() : await definirConta(null);
+    // Sem rede, servidor fora (5xx), limite (429) ou resposta estranha não encerram a sessão:
+    // só a resposta "sessão inválida" (401/403) encerra; conta trocada é tratada pelo evento.
+    const semRede = e instanceof ErroApi && (e.status === 0 || e.status === 429 || e.status >= 500);
+    const encerra = e instanceof ErroApi && [401, 403].includes(e.status) && !e.dados?.trocaTitular;
+    if (semRede || !(e instanceof ErroApi)) { if (permitirOffline || !estado.conta) estado.conta = await recuperarContaOffline(); }
+    else if (encerra) estado.conta = await definirConta(null);
     if (!permitirOffline) throw e;
   }
   return estado.conta;
@@ -150,7 +181,13 @@ export async function sair() {
 
 function atualizarOnline() {
   document.getElementById('faixa-offline').hidden = navigator.onLine;
-  if (navigator.onLine && estado.conta) carregarConta({ permitirOffline: false }).then(() => { renderizar(); return sincronizarTodos(); }).catch(() => ir('/entrar'));
+  if (!navigator.onLine || !estado.conta) return;
+  const antes = `${estado.conta.usuarioId}:${estado.conta.prestadorId}`;
+  // Re-desenha só se a conta ou a empresa mudaram: não apaga o que a pessoa está digitando.
+  carregarConta({ permitirOffline: false })
+    .then(() => { if (estado.telaComErro || `${estado.conta?.usuarioId}:${estado.conta?.prestadorId}` !== antes) renderizar(); return sincronizarTodos(); })
+    // Servidor em 5xx/429 não encerra a sessão: só volta a "Entrar" quem de fato ficou sem conta.
+    .catch((e) => { if (!(e instanceof ErroApi && e.status === 0) && !estado.conta) ir('/entrar'); });
 }
 
 document.getElementById('voltar').addEventListener('click', () => {
@@ -162,21 +199,31 @@ window.addEventListener('offline', atualizarOnline);
 window.addEventListener('notavez:sessao-expirada', async () => {
   // Abrir o app sem sessão (primeiro acesso) não é "sessão terminou".
   const tinhaSessao = !!estado.conta;
+  const usuario = estado.conta?.usuarioId;
   estado.conta = null;
   estado.inicio = null;
   estado.ultimoResultado = null;
   renderizando++;
-  try { await definirConta(null); } catch { /* identidade em memória já encerrada */ }
+  // O IndexedDB é de todas as abas: uma aba antiga não pode encerrar a conta que outra abriu.
+  try {
+    const guardada = await contaGuardada();
+    if (!guardada || !usuario || guardada.usuarioId === usuario) await definirConta(null); else esquecerContaNestaAba();
+  } catch { /* identidade em memória já encerrada */ }
   if (tinhaSessao) aviso('Sua sessão terminou. Seus rascunhos continuam guardados para a mesma conta. Entre novamente.');
-  ir('/entrar');
+  // Já na tela de entrada (ex.: retorno do gov.br com mensagem): não perde o que veio no endereço.
+  if (!location.hash.startsWith('#/entrar')) ir('/entrar');
 });
 
 window.addEventListener('notavez:empresa-indisponivel', async () => {
   if (!estado.conta?.prestadorId) return;
   renderizando++;
-  try { await carregarConta({ permitirOffline: false, empresa: null }); } catch { return; }
+  try { await carregarConta({ permitirOffline: false, empresa: null }); } catch {
+    // Sem resposta do servidor: a empresa sai da sessão desta aba mesmo assim (evita repetir o pedido em laço).
+    if (estado.conta?.prestadorId) estado.conta = await definirConta({ ...estado.conta, prestadorId: null, empresaNome: null });
+  }
   aviso('Esta empresa não está mais disponível na sua conta. Escolha outra.');
-  ir('/empresas', { substituir: true });
+  // Já em #/empresas o hash não muda: desenha direto.
+  if (location.hash === '#/empresas') renderizar(); else ir('/empresas', { substituir: true });
 });
 
 window.addEventListener('notavez:conta-excluida', async (e) => {

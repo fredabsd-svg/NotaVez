@@ -1,6 +1,6 @@
 // Certificado do escritório (procurador): um A1 para emitir e baixar notas
 // tomadas de todas as empresas que concederam procuração eletrônica NFS-e.
-import { h, aviso, data, copiarTexto } from '../ui.js';
+import { h, aviso, data, copiarTexto, plural } from '../ui.js';
 import { api } from '../api.js';
 import { formularioCertificado } from './perfil.js';
 
@@ -21,7 +21,7 @@ export async function tela() {
       c ? h('section', { class: 'cartao cartao-ok' },
         h('strong', {}, 'Certificado do escritório ativo'), h('p', {}, c.titular),
         h('p', { class: 'suave' }, `${c.documentoFormatado} · válido até ${data(c.validoAte)} · ${c.emissor}`),
-        h('p', { class: 'suave' }, `${empresasPorProcuracao} de ${empresas} empresa(s) usando este certificado.`),
+        h('p', { class: 'suave' }, `${empresasPorProcuracao} de ${plural(empresas, 'empresa usa', 'empresas usam')} este certificado.`),
         h('button', { class: 'btn btn-texto btn-perigo', type: 'button', onclick: async () => {
           if (!confirm('Remover o certificado do escritório? As empresas por procuração param de emitir até você enviar outro.')) return;
           await api('DELETE', '/api/procurador/certificado', {});

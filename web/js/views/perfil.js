@@ -1,7 +1,7 @@
 import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, buscaComSugestoes } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { buscarMunicipio } from '../store.js';
-import { sair, estado, carregarConta, ir } from '../app.js';
+import { estado, carregarConta, ir } from '../app.js';
 import { copiarTexto } from '../ui.js';
 import { consultaAutomatica } from '../cnpj.js';
 
@@ -101,17 +101,43 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   const erroPerfil = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
   const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
 
+  // Lembra o que veio da consulta: ao corrigir o CNPJ, o que era da empresa errada é trocado.
+  const preenchido = { email: null, fone: null, municipio: null, nome: null, cnpj: null, regime: null, apuracao: null };
+  const regimeInicial = regime.entrada.value;
+  const apuracaoInicial = apuracao.entrada.value;
+  const trocarSeAutomatico = (cmp, chave, valor) => {
+    if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
+  };
   // CNPJ completo: razão social, município e enquadramento vêm da base pública.
   const consulta = consultaAutomatica(cnpj.entrada, {
     inicial: p.documento,
-    aoEncontrar: (d) => {
+    aoFalhar: (_, cnpjFalhou) => {
+      // Falhou a nova consulta do MESMO CNPJ ("Atualizar"): o que veio antes continua certo.
+      if (cnpjFalhou && cnpjFalhou === preenchido.cnpj) return;
+      preenchido.cnpj = null;
+      if (preenchido.nome && nome.entrada.value === preenchido.nome) { nome.entrada.value = ''; preenchido.nome = null; }
+      // Regime e apuração da empresa errada voltam ao que estava antes da consulta.
+      if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); }
+      if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) apuracao.entrada.value = apuracaoInicial;
+      preenchido.regime = null; preenchido.apuracao = null;
+      if (preenchido.municipio && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
+      for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+    },
+    aoEncontrar: (d, cnpjAchado) => {
+      preenchido.cnpj = cnpjAchado;
       nome.entrada.value = d.razaoSocial;
-      if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; }
-      if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); }
-      if (d.enquadramento?.apuracao) apuracao.entrada.value = d.enquadramento.apuracao;
+      preenchido.nome = d.razaoSocial;
+      // Sem município na base, não fica o da consulta anterior (CNPJ corrigido).
+      if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
+      else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
+      if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); preenchido.regime = regime.entrada.value; }
+      // CNPJ achado sem enquadramento: o regime que veio da empresa anterior (consulta errada) volta ao inicial.
+      else if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); preenchido.regime = null; }
+      if (d.enquadramento?.apuracao) { apuracao.entrada.value = d.enquadramento.apuracao; preenchido.apuracao = apuracao.entrada.value; }
+      else if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) { apuracao.entrada.value = apuracaoInicial; preenchido.apuracao = null; }
       if (regime.entrada.value === '1' && cstPisCofins.entrada.value === '01' && !aliqPis.entrada.value && !aliqCofins.entrada.value) padroes.click();
-      if (!email.entrada.value && d.email) email.entrada.value = d.email;
-      if (!fone.entrada.value && d.fone) fone.entrada.value = d.fone;
+      trocarSeAutomatico(email, 'email', d.email);
+      trocarSeAutomatico(fone, 'fone', d.fone);
     },
   });
   const atualizarDaReceita = p.documento ? h('button', { class: 'btn btn-pequeno btn-texto', type: 'button', onclick: () => consulta.buscar() }, 'Atualizar com os dados da Receita') : null;
@@ -153,6 +179,14 @@ function cartaoProcuracao(dados) {
 // Envio de certificado A1 (.pfx): da empresa ou do procurador da conta.
 export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certificado', aoEnviar, consentimentoTexto }) {
   const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda, tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
+  // Botão próprio em português no lugar do "Choose File" do navegador; o input continua ligado ao rótulo.
+  arquivo.entrada.classList.add('visualmente-oculto');
+  const nomeArquivo = h('span', { class: 'suave', 'aria-live': 'polite' }, 'Nenhum arquivo escolhido.');
+  arquivo.entrada.addEventListener('change', () => { nomeArquivo.textContent = arquivo.entrada.files?.[0]?.name || 'Nenhum arquivo escolhido.'; arquivo.erro(''); });
+  arquivo.entrada.after(h('div', { class: 'arquivo-escolha' },
+    h('button', { class: 'btn', type: 'button', tabindex: '-1', 'aria-hidden': 'true', onclick: () => arquivo.entrada.click() }, 'Escolher arquivo .pfx'), nomeArquivo));
+  arquivo.entrada.addEventListener('focus', () => arquivo.classList.add('com-foco'));
+  arquivo.entrada.addEventListener('blur', () => arquivo.classList.remove('com-foco'));
   const senha = campo({ rotulo: 'Senha do certificado', tipo: 'password', atributos: { autocomplete: 'off' } });
   const idConsentimento = `consentimento-${url.replace(/\W/g, '')}`;
   const consentimento = h('input', { type: 'checkbox', id: idConsentimento });
@@ -254,11 +288,10 @@ export async function tela() {
       : usaProc ? h('details', {}, h('summary', {}, 'Certificado próprio desta empresa (opcional)'), statusCert, formCert)
         : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
     h('h3', {}, 'Empresa'),
-    h('a', { class: 'btn', href: '#/empresas' }, 'Trocar de empresa'),
     h('button', {
       class: 'btn btn-texto btn-perigo', type: 'button',
       onclick: async () => {
-        if (!confirm(`Remover "${p.nome || 'esta empresa'}" da sua conta? Só é possível enquanto ela não tiver enviado notas à Receita. Rascunhos, clientes, serviços e o certificado desta empresa serão apagados.`)) return;
+        if (!confirm(`Remover "${p.nome || 'esta empresa'}" da sua conta? Só é possível enquanto ela não tiver enviado notas à Receita. Rascunhos, clientes, serviços, notas tomadas baixadas e o certificado desta empresa serão apagados.`)) return;
         try {
           await api('DELETE', `/api/empresas/${estado.conta.prestadorId}`);
           aviso('Empresa removida.');
@@ -267,12 +300,6 @@ export async function tela() {
         } catch (err) { aviso(err.message, 8000); }
       },
     }, 'Remover empresa da conta'),
-    h('h3', {}, 'Conta'),
-    h('a', { class: 'btn', href: '#/conta' }, 'Gerenciar e excluir conta'),
-    h('a', { class: 'btn btn-texto', href: '/privacidade.html' }, 'Privacidade'),
-    h('a', { class: 'btn btn-texto', href: '/recuperar-conta.html' }, 'Recuperar senha'),
-    h('a', { class: 'btn', href: '#/instalar' }, 'Instalar na tela inicial'),
-    h('button', { class: 'btn btn-texto', type: 'button', onclick: sair }, 'Sair da conta'),
   );
-  return { titulo: 'Dados da empresa', aba: 'inicio', voltar: true, node };
+  return { titulo: 'Dados da empresa', aba: 'perfil', voltar: true, node };
 }

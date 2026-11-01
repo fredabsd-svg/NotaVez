@@ -100,7 +100,14 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     const cache = repo.parametroEmCache(chave, VALIDADE_CONVENIO_MS);
     if (cache) return { ...cache, cache: true };
     if (!certificado) return { situacao: 'desconhecido', motivo: 'sem_certificado' };
-    const r = await clienteSefin(prestador, certificado).consultarConvenio(ibge);
+    // Certificado vencido ou de outro CNPJ: a consulta é só informativa e não pode
+    // derrubar a revisão nem a emissão assistida (a elegibilidade já aponta o problema).
+    let cliente;
+    try { cliente = clienteSefin(prestador, certificado); } catch (e) {
+      if (e instanceof ErroApp) return { situacao: 'desconhecido', motivo: 'certificado' };
+      throw e;
+    }
+    const r = await cliente.consultarConvenio(ibge);
     repo.registrarChamada(null, 'parametros_convenio', { http: r.http, tipo: r.situacao, ms: r.ms, detalhe: ibge });
     if (r.situacao !== 'desconhecido') repo.guardarParametro(chave, { situacao: r.situacao, aderenteEmissorNacional: r.aderenteEmissorNacional ?? null });
     return r;
@@ -165,6 +172,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const info = lerNfse(r.nfseXml);
       if (!r.chaveAcesso) throw incerto(nota);
       estado = 'emitida';
+      repo.removerImportadaDuplicada(nota.prestadorId, r.chaveAcesso, nota.id);
       Object.assign(campos, { chaveAcesso: r.chaveAcesso, nNfse: info?.nNFSe ?? null, nfseXml: r.nfseXml, emitidaEm: info?.dhProc || new Date().toISOString(), alertas: r.alertas?.length ? r.alertas.map(explicar) : null, erros: null });
     } else if (r.tipo === 'rejeitada' || (r.tipo === 'nao_enviada' && nota.situacao === 'enviando')) {
       estado = r.tipo === 'rejeitada' ? 'rejeitada' : 'rascunho';
@@ -187,6 +195,10 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
         throw new ErroApp(409, 'Os dados mudaram desde a revisão. Revise novamente antes de emitir.');
       }
       const certificado = repo.certificadoEmissao(prestador);
+      // Pendências de perfil/certificado antes de qualquer consulta: a resposta traz a lista certa.
+      const previa = avaliarElegibilidade(prestador, certificado, {});
+      const semConvenio = previa.pendencias.filter((p) => p.id !== 'convenio');
+      if (semConvenio.length) throw new ErroApp(403, 'Ainda falta algo para emitir pelo Nota Sem Stress.', { pendencias: semConvenio });
       const parametros = await parametrosPara(prestador, certificado, nota.rascunho);
       const eleg = avaliarElegibilidade(prestador, certificado, { convenioEmissor: parametros.convenioEmissor });
       if (!eleg.podeEmitir) throw new ErroApp(403, 'Ainda falta algo para emitir pelo Nota Sem Stress.', { pendencias: eleg.pendencias });
@@ -258,6 +270,8 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
         const n = await cli.consultarNfse(c.chaveAcesso);
         repo.registrarChamada(nota.id, 'consulta_nfse', n);
         const info = n.tipo === 'ok' ? lerNfse(n.nfseXml) : null;
+        // Se a pessoa já trouxe o XML desta mesma NFS-e pelo Emissor Nacional, a nota do app a substitui.
+        repo.removerImportadaDuplicada(nota.prestadorId, c.chaveAcesso, nota.id);
         repo.transicionar(nota.id, 'pendente', 'emitida', {
           chaveAcesso: c.chaveAcesso, nNfse: info?.nNFSe ?? null, emitidaEm: info?.dhProc || new Date().toISOString(),
           ...(n.tipo === 'ok' ? { nfseXml: n.nfseXml } : {}), erros: null,
@@ -313,6 +327,19 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     return repo.notaPorId(nota.id);
   }
 
+  // XML trazido do Emissor Nacional: com certificado disponível, busca a versão oficial na Receita.
+  // null = não foi possível conferir (sem certificado ou falha); a nota fica "não conferida".
+  async function conferirNfse(prestador, chave) {
+    const certificado = repo.certificadoEmissao(prestador);
+    if (!certificado) return null;
+    let cliente;
+    try { cliente = clienteSefin(prestador, certificado); } catch { return null; }
+    let r;
+    try { r = await cliente.consultarNfse(chave); } catch (e) { r = { tipo: 'falha', detalhe: e.message }; }
+    repo.registrarChamada(null, 'consulta_nfse_importada', r);
+    return r;
+  }
+
   // Notas recebidas pela empresa (ADN), com o certificado ativo dela.
   async function distribuirDfe(prestador, nsu) {
     const certificado = repo.certificadoEmissao(prestador);
@@ -339,5 +366,5 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     }
   }
 
-  return { emitir, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, distribuirDfe, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
+  return { emitir, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, distribuirDfe, conferirNfse, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
 }
