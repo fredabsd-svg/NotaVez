@@ -30,7 +30,7 @@ export async function lista(_, query) {
     titulo: para ? 'Escolher serviço' : 'Serviços salvos', aba: 'servicos', voltar: true,
     node: h('div', {},
       h('div', { class: 'cabecalho-acoes' }, h('p', { class: 'suave', style: 'margin:0;flex:1' }, 'Guarde os serviços que você presta com frequência. Na nota, é só escolher.'),
-        h('a', { class: 'btn btn-pequeno btn-primario', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço')),
+        h('a', { class: 'btn btn-pequeno', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço')),
       itens.length ? h('ul', { class: 'lista duas-colunas' }, itens) : h('p', {}, 'Nenhum serviço salvo ainda.')),
   };
 }

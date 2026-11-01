@@ -243,13 +243,17 @@ export function criarRepositorio(db) {
     // ---------- notas ----------
     nota: (prestadorId, id) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id = ?', prestadorId, id)),
     notaPorId: (id) => notaDe(db.get('SELECT * FROM notas WHERE id = ?', id)),
-    listarNotas(prestadorId, { situacao, limite = 50, antesDe } = {}) {
+    listarNotas(prestadorId, { situacao, limite = 50, antesDe, competencia } = {}) {
       const where = ['prestador_id = ?'];
       const p = [prestadorId];
       if (situacao) { where.push('situacao = ?'); p.push(situacao); }
+      if (competencia) { where.push('substr(competencia, 1, 7) = ?'); p.push(competencia); }
       if (antesDe) { where.push('atualizado_em < ?'); p.push(antesDe); }
       return db.all(`SELECT * FROM notas WHERE ${where.join(' AND ')} ORDER BY atualizado_em DESC LIMIT ?`, ...p, limite).map(notaDe);
     },
+    // Competências (AAAA-MM) com notas, da mais recente para a mais antiga: o filtro de mês da lista.
+    mesesDasNotas: (prestadorId, situacao) => db.all(`SELECT DISTINCT substr(competencia, 1, 7) AS mes FROM notas WHERE prestador_id = ? AND competencia IS NOT NULL${situacao ? ' AND situacao = ?' : ''} ORDER BY mes DESC`,
+      ...[prestadorId, ...(situacao ? [situacao] : [])]).map((r) => r.mes),
     // "Última nota" para clonar: a emissão confirmada mais recente.
     ultimaEmitida: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao = 'emitida' ORDER BY emitida_em DESC LIMIT 1", prestadorId)),
     ultimaEnviada: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao IN ('emitida','rejeitada','pendente','enviando') ORDER BY COALESCE(ultimo_envio_em, atualizado_em) DESC LIMIT 1", prestadorId)),

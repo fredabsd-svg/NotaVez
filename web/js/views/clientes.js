@@ -63,7 +63,7 @@ export async function lista(_, query) {
     node: h('div', {},
       busca,
       h('div', { class: 'cabecalho-acoes' }, contador,
-        h('a', { class: 'btn btn-pequeno btn-primario', href: `#/clientes/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo cliente')),
+        h('a', { class: 'btn btn-pequeno', href: `#/clientes/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo cliente')),
       ul),
   };
 }

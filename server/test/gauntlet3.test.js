@@ -146,3 +146,21 @@ test('resposta corrompida da Receita ao buscar XML/DANFSe não vira erro 500', a
     assert.notEqual((await api('GET', `/api/notas/${imp.body.nota.id}/danfse`)).status, 500);
   } finally { await app.close(); srv.close(); }
 });
+
+test('lista de notas: competência filtrada no servidor, meses disponíveis e aviso quando passa de 200', async () => {
+  const app = await criarApp({ banco: ':memory:', logger: false, servirWeb: false });
+  try {
+    const api = cliente(app, '192.0.2.90');
+    await api('POST', '/api/conta/cadastrar', { email: 'lista@exemplo.test', senha: 'senha-segura' });
+    await api('POST', '/api/empresas', { documento: CNPJ, nome: 'Cliente', municipioIbge: '3550308', opSimpNac: '2' });
+    const pid = app.ctx.db.get('SELECT id FROM prestadores').id;
+    for (let i = 0; i < 205; i++) app.ctx.repo.criarNota(pid, { descricao: `n${i}`, valor: '10.00', competencia: i < 5 ? '2026-08-10' : '2026-10-10' });
+    const todas = (await api('GET', '/api/notas')).body;
+    assert.equal(todas.notas.length, 200);
+    assert.equal(todas.limitado, true);
+    assert.deepEqual(todas.meses, ['2026-10', '2026-08']);
+    const agosto = (await api('GET', '/api/notas?competencia=2026-08')).body;
+    assert.equal(agosto.notas.length, 5, 'o mês antigo vem completo mesmo fora das 200 mais recentes');
+    assert.equal(agosto.limitado, false);
+  } finally { await app.close(); }
+});

@@ -131,9 +131,21 @@ export async function tela({ id }) {
     buscaNacional, nacionalTexto, descricao, marcador('descricao'));
 
   // ----- Quando e quanto -----
+  // dd/mm/aaaa digitado: o seletor de data nativo segue o idioma do aparelho (ex.: 11/01/2026 em inglês).
   const competencia = campo({
-    rotulo: 'Competência', ajuda: 'Data em que o serviço foi prestado (não pode ser futura).', tipo: 'date', valor: r.competencia,
-    atributos: { max: hoje() }, oninput: (e) => { r.competencia = e.target.value; revisado('competencia'); persistir(); },
+    rotulo: 'Competência', ajuda: 'Data em que o serviço foi prestado, dd/mm/aaaa (não pode ser futura).', valor: dataBr(r.competencia) === '—' ? '' : dataBr(r.competencia),
+    atributos: { inputmode: 'numeric', placeholder: 'dd/mm/aaaa', autocomplete: 'off', maxlength: '10' },
+    oninput: (e) => {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 8);
+      e.target.value = [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('/');
+      if (d.length < 8) { competencia.erro(''); return; }
+      const iso = `${d.slice(4)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+      const valida = !Number.isNaN(Date.parse(`${iso}T12:00:00Z`)) && new Date(`${iso}T12:00:00Z`).toISOString().slice(0, 10) === iso;
+      if (!valida) { competencia.erro('Data inválida.'); return; }
+      if (iso > hoje()) { competencia.erro('A competência não pode ser uma data futura.'); return; }
+      competencia.erro('');
+      r.competencia = iso; revisado('competencia'); persistir();
+    },
   });
   const valor = campo({
     rotulo: 'Valor do serviço (R$)', valor: r.valor ? Number(r.valor).toFixed(2).replace('.', ',') : '',
@@ -313,7 +325,7 @@ export async function tela({ id }) {
 
   return {
     titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', tarefa: true, voltar: true, aba: 'emitir',
-    node: h('div', {},
+    node: h('div', { class: 'tela-tarefa' },
       rejeitada,
       dados.conflito ? h('div', { class: 'cartao cartao-alerta', role: 'alert' },
         h('h2', {}, 'Rascunho alterado em outro aparelho'),

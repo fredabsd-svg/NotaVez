@@ -147,7 +147,7 @@ try {
   await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: /EMPRESA FICTICIA SMOKE MEI/ }).click();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();
-  await page.getByRole('link', { name: 'Emitir nota', exact: true }).first().waitFor();
+  await page.getByRole('link', { name: 'Nova nota', exact: true }).first().waitFor();
   const draftsPrimeira = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.ok(draftsPrimeira.some((r) => r.id === idLocal), 'de volta à primeira empresa, o rascunho dela reaparece');
   // Recarregar a página mantém a empresa aberta.

@@ -177,6 +177,8 @@ export async function rotasPerfil(app) {
       elegibilidade: await elegibilidadeDe(emissao, p, cert),
       ultima: ultima && resumoNota(repo, p, ultima),
       podeClonar: !!ultimaEmitida,
+      // É esta que "Clonar a última nota" copia (pode não ser a última enviada, se esta foi rejeitada).
+      ultimaEmitida: ultimaEmitida && ultimaEmitida.id !== ultima?.id ? resumoNota(repo, p, ultimaEmitida) : null,
       rascunhos: todas.filter((n) => n.situacao === 'rascunho').length,
       pendentes: todas.filter((n) => ['pendente', 'enviando'].includes(n.situacao)).length,
     };

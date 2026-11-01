@@ -89,9 +89,15 @@ export async function rotasNotas(app) {
   app.get('/notas', async (req) => {
     const p = exigirPrestador(req);
     const q = String(req.query?.q || '').toLowerCase().trim();
-    let notas = repo.listarNotas(p.id, { situacao: req.query?.situacao || undefined, limite: 200 });
+    const situacao = req.query?.situacao || undefined;
+    const competencia = /^\d{4}-\d{2}$/.test(String(req.query?.competencia || '')) ? req.query.competencia : undefined;
+    const LIMITE = 200;
+    let notas = repo.listarNotas(p.id, { situacao, competencia, limite: LIMITE + 1 });
+    // Sem esconder em silêncio: a tela avisa quando há mais notas do que as mostradas.
+    const limitado = notas.length > LIMITE;
+    notas = notas.slice(0, LIMITE);
     if (q) notas = notas.filter((n) => (n.rascunho?.tomador?.nome || '').toLowerCase().includes(q) || (n.nNfse || '').includes(q) || (n.chaveAcesso || '').includes(q));
-    return { notas: notas.map((n) => resumoNota(repo, p, n)) };
+    return { notas: notas.map((n) => resumoNota(repo, p, n)), limitado, meses: repo.mesesDasNotas(p.id, situacao) };
   });
 
   app.get('/notas/:id', async (req) => {

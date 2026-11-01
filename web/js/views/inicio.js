@@ -64,17 +64,24 @@ export async function tela() {
       dados.pendentes
         ? h('a', { class: 'alerta-linha', href: '#/notas?situacao=pendente', role: 'alert' },
           h('span', {}, `${plural(dados.pendentes, 'nota aguarda', 'notas aguardam')} confirmação da Receita. Não emita de novo.`), 'Verificar ›')
-        : pendenciasCartao(dados.elegibilidade),
+        : dados.elegibilidade && !dados.elegibilidade.podeEmitir
+          // Uma linha no Início; a lista completa fica em Dados da empresa.
+          ? h('a', { class: 'alerta-linha', href: '#/perfil' },
+            h('span', {}, `Falta pouco para emitir pelo app: ${plural(dados.elegibilidade.pendencias.length, 'item pendente', 'itens pendentes')}. Enquanto isso, prepare a nota e emita pelo Emissor Nacional.`), 'Ver ›')
+          : null,
       h('div', { class: 'acoes-inicio' },
-        h('a', { class: 'btn btn-primario btn-grande', href: '#/nova' }, icone(ICONES.mais), 'Emitir nota'),
+        h('a', { class: 'btn btn-primario btn-grande', href: '#/nova' }, icone(ICONES.mais), 'Nova nota'),
         dados.podeClonar
-          ? h('a', { class: 'btn', href: '#/clonar' }, icone(ICONES.clonar), 'Clonar a última nota')
+          ? h('a', { class: 'btn', href: '#/clonar' }, icone(ICONES.clonar), 'Clonar a última emitida')
           : null),
-      h('h3', {}, 'Última emissão'),
+      h('h3', {}, 'Última nota enviada'),
       ultima,
+      // O "Clonar" copia a última EMITIDA; se a última enviada foi outra (rejeitada, pendente), mostra qual.
+      dados.ultimaEmitida ? h('p', { class: 'suave' }, 'O botão "Clonar" copia a última emitida: ',
+        h('a', { href: `#/notas/${dados.ultimaEmitida.id}` }, `${dados.ultimaEmitida.nNfse ? `NFS-e nº ${dados.ultimaEmitida.nNfse}` : 'nota'} · ${dados.ultimaEmitida.clienteNome || 'sem cliente'} · ${moeda(dados.ultimaEmitida.valor)}`), '.') : null,
       h('h3', {}, 'Atalhos'),
       h('ul', { class: 'atalhos' },
-        rascunhos ? atalho('#/notas?situacao=rascunho', ICONES.rascunho, 'Rascunhos', `${plural(dados.rascunhos || 0, 'na conta', 'na conta')}${locais ? ` · ${locais} só neste aparelho` : ''}`) : null,
+        rascunhos ? atalho('#/notas?situacao=rascunho', ICONES.rascunho, 'Rascunhos', [dados.rascunhos ? `${plural(dados.rascunhos, 'salvo', 'salvos')} na conta` : null, locais ? `${locais} só neste aparelho` : null].filter(Boolean).join(' · ')) : null,
         atalho('#/servicos', ICONES.servico, 'Serviços salvos', 'Descrições prontas para a nota'),
         atalho('#/perfil', ICONES.ajustes, 'Dados da empresa', 'Regime, certificado e endereço'),
         atalho('#/conta', ICONES.pessoas, 'Minha conta', `Conectado como ${estado.conta?.documentoFormatado || estado.conta?.email || 'você'}`)),

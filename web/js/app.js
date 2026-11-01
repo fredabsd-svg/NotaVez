@@ -78,16 +78,21 @@ async function renderizar() {
   try {
     tela = await rota.fn(rota.params, query);
   } catch (e) {
+    // Sem internet não é erro: tela neutra, com o que dá para fazer agora e "Tentar de novo".
+    const semRede = e instanceof ErroApi && e.status === 0;
     tela = {
-      titulo: 'Ops',
-      node: h('div', { class: 'cartao cartao-erro', role: 'alert' },
-        h('p', {}, e instanceof ErroApi ? e.message : 'Não foi possível abrir esta tela.'),
-        h('a', { class: 'btn', href: '#/' }, 'Voltar ao início')),
+      titulo: semRede ? 'Sem internet' : 'Não foi possível abrir', erro: true,
+      node: h('div', { class: `cartao ${semRede ? 'cartao-alerta' : 'cartao-erro'}`, role: 'alert' },
+        h('p', {}, semRede ? 'Esta tela precisa de conexão. Você pode continuar preparando notas: elas ficam salvas como rascunho neste aparelho.'
+          : e instanceof ErroApi ? e.message : 'Não foi possível abrir esta tela.'),
+        h('button', { class: 'btn btn-primario', type: 'button', onclick: () => renderizar() }, 'Tentar de novo'),
+        semRede && estado.conta?.prestadorId ? h('a', { class: 'btn', href: '#/nova' }, 'Preparar uma nota') : null,
+        h('a', { class: 'btn btn-texto', href: '#/' }, 'Voltar ao início')),
     };
     if (!(e instanceof ErroApi)) console.error(e);
   }
   if (meu !== renderizando || !tela) return; // navegação mais nova em andamento
-  estado.telaComErro = tela.titulo === 'Ops';
+  estado.telaComErro = !!tela.erro;
   document.getElementById('titulo').textContent = tela.titulo || 'Nota Sem Stress';
   document.title = `${tela.titulo ? `${tela.titulo} · ` : ''}Nota Sem Stress`;
   document.getElementById('voltar').hidden = !tela.voltar;

@@ -105,7 +105,7 @@ export async function tela({ id }) {
   const semCertificado = !eleg.podeEmitir && eleg.pendencias.every((p) => String(p.id).startsWith('cert'));
   const assistida = h('a', { class: `btn ${semCertificado ? 'btn-primario btn-grande' : 'btn-texto'}`, href: `#/nota/${id}/assistida` },
     semCertificado ? 'Emitir pelo Emissor Nacional' : 'Prefiro emitir pelo Emissor Nacional (usuário e senha ou gov.br)');
-  const corpo = h('div', {},
+  const corpo = h('div', { class: 'tela-tarefa' },
     h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Confira os dados antes de enviar à Receita.'),
       h('a', { class: 'btn btn-pequeno', href: `#/nota/${id}` }, 'Editar')),
     nota.homologacao ? h('p', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Ambiente de testes: '), 'a nota será emitida sem validade jurídica.') : null,
@@ -116,7 +116,7 @@ export async function tela({ id }) {
       h('p', { class: 'valor-grande', style: 'margin:4px 0 0' }, moeda(nota.valor))),
     h('div', { class: 'cartao' }, h('dl', { class: 'dados' },
       linha('Emitente (você)', `${perfil.perfil.nome || ''} ${perfil.perfil.documentoFormatado}`, h('br'), h('span', { class: 'suave' }, `${perfil.perfil.municipio?.nome || ''} - ${perfil.perfil.municipio?.uf || ''} · ${{ 2: 'MEI', 3: 'ME/EPP (Simples Nacional)', 1: perfil.perfil.apuracao === 'real' ? 'Lucro Real' : 'Lucro Presumido' }[perfil.perfil.opSimpNac] || ''}`)),
-      linha('Cliente', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
+      linha('Cliente (tomador)', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
         end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${cep(end.cep)}`) : null),
       linha('Serviço (lista nacional)', nota.servicoNacional ? `${codigoServico(nota.servicoNacional.codigo)} — ${nota.servicoNacional.descricao}` : '—'),
       linha('Descrição na nota', h('span', { style: 'white-space:pre-wrap;font-weight:400' }, r.descricao || '—')),

@@ -1,6 +1,6 @@
 // Notas tomadas: NFS-e que fornecedores emitiram para a empresa ativa,
 // baixadas do Ambiente de Dados Nacional com o certificado da empresa.
-import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural } from '../ui.js';
+import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade } from '../api.js';
 import { comCache } from '../store.js';
 import { ir } from '../app.js';
@@ -33,8 +33,8 @@ export async function lista(_, query) {
   const item = (t) => h('li', {}, h('a', { class: 'item', href: `#/tomadas/${t.id}` },
     h('div', { class: 'item-corpo' },
       h('div', { class: 'item-titulo' }, t.emitente?.nome || 'Fornecedor'),
-      h('div', { class: 'item-sub' }, [t.nNfse ? `NFS-e nº ${t.nNfse}` : null, data(t.competencia), t.emitente?.documentoFormatado, t.issRetido ? 'ISS retido' : null, t.homologacao ? 'teste' : null].filter(Boolean).join(' · ')),
-      h('div', { style: 'margin-top:6px' }, selo(t))),
+      h('div', { class: 'item-sub item-sub-quebra' }, [t.nNfse ? `NFS-e nº ${t.nNfse}` : null, data(t.competencia), t.emitente?.documentoFormatado].filter(Boolean).join(' · ')),
+      h('div', { class: 'marcadores', style: 'margin-top:6px' }, selo(t), t.issRetido ? h('span', { class: 'marcador marcador-alerta' }, 'ISS retido') : null, t.homologacao ? h('span', { class: 'marcador' }, 'Testes') : null)),
     h('div', { class: 'item-valor' }, moeda(t.valor))));
 
   function mostrar(q = '') {
@@ -44,7 +44,7 @@ export async function lista(_, query) {
       || (dig.length >= 3 && [t.emitente?.documentoFormatado, t.nNfse, t.chaveAcesso].some((x) => semAcento(x).replace(/[^0-9a-z]/g, '').includes(dig))));
     contador.textContent = plural(visiveis.length, 'nota', 'notas');
     ul.replaceChildren(...visiveis.map(item));
-    if (!visiveis.length) ul.append(h('li', { class: 'suave' }, dados.tomadas.length ? 'Nenhuma nota encontrada.' : 'Nenhuma nota tomada baixada ainda. Toque em "Buscar notas na Receita".'));
+    if (!visiveis.length) ul.append(h('li', { class: 'suave' }, dados.tomadas.length ? 'Nenhuma nota encontrada.' : dados.temCertificado ? 'Nenhuma nota tomada baixada ainda. Toque em "Buscar notas na Receita".' : 'Nenhuma nota tomada baixada ainda. Envie o certificado (acima) para buscar as notas na Receita.'));
   }
   mostrar();
 
@@ -115,7 +115,7 @@ export async function detalhe({ id }) {
         linha('Situação', t.situacao === 'cancelada' ? 'Cancelada' : 'Válida'),
         linha('Competência', data(t.competencia)),
         linha('Emitida em', dataHora(t.emitidaEm)),
-        linha('Serviço', [t.cTribNac, t.servico].filter(Boolean).join(' — ')),
+        linha('Serviço', [codigoServico(t.cTribNac), t.servico].filter(Boolean).join(' — ')),
         linha('Descrição', t.descricao),
         linha('Local da prestação', t.localPrestacao ? [t.localPrestacao.nome, t.localPrestacao.uf].filter(Boolean).join(' - ') : null),
         linha('Valor líquido', moeda(t.valorLiquido)),
