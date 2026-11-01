@@ -15,12 +15,19 @@
 // Lucro Presumido/Real: NOTAVEZ_REGIME=nao-optante [NOTAVEZ_ALIQ_PIS=0.65 NOTAVEZ_ALIQ_COFINS=3.00
 //   NOTAVEZ_NBS=115021000] — envia PIS/COFINS, pTotTrib e o grupo IBS/CBS.
 //
+// Procuração eletrônica NFS-e (desde 01/11/2026): use o certificado do escritório/contador
+//   (e-CNPJ ou e-CPF) e informe a empresa que concedeu a procuração:
+//   NOTAVEZ_EMITENTE_CNPJ=<CNPJ da empresa> [NOTAVEZ_SEM_PROCURACAO_CNPJ=<CNPJ que NÃO concedeu>]
+//   O caso 8 confere que a Receita recusa emitir por quem não deu procuração.
+//
 // Casos: (1) emissão válida; (2) consulta GET /dps/{id}; (3) consulta GET /nfse/{chave};
 // (4) reenvio da mesma DPS → E0014; (5) rejeição E0600 (alíquota para MEI);
-// (6) rejeição E0015 (competência futura). Gera relatorio-homologacao-*.md.
+// (6) rejeição E0015 (competência futura); (7) distribuição do ADN (notas tomadas);
+// (8) só com procuração: emissão por empresa sem procuração deve ser recusada.
+// Gera relatorio-homologacao-*.md.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { ambientesSefin } from '../src/config.js';
-import { lerCertificado, verificarParaEmitente } from '../src/fiscal/certificado.js';
+import { lerCertificado, verificarParaEmitente, verificarParaProcurador } from '../src/fiscal/certificado.js';
 import { montarDps, dataHoraBrasilia, hojeBrasilia } from '../src/fiscal/dps.js';
 import { assinarDps } from '../src/fiscal/assinatura.js';
 import { validarXsd } from '../src/fiscal/xsd.js';
@@ -38,14 +45,17 @@ const env = (k, obrig = true) => {
 
 const amb = ambientesSefin.producao_restrita;
 const info = lerCertificado(readFileSync(env('NOTAVEZ_CERT_PFX')), env('NOTAVEZ_CERT_SENHA'));
-const problemas = verificarParaEmitente(info, info.cnpj);
+const emitenteProcuracao = (process.env.NOTAVEZ_EMITENTE_CNPJ || '').replace(/\W/g, '').toUpperCase() || null;
+const porProcuracao = !!emitenteProcuracao && emitenteProcuracao !== info.cnpj;
+const problemas = porProcuracao ? verificarParaProcurador(info) : verificarParaEmitente(info, info.cnpj);
 if (problemas.length) { console.error('Certificado inadequado:', problemas); process.exit(2); }
+if (porProcuracao) console.log(`Procuração: certificado de ${info.cnpj || info.cpf} emitindo por ${emitenteProcuracao}.`);
 
 const meEpp = process.env.NOTAVEZ_REGIME === 'me-epp';
 const naoOptante = process.env.NOTAVEZ_REGIME === 'nao-optante';
 const pacote = meEpp ? pacoteMeEpp : naoOptante ? pacoteNaoOptante : pacoteMei;
 const prestador = {
-  tipoDocumento: 'CNPJ', documento: info.cnpj, municipioIbge: env('NOTAVEZ_MUNICIPIO_IBGE'), opSimpNac: meEpp ? '3' : naoOptante ? '1' : '2',
+  tipoDocumento: 'CNPJ', documento: porProcuracao ? emitenteProcuracao : info.cnpj, municipioIbge: env('NOTAVEZ_MUNICIPIO_IBGE'), opSimpNac: meEpp ? '3' : naoOptante ? '1' : '2',
   ...(meEpp ? { regApTribSN: process.env.NOTAVEZ_REGAPTRIBSN || '1', pTotTribSN: env('NOTAVEZ_PTOTTRIBSN') } : {}),
   ...(naoOptante ? {
     cstPisCofins: '01', aliqPis: process.env.NOTAVEZ_ALIQ_PIS || '0.65', aliqCofins: process.env.NOTAVEZ_ALIQ_COFINS || '3.00',
@@ -54,7 +64,7 @@ const prestador = {
 };
 const serie = process.env.NOTAVEZ_SERIE || '900';
 let numero = Number(process.env.NOTAVEZ_NDPS_INICIAL || Math.floor(Date.now() / 1000) % 1e9); // evita colidir com execuções anteriores
-const cliente = criarClienteSefin({ baseUrl: amb.sefin, baseParametros: amb.parametros, rotasParametros: ambientesSefin.rotasParametros, ...info });
+const cliente = criarClienteSefin({ baseUrl: amb.sefin, baseParametros: amb.parametros, baseAdn: amb.adn, rotasParametros: ambientesSefin.rotasParametros, ...info });
 const nota = {
   competencia: hojeBrasilia(), valor: '10.00', cTribNac: process.env.NOTAVEZ_CTRIBNAC || '010101',
   descricao: 'TESTE DE HOMOLOGACAO Nota Sem Stress - sem valor fiscal',
@@ -124,9 +134,25 @@ const d6 = await preparar({ ...nota, competencia: hojeBrasilia(amanha) });
 const r6 = await cliente.enviarDps(d6.assinado);
 registrar('6. Rejeição competência futura', 'rejeitada E0015', `${r6.tipo} ${(r6.erros || []).map((e) => e.codigo).join(',')}`, r6.tipo === 'rejeitada' && r6.erros.some((e) => e.codigo === 'E0015'));
 
+// (7) distribuição do ADN: notas em que a empresa é parte (com procuração, em nome dela)
+const r7 = await cliente.distribuirDfe(0, prestador.documento);
+registrar('7. Distribuição ADN (notas tomadas)', 'ok', r7.tipo, r7.tipo === 'ok',
+  r7.tipo === 'ok' ? `${r7.documentos.length} documento(s) no 1º lote; tipos: ${[...new Set(r7.documentos.map((d) => d.tipoDocumento))].join(',') || '-'}` : `HTTP ${r7.http ?? '-'} ${JSON.stringify(r7.erros || r7.detalhe || '')}`);
+
+// (8) procuração: empresa que NÃO concedeu procuração deve ser recusada
+const semProcuracao = (process.env.NOTAVEZ_SEM_PROCURACAO_CNPJ || '').replace(/\W/g, '').toUpperCase();
+if (porProcuracao && semProcuracao) {
+  const doc = prestador.documento;
+  prestador.documento = semProcuracao;
+  const d8 = await preparar(nota);
+  const r8 = await cliente.enviarDps(d8.assinado);
+  prestador.documento = doc;
+  registrar('8. Emissão sem procuração', 'recusada', `${r8.tipo} ${(r8.erros || []).map((e) => e.codigo).join(',')}`, ['rejeitada', 'nao_enviada'].includes(r8.tipo), JSON.stringify(r8.erros || r8.motivo || ''));
+}
+
 cliente.fechar();
 const quando = new Date().toISOString();
-const md = [`# Relatório de homologação Nota Sem Stress — ${quando}`, '', `Ambiente: produção restrita (${amb.sefin}), série ${serie}, regime ${meEpp ? "ME/EPP" : naoOptante ? "Lucro Presumido/Real" : "MEI"}.`, '',
+const md = [`# Relatório de homologação Nota Sem Stress — ${quando}`, '', `Ambiente: produção restrita (${amb.sefin}), série ${serie}, regime ${meEpp ? "ME/EPP" : naoOptante ? "Lucro Presumido/Real" : "MEI"}${porProcuracao ? `, por procuração (certificado de ${info.cnpj || info.cpf}, emitente ${emitenteProcuracao})` : ''}.`, '',
   '| Caso | Esperado | Obtido | OK | Detalhe |', '|---|---|---|---|---|',
   ...resultados.map((r) => `| ${r.caso} | ${r.esperado} | ${r.obtido} | ${r.ok ? 'sim' : 'NÃO'} | ${String(r.extra).replace(/\|/g, '/').slice(0, 300)} |`)].join('\n');
 writeFileSync(new URL(`relatorio-homologacao-${quando.replace(/[:.]/g, '-')}.md`, saida), md);
