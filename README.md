@@ -82,7 +82,7 @@ npm run demo      # abre em http://localhost:8080 com a Receita SIMULADA
 ```
 
 O terminal mostra um CNPJ e um certificado **fictício** para testar o app inteiro. Uma faixa fixa avisa que nada ali é nota fiscal real.
-Contas, empresas e certificados da demonstração ficam em `server/dados-demo/` e **continuam depois de reiniciar** (apague a pasta para começar do zero). Esqueceu a senha? Use o código de recuperação mostrado no primeiro acesso, ou "Esqueci a minha senha": na demonstração o link aparece no terminal.
+Contas, empresas e certificados ficam **fora da pasta do projeto**, em `~/.nota-sem-stress/demo` (no Windows, `C:\Users\<você>\.nota-sem-stress\demo`), e continuam depois de reiniciar, de atualizar ou de baixar o projeto de novo. Há **cópias de segurança automáticas** (ao abrir e a cada 6 horas, as 30 mais recentes) em `.../backups`; para voltar a uma delas, feche o app e rode `npm run restaurar` (lista as cópias) e `npm run restaurar -- demo <cópia>`. Para guardar fora do computador, copie a pasta inteira (com `chave.txt`) para um pendrive ou nuvem. Esqueceu a senha? Use o código de recuperação mostrado no primeiro acesso, ou "Esqueci a minha senha": na demonstração o link aparece no terminal.
 
 ```bash
 npm test          # regras fiscais, emissão, contas, offline, operação e segurança

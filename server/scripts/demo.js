@@ -6,21 +6,17 @@ process.env.NOTAVEZ_DEV = '1';
 process.env.NOTAVEZ_DEMO = '1';
 process.env.NOTAVEZ_ESPERA_REENVIO_MS ??= '5000';
 
-const { writeFileSync, readFileSync, existsSync, mkdirSync } = await import('node:fs');
+const { writeFileSync, readFileSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
 const { join } = await import('node:path');
-const { randomBytes } = await import('node:crypto');
+const { fileURLToPath } = await import('node:url');
 
-// Dados da demonstração ficam em server/dados-demo/ (fora do git): contas, senhas, empresas e
-// certificados continuam depois de reiniciar. Para começar do zero, apague essa pasta.
-const pastaDados = process.env.NOTAVEZ_DEMO_DADOS || join(new URL('..', import.meta.url).pathname, 'dados-demo');
-mkdirSync(pastaDados, { recursive: true, mode: 0o700 });
-const arquivoChave = join(pastaDados, 'chave-demo.txt');
-if (!process.env.NOTAVEZ_MASTER_KEY) {
-  if (!existsSync(arquivoChave)) writeFileSync(arquivoChave, randomBytes(32).toString('base64'), { mode: 0o600 });
-  process.env.NOTAVEZ_MASTER_KEY = readFileSync(arquivoChave, 'utf8').trim();
-}
-process.env.NOTAVEZ_DB ??= join(pastaDados, 'notavez-demo.db');
+// Dados da demonstração ficam na pasta do usuário (~/.nota-sem-stress/demo), fora do projeto:
+// contas, senhas, empresas e certificados continuam depois de reiniciar ou de baixar o projeto de novo.
+// Cópias de segurança automáticas em .../demo/backups (restaurar: npm run restaurar).
+const { prepararDadosLocais, iniciarBackupsAutomaticos } = await import('../src/dados-locais.js');
+const locais = prepararDadosLocais('demo', { antigas: [fileURLToPath(new URL('../dados-demo', import.meta.url))] });
+const pastaDados = locais.pasta;
 const { gerarCertificadoTeste } = await import('../test/apoio/certificado-teste.js');
 const { iniciarSefinSimulada } = await import('../test/apoio/sefin-simulada.js');
 const { criarApp } = await import('../src/app.js');
@@ -56,10 +52,12 @@ const app = await criarApp({ logger: false, fabricaCliente: (o) => criarClienteS
 app.ctx.sefinSimulada = sefin; // permite forçar cenários: POST /api/demo/cenario
 app.post('/api/demo/cenario', async (req) => { sefin.estado.cenario.push(String(req.body?.cenario)); return { fila: sefin.estado.cenario }; });
 await app.listen({ port: config.porta, host: config.host });
+await iniciarBackupsAutomaticos({ banco: locais.banco, pastaBackups: locais.backups });
 console.log(`
   Nota Sem Stress — MODO DEMONSTRAÇÃO (Receita simulada; nada é enviado à Receita)
   App:         http://localhost:${config.porta}
   CNPJ:        ${cnpj}   (use no Perfil — MEI ou ME/EPP)
   Certificado: ${arquivo}   senha: demo1234   (FICTÍCIO)
-  Dados:       ${pastaDados}   (contas e empresas continuam depois de reiniciar)
+  Dados:       ${pastaDados}
+               (fora da pasta do projeto; cópias de segurança automáticas em ${locais.backups})
 `);

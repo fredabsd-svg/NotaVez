@@ -15,7 +15,8 @@
     "homologacao": "node --disable-warning=ExperimentalWarning scripts/homologacao.js",
     "gerar-chave": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
     "backup": "node --disable-warning=ExperimentalWarning scripts/backup.mjs",
-    "test:web": "node scripts/smoke-web.mjs"
+    "test:web": "node scripts/smoke-web.mjs",
+    "restaurar": "node --disable-warning=ExperimentalWarning scripts/restaurar.mjs"
   },
   "license": "MIT",
   "dependencies": {
