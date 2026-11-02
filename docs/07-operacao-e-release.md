@@ -17,6 +17,8 @@ Os limites do aplicativo são persistidos em SQLite e sobrevivem ao restart, mas
 
 `cd server && npm run backup -- /var/lib/notavez/notavez.db /destino/backup-NOVO`
 
+Cópias automáticas: com `NOTAVEZ_BACKUP_PASTA=/caminho/backups`, o servidor faz uma cópia ao iniciar (se a última tiver mais de 1 hora) e a cada 6 horas, mantendo as 30 mais recentes. No uso local (`npm run demo`/`npm run dev`) isso já vem ligado, com os dados em `~/.nota-sem-stress/<modo>`; restaurar com `npm run restaurar`.
+
 A rotina usa a API de backup SQLite (inclui transações em WAL), verifica integridade e gera manifesto SHA-256. Exige uma pasta de destino nova. O backup contém dados pessoais/metadados e precisa de armazenamento cifrado e controle de acesso. A chave mestra não acompanha o arquivo: preserve-a separadamente com recuperação controlada.
 
 Antes de liberar produção: parar o serviço de um ambiente isolado, restaurar uma cópia para disco novo, conferir hash e `PRAGMA integrity_check`, carregar a mesma chave e validar leitura de amostras cifradas. Nunca testar restauração substituindo o banco ativo. Definir frequência, retenção, RPO/RTO e expiração das cópias conforme a operação; não há prazo fictício configurado.
