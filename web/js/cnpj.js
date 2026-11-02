@@ -32,13 +32,21 @@ export function cartaoCnpj(d) {
 // `inicial` evita consultar de novo o CNPJ que já está salvo.
 export function consultaAutomatica(entrada, { aoEncontrar, aoFalhar = () => {}, inicial = null }) {
   const status = h('div', { role: 'status' });
+  // Botão sempre à vista: busca de novo quando quiser (ou se a busca automática falhou).
+  const botao = h('button', { class: 'btn btn-pequeno', type: 'button', onclick: () => buscar(true) }, 'Buscar dados do CNPJ');
+  const caixa = h('div', { class: 'consulta-cnpj' }, botao, status);
   let ultimo = cnpjCompleto(inicial);
   let espera;
   async function buscar(forcar = false) {
     const cnpj = cnpjCompleto(entrada.value);
-    if (!cnpj || (!forcar && cnpj === ultimo)) return;
+    if (!cnpj) {
+      if (forcar) status.replaceChildren(h('p', { class: 'erro-campo' }, 'Digite o CNPJ completo (14 caracteres) para buscar.'));
+      return;
+    }
+    if (!forcar && cnpj === ultimo) return;
     ultimo = cnpj;
     status.replaceChildren(h('p', { class: 'suave' }, 'Buscando os dados deste CNPJ na Receita…'));
+    botao.disabled = true;
     try {
       const d = await consultarCnpj(cnpj);
       if (cnpjCompleto(entrada.value) !== cnpj) return;
@@ -48,10 +56,15 @@ export function consultaAutomatica(entrada, { aoEncontrar, aoFalhar = () => {}, 
       ultimo = null; // permite tentar de novo o mesmo CNPJ
       if (cnpjCompleto(entrada.value) !== cnpj) return;
       aoFalhar(e, cnpj); // tira o que a consulta anterior (de outro CNPJ) tinha preenchido
-      status.replaceChildren(h('p', { class: 'suave' }, e instanceof ErroApi && e.status === 0 ? 'Sem internet: preencha os dados manualmente.' : e.message));
-    }
+      status.replaceChildren(h('p', { class: 'cartao cartao-alerta', role: 'alert' },
+        e instanceof ErroApi && e.status === 0 ? 'Sem internet: preencha os dados manualmente ou toque em "Buscar dados do CNPJ" quando a conexão voltar.' : e.message));
+    } finally { botao.disabled = false; }
   }
-  entrada.addEventListener('input', () => { clearTimeout(espera); espera = setTimeout(buscar, 350); });
-  status.buscar = () => buscar(true);
-  return status;
+  const agendar = (ms) => { clearTimeout(espera); espera = setTimeout(buscar, ms); };
+  entrada.addEventListener('input', () => agendar(350));
+  // Colar, preenchimento automático do navegador e sair do campo também disparam a busca.
+  entrada.addEventListener('paste', () => agendar(50));
+  entrada.addEventListener('change', () => agendar(0));
+  caixa.buscar = () => buscar(true);
+  return caixa;
 }

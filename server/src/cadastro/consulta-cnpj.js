@@ -95,12 +95,43 @@ function deCnpjWs(d) {
   };
 }
 
+// ReceitaWS: datas dd/mm/aaaa, CEP com pontuação e "status: ERROR" (HTTP 200) quando não acha.
+const dataBr = (v) => { const m = texto(v).match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; };
+function deReceitaWs(d) {
+  if (texto(d.status).toUpperCase() === 'ERROR') {
+    if (/inv[aá]lido|n[aã]o encontrado|not found/i.test(texto(d.message))) throw Object.assign(new Error('nao_encontrado'), { naoEncontrado: true });
+    throw new Error('falha');
+  }
+  const ativ = Array.isArray(d.atividade_principal) ? d.atividade_principal[0] : null;
+  return {
+    razaoSocial: texto(d.nome), nomeFantasia: texto(d.fantasia) || null,
+    situacaoCadastral: texto(d.situacao).toUpperCase() || null,
+    abertura: dataBr(d.abertura),
+    naturezaJuridica: texto(d.natureza_juridica) || null,
+    porte: porte(d.porte),
+    cnae: ativ?.code ? { codigo: somenteDigitos(ativ.code).padStart(7, '0'), descricao: texto(ativ.text) } : null,
+    endereco: {
+      cep: somenteDigitos(d.cep).slice(0, 8), municipioIbge: municipioIbge(null, d.municipio, d.uf),
+      logradouro: texto(d.logradouro), numero: texto(d.numero), complemento: texto(d.complemento), bairro: texto(d.bairro),
+    },
+    email: texto(d.email).toLowerCase() || null,
+    fone: somenteDigitos(texto(d.telefone).split('/')[0]) || null,
+    simples: { optante: d.simples ? simNao(d.simples.optante) : null, desde: dataIso(d.simples?.data_opcao), excluidoEm: dataIso(d.simples?.data_exclusao) },
+    mei: { optante: d.simei ? simNao(d.simei.optante) : null, desde: dataIso(d.simei?.data_opcao), excluidoEm: dataIso(d.simei?.data_exclusao) },
+    regimes: [],
+  };
+}
+
+// Vários serviços da base pública, em sequência: se um estiver fora, lento ou limitando, tenta o próximo.
 export const PROVEDORES = [
   { nome: 'BrasilAPI', url: (c) => `https://brasilapi.com.br/api/cnpj/v1/${c}`, ler: deBrasilApi },
+  { nome: 'Minha Receita', url: (c) => `https://minhareceita.org/${c}`, ler: deBrasilApi },
   { nome: 'CNPJ.ws', url: (c) => `https://publica.cnpj.ws/cnpj/${c}`, ler: deCnpjWs },
+  { nome: 'ReceitaWS', url: (c) => `https://receitaws.com.br/v1/cnpj/${c}`, ler: deReceitaWs },
 ];
 
-export function criarConsultaCnpj({ buscar = globalThis.fetch, provedores = PROVEDORES, timeoutMs = 8000, validadeMs = 24 * 3600_000, maxCache = 1000 } = {}) {
+export function criarConsultaCnpj({ buscar = globalThis.fetch, provedores = PROVEDORES, timeoutMs = 8000, validadeMs = 24 * 3600_000, maxCache = 1000,
+  avisar = process.env.NODE_ENV === 'test' ? () => {} : (m) => process.stderr.write(`[consulta CNPJ] ${m}\n`) } = {}) {
   // Cache só em memória: dados públicos, mas evita guardar CNPJ em claro no banco.
   const cache = new Map();
 
@@ -108,13 +139,21 @@ export function criarConsultaCnpj({ buscar = globalThis.fetch, provedores = PROV
     let r;
     try {
       r = await buscar(p.url(cnpj), { headers: { Accept: 'application/json', 'User-Agent': 'NotaSemStress/0.1' }, signal: AbortSignal.timeout(timeoutMs) });
-    } catch { return { tipo: 'falha' }; }
+    } catch (e) {
+      // Sem acesso à internet a partir do servidor, firewall ou tempo esgotado: registra para o diagnóstico.
+      avisar(`${p.nome}: sem resposta (${e?.cause?.code || e?.name || 'erro de rede'})`);
+      return { tipo: 'falha' };
+    }
     if (r.status === 404) return { tipo: 'nao_encontrado' };
-    if (!r.ok) return { tipo: 'falha' };
+    if (!r.ok) { avisar(`${p.nome}: HTTP ${r.status}`); return { tipo: 'falha' }; }
     try {
       const dados = p.ler(await r.json());
       return dados.razaoSocial ? { tipo: 'ok', dados } : { tipo: 'falha' };
-    } catch { return { tipo: 'falha' }; }
+    } catch (e) {
+      if (e?.naoEncontrado) return { tipo: 'nao_encontrado' };
+      avisar(`${p.nome}: resposta inesperada`);
+      return { tipo: 'falha' };
+    }
   }
 
   return async function consultar(valor) {
@@ -123,11 +162,19 @@ export function criarConsultaCnpj({ buscar = globalThis.fetch, provedores = PROV
     const guardado = cache.get(cnpj);
     if (guardado && Date.now() - guardado.em < validadeMs) return guardado.resultado;
     let naoEncontrado = false;
-    for (const p of provedores) {
+    for (const [i, p] of provedores.entries()) {
       const r = await consultarProvedor(p, cnpj);
       if (r.tipo === 'nao_encontrado') { naoEncontrado = true; continue; }
       if (r.tipo !== 'ok') continue;
       const d = r.dados;
+      // Sem Simples/MEI informado, completa o enquadramento com os próximos serviços (o resto fica deste).
+      const semEnquadramento = (x) => { const q = enquadramento(x); return q.opSimpNac == null && q.apuracao == null; };
+      for (const extra of provedores.slice(i + 1)) {
+        if (!semEnquadramento(d)) break;
+        const e = await consultarProvedor(extra, cnpj);
+        if (e.tipo !== 'ok' || semEnquadramento(e.dados)) continue;
+        Object.assign(d, { simples: e.dados.simples, mei: e.dados.mei, regimes: e.dados.regimes?.length ? e.dados.regimes : d.regimes });
+      }
       const resultado = {
         cnpj, ...d,
         ativa: d.situacaoCadastral ? semAcento(d.situacaoCadastral) === 'ativa' : null,
@@ -141,6 +188,6 @@ export function criarConsultaCnpj({ buscar = globalThis.fetch, provedores = PROV
       return resultado;
     }
     if (naoEncontrado) throw new ErroApp(404, 'CNPJ não encontrado na base pública da Receita. Confira o número ou preencha os dados manualmente.');
-    throw new ErroApp(503, 'A consulta de CNPJ está indisponível agora. Preencha os dados manualmente ou tente de novo em instantes.');
+    throw new ErroApp(503, 'Não conseguimos falar com a base pública do CNPJ agora (o servidor do app precisa de acesso à internet). Toque em "Buscar dados" para tentar de novo, ou preencha manualmente.');
   };
 }

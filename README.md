@@ -81,7 +81,8 @@ npm install
 npm run demo      # abre em http://localhost:8080 com a Receita SIMULADA
 ```
 
-O terminal mostra um CNPJ e um certificado **fictício** para testar o app inteiro. Uma faixa vermelha fixa avisa que nada ali é nota fiscal real.
+O terminal mostra um CNPJ e um certificado **fictício** para testar o app inteiro. Uma faixa fixa avisa que nada ali é nota fiscal real.
+Contas, empresas e certificados da demonstração ficam em `server/dados-demo/` e **continuam depois de reiniciar** (apague a pasta para começar do zero). Esqueceu a senha? Use o código de recuperação mostrado no primeiro acesso, ou "Esqueci a minha senha": na demonstração o link aparece no terminal.
 
 ```bash
 npm test          # regras fiscais, emissão, contas, offline, operação e segurança

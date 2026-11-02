@@ -72,7 +72,7 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     const rota = req.routeOptions.url;
     // "sair" é livre: encerra a sessão mesmo se a conta ou a empresa mudaram em outra aba.
     // gov.br: só as rotas GET (descoberta, início e retorno) dispensam sessão.
-    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|redefinir|transparencia|sair)$|saude$|tabelas\/)/.test(rota)
+    const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|recuperacao|redefinir|redefinir-codigo|transparencia|sair)$|saude$|tabelas\/)/.test(rota)
       || (req.method === 'GET' && /^\/api\/conta\/govbr(\/(entrar|retorno))?$/.test(rota))
       || (config.demo && rota.startsWith('/api/demo/'));
     req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);

@@ -26,7 +26,7 @@ export function criarLimites(db, { agora = Date.now } = {}) {
     const rota = req.routeOptions?.url || '';
     if (!rota.startsWith('/api/')) return;
     const janela = 15 * 60_000;
-    if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir)$/.test(rota)) {
+    if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir|redefinir-codigo)$/.test(rota)) {
       // Escritórios com muita gente atrás do mesmo IP: o limite fino (só tentativas erradas) fica na autenticação.
       consumir(`conta:ip:${req.ip}`, 300, janela);
       const identificador = req.body?.usuario ?? req.body?.email;

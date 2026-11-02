@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { agora, novoId } from '../db/banco.js';
 import { conferirSenha, hashSenha, hashToken, tokenAleatorio, cifrar, decifrar, indiceCego } from './cripto.js';
 import { ErroApp } from '../util/erros.js';
@@ -28,6 +29,7 @@ const validarSenha = (senha) => {
 };
 
 export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 30 * 60_000, relatarFalhaEntrega = () => {} } = {}) {
+  const modoRecuperacao = typeof entregarRecuperacao === 'function' ? (entregarRecuperacao.modo || 'email') : null;
   // Instalado também nos bancos existentes; não guarda tokens ou IPs em claro.
   db.raw.exec(`CREATE TABLE IF NOT EXISTS recuperacoes_senha (
     token_hash TEXT PRIMARY KEY,
@@ -62,6 +64,31 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
   function limitar(acao, identidade, ip, max = 5) {
     db.transacao(() => { conferirLimite(acao, identidade, ip, max); contarLimite(acao, identidade, ip); });
   }
+  // Nova senha (por link ou código): derruba sessões e aparelhos conhecidos e desfaz vínculos de terceiros.
+  function trocarSenha(usuarioId, senhaHash) {
+    db.run('UPDATE usuarios SET senha_hash = ? WHERE id = ?', senhaHash, usuarioId);
+    db.run('DELETE FROM recuperacoes_senha WHERE usuario_id = ?', usuarioId);
+    db.run('DELETE FROM sessoes WHERE usuario_id = ?', usuarioId);
+    db.run('DELETE FROM aparelhos_confiaveis WHERE usuario_id = ?', usuarioId);
+    // Quem redefine a senha retoma a conta: um gov.br vinculado por outra pessoa não pode continuar entrando.
+    // O CPF "confirmado" que veio desse gov.br também sai (era a identidade de quem vinculou).
+    // Só o CPF que entrou pelo vínculo do gov.br; o que o titular digitou no cadastro continua.
+    const u = db.get('SELECT documento_cifrado, documento_origem, govbr_indice FROM usuarios WHERE id = ?', usuarioId);
+    // Contas anteriores ao registro da origem (NULL): vale a regra antiga, mais segura.
+    if (u?.govbr_indice && (u.documento_origem === 'vinculo_govbr' || u.documento_origem == null) && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
+      db.run('UPDATE usuarios SET tipo_documento = NULL, documento_cifrado = NULL, documento_indice = NULL, documento_verificado = 0, documento_origem = NULL WHERE id = ?', usuarioId);
+    }
+    db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', usuarioId);
+    if (db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'govbr_fluxos'")) db.run('DELETE FROM govbr_fluxos WHERE usuario_id = ?', usuarioId);
+  }
+  const ALFABETO_CODIGO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const normalizarCodigo = (c) => { const x = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return x.length === 20 ? x : null; };
+  function gravarCodigo(usuarioId) {
+    const bytes = randomBytes(20);
+    const c = [...bytes].map((b) => ALFABETO_CODIGO[b % ALFABETO_CODIGO.length]).join('');
+    db.run('UPDATE usuarios SET codigo_recuperacao_hash = ? WHERE id = ?', hashToken(`codigo:${c}`), usuarioId);
+    return c.match(/.{5}/g).join('-');
+  }
   // Aparelho onde o dono já entrou (cookie próprio de cada conta, guardado só como hash):
   // num computador compartilhado, a entrada de outra conta não apaga a marca desta.
   const nomeCookieAparelho = (usuarioId) => `nv_ap_${hashToken(`nome-aparelho:${usuarioId}`).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`;
@@ -84,22 +111,22 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
   }
   function usuarioPorIdentificador(identificador) {
     const texto = String(identificador || '').trim();
-    if (texto.includes('@')) return db.get('SELECT id, email, senha_hash FROM usuarios WHERE email = ?', normalizarEmail(texto));
+    if (texto.includes('@')) return db.get('SELECT id, email, senha_hash, codigo_recuperacao_hash FROM usuarios WHERE email = ?', normalizarEmail(texto));
     const doc = lerDocumento(texto);
-    return doc ? db.get('SELECT id, email, senha_hash FROM usuarios WHERE documento_indice = ?', indiceDocumento(doc.numero)) : null;
+    return doc ? db.get('SELECT id, email, senha_hash, codigo_recuperacao_hash FROM usuarios WHERE documento_indice = ?', indiceDocumento(doc.numero)) : null;
   }
 
   return {
     DURACAO_MS,
     // Dados do titular para a tela de conta (sem expor índices).
     titular(usuarioId) {
-      const u = db.get('SELECT email, tipo_documento, documento_cifrado, documento_verificado, nome, govbr_indice FROM usuarios WHERE id = ?', usuarioId);
+      const u = db.get('SELECT email, tipo_documento, documento_cifrado, documento_verificado, nome, govbr_indice, codigo_recuperacao_hash FROM usuarios WHERE id = ?', usuarioId);
       if (!u) return null;
       const documento = decifrar(u.documento_cifrado);
       return {
         email: semEmail(u.email) ? null : u.email, nome: u.nome, tipoDocumento: u.tipo_documento,
         documentoFormatado: documento ? formatarDocumento(u.tipo_documento, documento) : null,
-        documentoVerificado: !!u.documento_verificado, govbr: !!u.govbr_indice,
+        documentoVerificado: !!u.documento_verificado, govbr: !!u.govbr_indice, temCodigoRecuperacao: !!u.codigo_recuperacao_hash,
       };
     },
 
@@ -160,7 +187,7 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
         db.run('INSERT INTO usuarios (id, email, senha_hash, criado_em, tipo_documento, documento_cifrado, documento_indice, nome, documento_origem) VALUES (?,?,?,?,?,?,?,?,?)',
           id, email, hashSenha(senha), agora(), doc?.tipo ?? null, doc ? cifrar(doc.numero) : null, doc ? indiceDocumento(doc.numero) : null,
           String(nome || '').trim().slice(0, 200) || null, doc ? 'digitado' : null);
-        return { usuarioId: id, token: criarSessao(id, lembrar), lembrar };
+        return { usuarioId: id, token: criarSessao(id, lembrar), lembrar, codigoRecuperacao: gravarCodigo(id) };
       });
     },
     // Só tentativas ERRADAS contam: um escritório com muita gente atrás do mesmo IP não se tranca.
@@ -186,19 +213,19 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
     },
     nomeCookieAparelho: (usuarioId) => nomeCookieAparelho(usuarioId),
     marcarAparelho: (usuarioId) => marcarAparelho(usuarioId),
-    reautenticar(usuarioId, senha, ip) {
+    reautenticar(usuarioId, senha, ip, mensagem = 'Senha incorreta. A conta não foi excluída.') {
       limitar('exclusao', usuarioId, ip);
       const u = db.get('SELECT senha_hash FROM usuarios WHERE id = ?', usuarioId);
-      if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, 'Senha incorreta. A conta não foi excluída.');
+      if (!u || typeof senha !== 'string' || senha.length > 256 || !conferirSenha(senha, u.senha_hash)) throw new ErroApp(401, mensagem);
     },
     async recuperar(identificador, ip) {
       const alvo = usuarioPorIdentificador(identificador);
       limitar('recuperacao', alvo ? `conta:${alvo.id}` : chaveIdentificador(identificador), ip);
-      if (typeof entregarRecuperacao !== 'function') throw new ErroApp(503, 'Recuperação de senha indisponível. O responsável precisa configurar a entrega de mensagens.');
+      if (typeof entregarRecuperacao !== 'function') throw new ErroApp(503, 'O envio do link por e-mail não está configurado neste servidor. Use o código de recuperação, mais abaixo.');
       db.run('DELETE FROM recuperacoes_senha WHERE expira_em <= ?', agora());
       const u = usuarioPorIdentificador(identificador);
-      // Conta criada pelo gov.br sem e-mail: não há para onde mandar.
-      if (!u || semEmail(u.email)) return;
+      // Conta criada pelo gov.br sem e-mail: não há para onde mandar (no terminal local, há).
+      if (!u || (semEmail(u.email) && modoRecuperacao !== 'terminal')) return;
       const token = tokenAleatorio();
       const tokenHash = hashToken(`recuperacao:${token}`);
       const expiraEm = new Date(Date.now() + recuperacaoTtlMs).toISOString();
@@ -222,23 +249,28 @@ export function criarAutenticacao(db, { entregarRecuperacao, recuperacaoTtlMs = 
       return db.transacao(() => {
         const r = db.get('SELECT usuario_id FROM recuperacoes_senha WHERE token_hash = ? AND expira_em > ?', tokenHash, agora());
         if (!r) throw new ErroApp(422, 'Link inválido ou expirado. Solicite outra recuperação.');
-        db.run('UPDATE usuarios SET senha_hash = ? WHERE id = ?', senhaHash, r.usuario_id);
-        db.run('DELETE FROM recuperacoes_senha WHERE usuario_id = ?', r.usuario_id);
-        db.run('DELETE FROM sessoes WHERE usuario_id = ?', r.usuario_id);
-        db.run('DELETE FROM aparelhos_confiaveis WHERE usuario_id = ?', r.usuario_id);
-        // Quem redefine a senha retoma a conta: um gov.br vinculado por outra pessoa não pode continuar entrando.
-        // O CPF "confirmado" que veio desse gov.br também sai (era a identidade de quem vinculou).
-        // Só o CPF que entrou pelo vínculo do gov.br; o que o titular digitou no cadastro continua.
-        const u = db.get('SELECT documento_cifrado, documento_origem, govbr_indice FROM usuarios WHERE id = ?', r.usuario_id);
-        // Contas anteriores ao registro da origem (NULL): vale a regra antiga, mais segura.
-        if (u?.govbr_indice && (u.documento_origem === 'vinculo_govbr' || u.documento_origem == null) && u.documento_cifrado && indiceGovbr(decifrar(u.documento_cifrado)) === u.govbr_indice) {
-          db.run('UPDATE usuarios SET tipo_documento = NULL, documento_cifrado = NULL, documento_indice = NULL, documento_verificado = 0, documento_origem = NULL WHERE id = ?', r.usuario_id);
-        }
-        db.run('UPDATE usuarios SET govbr_indice = NULL WHERE id = ?', r.usuario_id);
-        if (db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'govbr_fluxos'")) db.run('DELETE FROM govbr_fluxos WHERE usuario_id = ?', r.usuario_id);
+        trocarSenha(r.usuario_id, senhaHash);
         return r.usuario_id;
       });
     },
+    // Recuperação sem e-mail: o código entregue no primeiro acesso (ou gerado em Conta).
+    // Uso único: depois de trocar a senha, um código novo é devolvido para guardar.
+    redefinirComCodigo(identificador, codigo, senha, ip) {
+      const u = usuarioPorIdentificador(identificador);
+      limitar('redefinicao-codigo', u ? `conta:${u.id}` : chaveIdentificador(identificador), ip, 5);
+      validarSenha(senha);
+      const c = normalizarCodigo(codigo);
+      const ok = u && c && u.codigo_recuperacao_hash && hashToken(`codigo:${c}`) === u.codigo_recuperacao_hash;
+      if (!ok) throw new ErroApp(422, 'Usuário ou código de recuperação incorretos.');
+      const senhaHash = hashSenha(senha);
+      return db.transacao(() => {
+        trocarSenha(u.id, senhaHash);
+        return { usuarioId: u.id, codigo: gravarCodigo(u.id) };
+      });
+    },
+    gerarCodigoRecuperacao: (usuarioId) => gravarCodigo(usuarioId),
+    temCodigoRecuperacao: (usuarioId) => !!db.get('SELECT codigo_recuperacao_hash AS c FROM usuarios WHERE id = ?', usuarioId)?.c,
+    modoRecuperacao,
     sair: (token) => token && db.run('DELETE FROM sessoes WHERE token_hash = ?', hashToken(token)),
     usuarioDaSessao(token) {
       if (!token) return null;
