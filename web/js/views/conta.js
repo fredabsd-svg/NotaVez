@@ -1,6 +1,29 @@
 import { h, campo, aviso } from '../ui.js';
 import { api } from '../api.js';
 import { sair } from '../app.js';
+import { cartaoCodigoRecuperacao } from './entrar.js';
+
+// Código de recuperação: troca a senha sem e-mail. Gerar um novo invalida o anterior.
+function codigoRecuperacao(conta) {
+  const caixa = h('section', { class: 'cartao', 'aria-labelledby': 'titulo-recuperacao' });
+  const senha = campo({ rotulo: 'Senha atual', tipo: 'password', atributos: { autocomplete: 'current-password' } });
+  const botao = h('button', { class: 'btn', type: 'submit' }, conta.temCodigoRecuperacao ? 'Gerar um código novo' : 'Gerar código de recuperação');
+  const form = h('form', { novalidate: true, onsubmit: async (e) => {
+    e.preventDefault();
+    botao.disabled = true;
+    try {
+      const { codigoRecuperacao } = await api('POST', '/api/conta/codigo-recuperacao', { senha: senha.entrada.value });
+      caixa.replaceChildren(cartaoCodigoRecuperacao(codigoRecuperacao, { aoConcluir: () => location.reload(), textoBotao: 'Guardei o código' }));
+    } catch (err) { senha.erro(err.message); } finally { botao.disabled = false; }
+  } }, senha, botao);
+  caixa.append(
+    h('h2', { id: 'titulo-recuperacao', style: 'margin-top:0' }, 'Código de recuperação de senha'),
+    h('p', { class: 'suave' }, conta.temCodigoRecuperacao
+      ? 'Você já tem um código. Gere outro se perdeu o anterior (o antigo deixa de valer).'
+      : 'Você ainda não tem um código. Com ele, você cria uma senha nova em "Esqueci a minha senha" sem precisar de e-mail.'),
+    form);
+  return caixa;
+}
 
 function acessoGovbr(conta) {
   if (conta.govbr) {
@@ -47,6 +70,7 @@ export async function tela(_, query = {}) {
       linha('Usuário (CPF/CNPJ)', conta.documentoFormatado ? `${conta.documentoFormatado}${conta.documentoVerificado ? ' · confirmado pelo gov.br' : ''}` : null),
       linha('E-mail', conta.email || 'Não informado')),
     acessoGovbr(conta),
+    conta.govbr && !conta.email ? null : codigoRecuperacao(conta),
     h('button', { class: 'btn', type: 'button', onclick: sair }, 'Sair da conta'),
     h('p', { class: 'suave' }, 'Ao sair, o app volta para a tela de usuário (CPF, CNPJ ou e-mail) e senha.'),
     h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Instalar na tela inicial'),

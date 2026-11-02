@@ -230,11 +230,21 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
 
 /* ---------- Computador (≥ 1024 px): barra lateral, área útil larga, listas em 2 colunas ---------- */
 @media (min-width: 1024px) {
-  body { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr;
+  body:not(.pagina-publica) { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr;
     grid-template-areas: "nav topo" "nav contexto" "nav demo" "nav offline" "nav main"; padding-bottom: 0; min-height: 100vh; }
   body.sem-empresa { grid-template-columns: 0 minmax(0, 1fr); }
   .topo { grid-area: topo; } .empresa-ativa { grid-area: contexto; } .faixa-demo { grid-area: demo; } .faixa-offline { grid-area: offline; }
-  main { grid-area: main; max-width: 1040px; width: 100%; margin: 0; padding: var(--esp-6) var(--esp-8); }
+  /* Conteúdo centralizado e largo: a tela inteira é usada, sem uma faixa vazia à direita. */
+  main { grid-area: main; max-width: 1280px; width: 100%; margin: 0 auto; padding: var(--esp-6) var(--esp-8); }
+  /* Entrar e instalar: um cartão central de leitura confortável. */
+  body[data-tela="entrar"] main, body[data-tela="instalar"] main { max-width: 560px; padding-top: var(--esp-8); }
+  /* Formulários em duas colunas; textos longos, grupos e botões ocupam a linha toda. */
+  main form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--esp-6); align-items: start; }
+  main form > * { grid-column: 1 / -1; }
+  main form > .campo { grid-column: auto; }
+  main form > .campo:has(textarea), main form > .campo:has(input[type="search"]) { grid-column: 1 / -1; }
+  main form > .btn { justify-self: start; min-width: 280px; }
+  body[data-tela="entrar"] main form, body[data-tela="instalar"] main form { display: block; }
   .abas { grid-area: nav; position: sticky; top: 0; height: 100vh; flex-direction: column; align-items: stretch; gap: 2px;
     padding: var(--esp-4) var(--esp-3); border-top: 0; border-right: 1px solid var(--borda); overflow-y: auto; }
   body.sem-empresa .abas { display: none; }
@@ -248,7 +258,7 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
   .abas .aba-nova-topo[aria-current="page"] { background: var(--azul-claro); }
   .abas .separador { display: block; height: 1px; background: var(--borda); margin: var(--esp-2) 0; }
   .rodape-fixo, body.sem-abas .rodape-fixo { bottom: 0; }
-  form, .form-estreito, .tela-tarefa { max-width: 720px; }
+  .form-estreito, .tela-tarefa { max-width: 880px; margin-inline: auto; }
   .lista.duas-colunas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--esp-4); }
   .atalhos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .aviso { left: calc(248px + 16px); }
@@ -265,3 +275,10 @@ details { margin: 12px 0; } summary { min-height: 48px; display: flex; align-ite
 .acoes-par { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--esp-2); }
 .acoes-par .btn { margin: 0; padding-inline: 8px; white-space: nowrap; font-size: var(--fs-16); }
 .item-sub-quebra { white-space: normal; }
+.codigo-recuperacao { font: 700 var(--fs-22)/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; text-align: center;
+  background: var(--cartao); border: 1px dashed var(--borda-campo); border-radius: var(--raio-controle); padding: var(--esp-3); overflow-wrap: anywhere; }
+/* Páginas públicas (recuperar senha, excluir conta, privacidade): coluna de leitura centralizada. */
+body.pagina-publica main { max-width: 560px; margin: 0 auto; padding: var(--esp-6) var(--esp-4); }
+body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
+.consulta-cnpj { margin: calc(-1 * var(--esp-2)) 0 var(--esp-3); }
+.consulta-cnpj > .btn { width: auto; margin: 0 0 var(--esp-2); }

@@ -37,6 +37,33 @@ configurarForm('excluir-conta', async (form, resultado) => {
     resultado.textContent = 'Conta excluída do banco ativo. Não foi possível limpar os dados locais: apague o armazenamento deste site nas configurações do navegador e nos outros aparelhos.';
   }
 });
+configurarForm('redefinir-codigo', async (form, resultado) => {
+  if (form.elements.senha.value !== form.elements.confirmacao.value) throw new Error('As senhas precisam ser iguais.');
+  const r = await requisitar('POST', '/api/conta/redefinir-codigo', { usuario: form.elements.usuario.value, codigo: form.elements.codigo.value, senha: form.elements.senha.value });
+  form.reset();
+  document.getElementById('secao-codigo').hidden = true;
+  document.getElementById('secao-email').hidden = true;
+  resultado.textContent = 'Senha alterada. Entre no aplicativo com a nova senha.';
+  if (r.codigoRecuperacao) {
+    document.getElementById('novo-codigo').textContent = r.codigoRecuperacao;
+    document.getElementById('codigo-novo').hidden = false;
+  }
+});
+document.getElementById('copiar-codigo')?.addEventListener('click', async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById('novo-codigo').textContent); e.currentTarget.textContent = 'Copiado ✓'; } catch { /* sem área de transferência */ }
+});
+// Como este servidor entrega o link: e-mail, terminal (computador local) ou não entrega.
+if (document.getElementById('secao-email')) {
+  requisitar('GET', '/api/conta/recuperacao').then(({ modo }) => {
+    const dica = document.getElementById('dica-link');
+    if (modo === 'terminal') dica.textContent = 'Uso no próprio computador: o link aparece na janela (terminal) onde o Nota Sem Stress está rodando. Vale 30 minutos e uma única vez.';
+    else if (!modo) {
+      document.getElementById('recuperar-conta').hidden = true;
+      document.getElementById('secao-email').append(Object.assign(document.createElement('p'), { className: 'suave',
+        textContent: 'O envio do link por e-mail ainda não foi configurado neste servidor. Use o código de recuperação acima.' }));
+    }
+  }).catch(() => {});
+}
 configurarForm('recuperar-conta', async (form, resultado) => {
   const r = await requisitar('POST', '/api/conta/recuperar', { usuario: form.elements.email.value });
   resultado.textContent = r.mensagem;
@@ -45,7 +72,7 @@ configurarForm('recuperar-conta', async (form, resultado) => {
 let token = new URLSearchParams(location.hash.slice(1)).get('token');
 if (document.getElementById('redefinir-senha') && token) {
   history.replaceState(null, '', location.pathname + location.search);
-  document.getElementById('recuperar-conta').hidden = true;
+  for (const id of ['secao-email', 'secao-codigo']) document.getElementById(id).hidden = true;
   document.getElementById('redefinir-senha').hidden = false;
 }
 configurarForm('redefinir-senha', async (form, resultado) => {

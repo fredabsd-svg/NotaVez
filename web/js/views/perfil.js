@@ -140,7 +140,7 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
       trocarSeAutomatico(fone, 'fone', d.fone);
     },
   });
-  const atualizarDaReceita = p.documento ? h('button', { class: 'btn btn-pequeno btn-texto', type: 'button', onclick: () => consulta.buscar() }, 'Atualizar com os dados da Receita') : null;
+  const atualizarDaReceita = null; // o botão "Buscar dados do CNPJ" da consulta faz isso
   const formPerfil = h('form', {
     novalidate: true,
     onsubmit: async (e) => {

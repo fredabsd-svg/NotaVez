@@ -12,11 +12,12 @@ export async function rotasConta(app) {
   // "Manter conectado neste aparelho" vem marcado; só false explícito pede sessão curta.
   const lembrar = (req) => req.body?.lembrar !== false;
   app.post('/cadastrar', async (req, reply) => {
-    const { usuarioId, token } = auth.cadastrar(req.body?.email, req.body?.senha, req.ip, { documento: req.body?.documento, nome: req.body?.nome, lembrar: lembrar(req) });
+    const { usuarioId, token, codigoRecuperacao } = auth.cadastrar(req.body?.email, req.body?.senha, req.ip, { documento: req.body?.documento, nome: req.body?.nome, lembrar: lembrar(req) });
     auditar(db, { usuarioId, acao: 'conta.cadastro', ip: req.ip });
     gravarCookie(reply, token, lembrar(req));
     gravarAparelho(reply, auth.nomeCookieAparelho(usuarioId), auth.marcarAparelho(usuarioId));
-    return { ok: true, usuarioId };
+    // Mostrado uma única vez: troca a senha sem depender de e-mail.
+    return { ok: true, usuarioId, codigoRecuperacao };
   });
   app.post('/entrar', async (req, reply) => {
     // `usuario`: CPF, CNPJ ou e-mail (o campo `email` continua aceito).
@@ -39,7 +40,7 @@ export async function rotasConta(app) {
     const t = auth.titular(req.usuario.id);
     return { usuarioId: req.usuario.id, prestadorId: prestador?.id ?? null, email: t.email, temPerfil: !!prestador, empresas, empresaNome: prestador?.nome ?? null,
       empresaDocumentoFormatado: prestador?.documento ? formatarDocumento(prestador.tipoDocumento, prestador.documento) : null, empresaAmbiente: prestador?.ambiente ?? null,
-      nome: t.nome, documentoFormatado: t.documentoFormatado, documentoVerificado: t.documentoVerificado, govbr: t.govbr, govbrDisponivel: app.ctx.govbr.configurado };
+      nome: t.nome, documentoFormatado: t.documentoFormatado, documentoVerificado: t.documentoVerificado, govbr: t.govbr, temCodigoRecuperacao: t.temCodigoRecuperacao, govbrDisponivel: app.ctx.govbr.configurado };
   });
   app.delete('/', async (req, reply) => {
     auth.reautenticar(req.usuario.id, req.body?.senha, req.ip);
@@ -49,9 +50,26 @@ export async function rotasConta(app) {
     reply.clearCookie(COOKIE, { path: '/' });
     return r;
   });
+  app.get('/recuperacao', async () => ({ modo: auth.modoRecuperacao }));
   app.post('/recuperar', async (req) => {
     await auth.recuperar(req.body?.usuario ?? req.body?.email, req.ip);
-    return { ok: true, mensagem: 'Se o e-mail estiver cadastrado, enviaremos as instruções de recuperação.' };
+    return { ok: true, mensagem: auth.modoRecuperacao === 'terminal'
+      ? 'Se a conta existir, o link para criar a nova senha apareceu na janela (terminal) onde o Nota Sem Stress está rodando. Copie e abra no navegador.'
+      : 'Se a conta existir e tiver e-mail, enviamos o link para criar a nova senha. Confira também a caixa de spam.' };
+  });
+  // Código de recuperação: troca a senha sem e-mail. Devolve um código novo (o usado deixa de valer).
+  app.post('/redefinir-codigo', async (req, reply) => {
+    const { usuarioId, codigo } = auth.redefinirComCodigo(req.body?.usuario, req.body?.codigo, req.body?.senha, req.ip);
+    auditar(db, { usuarioId, acao: 'conta.senha_redefinida_codigo', ip: req.ip });
+    reply.clearCookie(COOKIE, { path: '/' });
+    return { ok: true, codigoRecuperacao: codigo };
+  });
+  // Gerar um código novo (o anterior deixa de valer): pede a senha atual.
+  app.post('/codigo-recuperacao', async (req) => {
+    auth.reautenticar(req.usuario.id, req.body?.senha, req.ip, 'Senha incorreta.');
+    const codigo = auth.gerarCodigoRecuperacao(req.usuario.id);
+    auditar(db, { usuarioId: req.usuario.id, acao: 'conta.codigo_recuperacao_gerado', ip: req.ip });
+    return { codigoRecuperacao: codigo };
   });
   app.post('/redefinir', async (req, reply) => {
     const usuarioId = auth.redefinir(req.body?.token, req.body?.senha, req.ip);

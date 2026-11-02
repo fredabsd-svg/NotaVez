@@ -1,6 +1,6 @@
 // Entrada no estilo do Portal da NFS-e: usuário (CPF/CNPJ ou e-mail) e senha,
 // primeiro acesso e "Entrar com gov.br" (quando o servidor tem credenciais do Login Único).
-import { h, anexar, campo, aviso, mascaraDocumento } from '../ui.js';
+import { h, anexar, campo, aviso, mascaraDocumento, copiarTexto } from '../ui.js';
 import { definirConta, sincronizarTodos, excluirDadosDaConta } from '../store.js';
 import { api, ErroApi } from '../api.js';
 import { carregarConta, ir } from '../app.js';
@@ -106,8 +106,11 @@ export async function tela(_, query) {
           try {
             await definirConta(null);
             const entrada = await api('POST', '/api/conta/cadastrar', { documento: documento.entrada.value, nome: nome.entrada.value, email: email.entrada.value, senha: senha.entrada.value, lembrar: manter.marcado() });
-            aviso('Acesso criado. Agora cadastre a empresa pelo CNPJ.');
-            await concluirEntrada(entrada, '/empresas/nova');
+            // Antes de seguir: o código de recuperação (troca a senha sem depender de e-mail).
+            mostrarCodigo(entrada.codigoRecuperacao, async () => {
+              aviso('Acesso criado. Agora cadastre a empresa pelo CNPJ.');
+              await concluirEntrada(entrada, '/empresas/nova');
+            });
           } catch (err) {
             erro.textContent = err instanceof ErroApi ? err.message : 'Não foi possível criar o acesso.';
             erro.hidden = false;
@@ -116,6 +119,12 @@ export async function tela(_, query) {
       }, documento, nome, email, senha, repetir, manter, erro, botao),
       h('div', { class: 'acesso-links' },
         h('button', { class: 'link', type: 'button', onclick: () => { modo = 'entrar'; montar(); } }, 'Já tenho acesso')));
+  }
+
+  function mostrarCodigo(codigo, continuar) {
+    if (!codigo) { continuar(); return; }
+    node.replaceChildren(cartaoCodigoRecuperacao(codigo, { aoConcluir: continuar, textoBotao: 'Guardei o código — continuar' }));
+    node.querySelector('button')?.focus();
   }
 
   function montar() {
@@ -144,3 +153,23 @@ export async function tela(_, query) {
   montar();
   return { titulo: modo === 'cadastro' ? 'Primeiro acesso' : 'Entrar', node, semAbas: true };
 }
+
+// Código de recuperação mostrado uma única vez (no primeiro acesso e quando gerado em Conta).
+export function cartaoCodigoRecuperacao(codigo, { aoConcluir, textoBotao = 'Guardei o código' } = {}) {
+  const confirmado = h('input', { type: 'checkbox', id: `guardei-${codigo.slice(0, 5)}` });
+  const continuar = h('button', { class: 'btn btn-primario', type: 'button', onclick: () => {
+    if (!confirmado.checked) { aviso('Marque que guardou o código para continuar.'); return; }
+    aoConcluir?.();
+  } }, textoBotao);
+  const arquivo = URL.createObjectURL(new Blob([`Nota Sem Stress — código de recuperação de senha\n\n${codigo}\n\nUse em "Esqueci a minha senha" > "Tenho o código de recuperação". Vale uma vez; depois de usar, o app mostra um código novo.\n`], { type: 'text/plain' }));
+  return h('section', { class: 'cartao cartao-alerta acesso', 'aria-labelledby': 'titulo-codigo' },
+    h('h2', { id: 'titulo-codigo', style: 'margin-top:0' }, 'Guarde seu código de recuperação'),
+    h('p', {}, 'Se esquecer a senha, este código cria uma nova sem precisar de e-mail. Ele aparece só agora: copie, baixe ou anote em lugar seguro.'),
+    h('p', { class: 'codigo-recuperacao', 'aria-label': `Código: ${codigo.split('').join(' ')}` }, codigo),
+    h('div', { class: 'acoes-par' },
+      h('button', { class: 'btn', type: 'button', onclick: (e) => copiarTexto(codigo, e.currentTarget) }, 'Copiar'),
+      h('a', { class: 'btn', href: arquivo, download: 'codigo-recuperacao-nota-sem-stress.txt' }, 'Baixar .txt')),
+    h('label', { class: 'caixa', for: confirmado.id }, confirmado, h('span', {}, 'Guardei o código em lugar seguro.')),
+    continuar);
+}
+

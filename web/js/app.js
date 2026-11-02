@@ -102,6 +102,7 @@ async function renderizar() {
   const naEmpresa = !!estado.conta?.prestadorId && !SEM_EMPRESA.has(caminho) && !tela.semAbas;
   document.getElementById('abas').hidden = !estado.conta || !estado.conta.prestadorId || tela.semAbas;
   document.body.classList.toggle('sem-abas', !!tela.tarefa || !!tela.semAbas);
+  document.body.dataset.tela = caminho.split('/')[1] || 'inicio';
   document.body.classList.toggle('sem-empresa', !estado.conta?.prestadorId || !!tela.semAbas);
   const empresa = document.getElementById('empresa-ativa');
   empresa.hidden = !naEmpresa;

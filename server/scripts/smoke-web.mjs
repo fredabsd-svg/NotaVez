@@ -51,6 +51,14 @@ try {
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
   await page.getByLabel(/^Repita a senha/).fill('senha-segura-1');
   await page.getByRole('button', { name: 'Criar acesso', exact: true }).click();
+  // Código de recuperação mostrado uma vez, antes de seguir.
+  await page.getByRole('heading', { name: 'Guarde seu código de recuperação' }).waitFor();
+  const codigoA = (await page.locator('.codigo-recuperacao').innerText()).trim();
+  assert.match(codigoA, /^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
+  await page.getByRole('button', { name: /Guardei o código — continuar/ }).click();
+  assert.ok(await page.getByText('Marque que guardou o código').first().isVisible(), 'pede a confirmação antes de seguir');
+  await page.getByLabel('Guardei o código em lugar seguro.').check();
+  await page.getByRole('button', { name: /Guardei o código — continuar/ }).click();
   // Cadastro pelo CNPJ: razão social, município e enquadramento vêm da consulta.
   await page.getByLabel('CNPJ da empresa').fill('11222333000181');
   await page.getByText('Dados encontrados na Receita').waitFor();
@@ -170,9 +178,21 @@ try {
   await page.getByText('Conectado como 529.982.247-25').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
   await page.getByLabel('CPF, CNPJ ou e-mail').waitFor();
-  // Volta entrando com o CPF como usuário: com duas empresas, cai na lista.
+  // Esqueci a senha: troca com o código de recuperação (sem e-mail) e recebe um código novo.
+  await page.getByRole('link', { name: 'Esqueci a minha senha' }).click();
+  await page.getByRole('heading', { name: 'Tenho o código de recuperação' }).waitFor();
+  await page.getByLabel('CPF, CNPJ ou e-mail da conta').first().fill('529.982.247-25');
+  await page.getByLabel('Código de recuperação', { exact: true }).fill(codigoA.toLowerCase());
+  await page.getByLabel(/^Nova senha/).last().fill('senha-nova-smoke');
+  await page.getByLabel(/^Repita a nova senha/).last().fill('senha-nova-smoke');
+  await page.getByRole('button', { name: 'Trocar a senha com o código' }).click();
+  await page.getByText('Senha alterada.').waitFor();
+  const codigoNovo = (await page.locator('#novo-codigo').innerText()).trim();
+  assert.ok(codigoNovo && codigoNovo !== codigoA, 'o código usado deixa de valer e um novo é mostrado');
+  await page.goto(base);
+  // Volta entrando com o CPF como usuário e a senha nova: com duas empresas, cai na lista.
   await page.getByLabel('CPF, CNPJ ou e-mail').fill('52998224725');
-  await page.getByLabel(/^Senha/).fill('senha-segura-1');
+  await page.getByLabel(/^Senha/).fill('senha-nova-smoke');
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   await page.getByText('2 de 2 empresas').waitFor();
   await page.getByRole('button', { name: 'Sair da conta', exact: true }).click();
@@ -181,6 +201,8 @@ try {
   await page.getByLabel(/^Senha/).fill('senha-segura-1');
   await page.getByLabel(/^Repita a senha/).fill('senha-segura-1');
   await page.getByRole('button', { name: 'Criar acesso', exact: true }).click();
+  await page.getByLabel('Guardei o código em lugar seguro.').check();
+  await page.getByRole('button', { name: /Guardei o código — continuar/ }).click();
   await page.getByLabel('CNPJ da empresa').waitFor();
   const draftsB = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsB.length, 0, 'B não pode ver o draft de A');
