@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/vitrine-nota-sem-stress.png" alt="Telas do Nota Sem Stress: início, nova nota, nota emitida e o DANFSe em PDF" width="100%">
+  <img src="docs/assets/vitrine-nota-sem-stress.png" alt="Telas do Nota Sem Stress: início com o resumo do mês, lista de notas por competência, nota emitida e o DANFSe em PDF" width="100%">
 </p>
 
 > [!IMPORTANT]
@@ -43,7 +43,9 @@
 | **Várias empresas na mesma conta** | Escritórios cadastram quantas empresas quiserem e escolhem numa lista (com busca e filtros como "sem certificado" ou "pendências"). Cada empresa tem seu ambiente: emitir, clonar, notas emitidas, **notas tomadas**, clientes, serviços e dados fiscais. |
 | **Cadastro pelo CNPJ** | Digitou o CNPJ, o app busca na base pública da Receita a razão social, o endereço, o município e o **enquadramento** (MEI, Simples, Lucro Presumido ou Real) — para a empresa e para os clientes. |
 | **Notas tomadas** | Baixa do Ambiente de Dados Nacional as NFS-e que fornecedores emitiram para a empresa, marca as canceladas e mostra totais do mês, PDF e XML. |
-| **Emitir em poucos toques** | Cliente e serviço salvos, valor sugerido, revisão em uma tela. **"Clonar última nota"** refaz a nota do mês com novos identificadores e pede para conferir competência, valor, descrição e tributação. |
+| **Emitir em poucos toques** | Cliente e serviço salvos, valor sugerido, revisão em uma tela. **"Clonar a última emitida"** refaz a nota do mês com novos identificadores e pede para conferir competência, valor, descrição e tributação. |
+| **Resumo do mês à vista** | O Início mostra quanto foi emitido no mês e no ano, o gráfico dos últimos 6 meses e, para o MEI, quanto do **limite anual** (R$ 81.000,00 em 2026) as notas emitidas pelo app já ocupam. Avisa também quando o certificado está perto de vencer. |
+| **Histórico que fecha o mês** | Notas agrupadas por competência com o total emitido, busca, filtros por situação e **exportação em CSV** para o contador. No computador, a lista vira tabela. |
 | **Sem susto com a Receita** | As regras oficiais (Anexo I) rodam **antes** do envio e aparecem em linguagem comum. Se a resposta não vier, o app **consulta antes de reenviar** e mantém a mesma DPS nos reenvios. |
 | **Honesto sobre a situação** | "Emitida" só aparece com a chave de acesso oficial. Rascunho, envio pendente e simulação nunca se passam por nota fiscal. |
 | **Pronto para imprimir e enviar** | **DANFSe em PDF no modelo da NT 008**, com QR Code da Consulta Pública, gerado a partir do XML oficial. "Enviar ao cliente" manda o PDF e o XML pelo WhatsApp ou e-mail. |
@@ -111,7 +113,7 @@ Teste no ambiente oficial: `npm run homologacao` ([roteiro](docs/05-testes-homol
 | # | Entrega | |
 |---|---|---|
 | 1 | Requisitos oficiais verificados e impedimentos | [docs/01](docs/01-requisitos-oficiais.md) |
-| 2 | Fluxo do usuário e protótipo das telas (29 capturas) | [docs/02](docs/02-fluxo-e-prototipo.md) |
+| 2 | Fluxo do usuário e protótipo das telas (29 capturas: celular, tema escuro e computador) | [docs/02](docs/02-fluxo-e-prototipo.md) |
 | 3 | Modelo de dados e integração com a API | [docs/03](docs/03-dados-e-integracao.md) |
 | 4 | **MVP funcional do PWA** | este repositório (`web/` + `server/`) |
 | 5 | Testes de emissão e rejeição (homologação) | [docs/05](docs/05-testes-homologacao.md) |

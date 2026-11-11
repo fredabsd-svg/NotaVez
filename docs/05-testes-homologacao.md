@@ -34,7 +34,8 @@ Resultado da última execução: **38 aprovados, 0 falhas**.
 | Rascunho criado sem internet | Sincroniza com o mesmo id; envio repetido é idempotente |
 | Segurança | 401 sem login; 403 sem cabeçalho anti-CSRF; outra conta não vê notas nem clientes (404); **CPF, CNPJ e nome não aparecem em claro no banco**; limite de tentativas de login (429) |
 | Certificado de outro CNPJ | Recusado com explicação |
-| Servidor do PWA (`test/servidor-web.test.js`) | `index.html`, `sw.js` e manifest com `no-cache`; rotas do app voltam ao index; caminhos codificados (`/%2e%2e/…`, `..%2f`) não saem de `web/`; `/%61pi/notas` exige login e o anti-CSRF (a proteção usa a rota escolhida pelo roteador, não o texto da URL); recusas do `@fastify/static` mantêm o 4xx |
+| Painel do Início (`test/unidade.test.js`, `test/emissao.test.js`) | Totais por competência só do ambiente da empresa; 6 meses atravessando a virada do ano; total anual sem o ano anterior; limite do MEI vem do pacote de regras e não aparece para ME/EPP nem Lucro Presumido |
+| Servidor do PWA (`test/servidor-web.test.js`) | `index.html`, `sw.js` e manifest com `no-cache`; ícones com um dia de cache; CSS e JS sempre revalidados; rotas do app voltam ao index; caminhos codificados (`/%2e%2e/…`, `..%2f`) não saem de `web/`; `/%61pi/notas` exige login e o anti-CSRF (a proteção usa a rota escolhida pelo roteador, não o texto da URL); recusas do `@fastify/static` mantêm o 4xx |
 | ME/EPP: perfil | Exige regime de apuração e % do Simples; alíquota de retenção fora de 1,8%–5% recusada |
 | ME/EPP pelo Simples | Emite sem retenção (sem alíquota) e com ISS retido por cliente CNPJ (`tpRetISSQN = 2`, `pAliq = 2.00`); retenção com cliente CPF barrada antes do envio |
 | ME/EPP em município sem convênio | Checklist mostra o motivo; emissão bloqueada (403); consulta de convênio em cache; nada enviado |
@@ -44,11 +45,9 @@ Resultado da última execução: **38 aprovados, 0 falhas**.
 | Lucro Real, município não conveniado | Alíquota do ISS do perfil vai na nota (E0619); PIS 1,65%/COFINS 7,6%; sem retenção → `tpRetPisCofins = 0` e sem `vRetCSLL` (E0720); pessoa física → `indFinal = 1` |
 | Retenções federais | Só com cliente CNPJ; contribuição marcada sem valor → E0724 |
 
-**Interface no navegador — Lucro Presumido** (`server/scripts/fluxo-presumido.mjs`): perfil, certificado, cliente CNPJ, nota com ISS retido, retenções federais e IBS/CBS, revisão e emissão (telas 25 a 28), sem erros de JavaScript.
+**Interface no navegador** (`server/scripts/smoke-web.mjs`, `npm run test:web`; Chromium a 390×844, com a CSP real e a Receita simulada): primeiro acesso com código de recuperação, cadastro da empresa pelo CNPJ, certificado, revisão e emissão simulada com XML e **DANFSe em PDF**, painel do Início (resumo do mês, limite do MEI, notas recentes), lista de notas por mês com exportação em CSV, estado vazio e erro com "Tentar de novo", notas tomadas, emissão assistida pelo Emissor Nacional, procuração eletrônica, várias empresas, recuperação de senha, isolamento entre contas e exclusão — sem erros de JavaScript nem violações da CSP. Roda no CI a cada pull request.
 
-**Interface no navegador — ME/EPP** (`server/scripts/fluxo-me-epp.mjs`): perfil ME/EPP, certificado, cliente CNPJ, nota com ISS retido, revisão e emissão (telas 20 a 24 do `docs/02`), sem erros de JavaScript.
-
-**Interface no navegador** (`server/scripts/fluxo-navegador.mjs`, Chromium a 390×844, modo demonstração): percorre as 19 telas do `docs/02` (cadastro, perfil, certificado, cliente, serviço, nova nota, revisão, emitida com **DANFSe em PDF** baixado e conferido, clonada, rejeitada, pendente → confirmada, histórico, detalhe, rascunho sem internet, instalação) sem erros de JavaScript.
+**Capturas das telas** (`server/scripts/capturar-telas.mjs`): gera as imagens do `docs/02` (MEI, ME/EPP e Lucro Presumido; celular, tema escuro e computador) e a vitrine do README com o app em processo e a Receita simulada. Falha se alguma tela tiver erro de JavaScript.
 
 ## 5.2 Roteiro no ambiente oficial de produção restrita
 
