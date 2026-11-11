@@ -264,8 +264,8 @@ export function criarRepositorio(db) {
     // A soma sai em centavos inteiros: valor e competência não são cifrados, então nada é decifrado aqui.
     emitidasPorMes: (prestadorId, ambiente, de, ate) => db.all(`SELECT substr(competencia, 1, 7) AS mes, COUNT(*) AS qtd,
       COALESCE(SUM(CAST(ROUND(CAST(valor AS REAL) * 100) AS INTEGER)), 0) AS centavos
-      FROM notas WHERE prestador_id = ? AND situacao = 'emitida' AND COALESCE(ambiente, ?) = ? AND competencia >= ? AND competencia < ?
-      GROUP BY mes`, prestadorId, ambiente, ambiente, de, ate),
+      FROM notas WHERE prestador_id = ? AND situacao = 'emitida' AND ambiente = ? AND competencia >= ? AND competencia < ?
+      GROUP BY mes`, prestadorId, ambiente, de, ate),
     pendentes: () => db.all(`SELECT * FROM notas WHERE situacao IN ('pendente','enviando')
       AND (processamento_ate IS NULL OR processamento_ate <= ?)
       AND (proxima_verificacao_em IS NULL OR proxima_verificacao_em <= ?)

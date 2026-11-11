@@ -33,6 +33,22 @@ test('serve o PWA com cache correto e volta ao index nas rotas do app', async ()
   assert.deepEqual(apiInexistente.json(), { erro: 'Rota não encontrada.' });
 });
 
+test('módulos do app: pré-carregados no index.html, guardados pelo service worker e existentes em web/js', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const web = new URL('../../web/', import.meta.url);
+  // conta-publica.js é só das páginas públicas (recuperar senha, excluir conta): fica fora da casca do app.
+  const arquivos = [...readdirSync(new URL('js/', web)).filter((f) => f.endsWith('.js') && f !== 'conta-publica.js').map((f) => `/js/${f}`),
+    ...readdirSync(new URL('js/views/', web)).filter((f) => f.endsWith('.js')).map((f) => `/js/views/${f}`)].sort();
+  const precarregados = [...readFileSync(new URL('index.html', web), 'utf8').matchAll(/rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]).sort();
+  const casca = [...readFileSync(new URL('sw.js', web), 'utf8').matchAll(/'(\/js\/[^']+\.js)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(precarregados, arquivos, 'index.html: um modulepreload para cada módulo de web/js (tela nova ou renomeada entra aqui)');
+  assert.deepEqual(casca, arquivos, 'sw.js: a casca guarda os mesmos módulos');
+  for (const url of arquivos) {
+    const r = await get(url);
+    assert.match(String(r.headers['content-type']), /javascript/, `${url} precisa ser servido como JavaScript`);
+  }
+});
+
 test('caminhos codificados não escapam de web/ nem pulam o login e o anti-CSRF', async () => {
   for (const url of ['/%2e%2e/server/package.json', '/..%2fserver%2fpackage.json', '/icons/..%2f..%2fserver%2fpackage.json', '/%2e%2e%2f%2e%2e%2fetc%2fpasswd']) {
     const r = await get(url);

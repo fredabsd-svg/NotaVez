@@ -48,8 +48,10 @@ export async function tela(_, query) {
   const qs = new URLSearchParams({ ...(filtro ? { situacao: filtro } : {}), ...(mes ? { competencia: mes } : {}) }).toString();
   const { notas, limitado, meses: mesesServidor } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
   const rota = (situacao, m) => { const p = new URLSearchParams({ ...(situacao ? { situacao } : {}), ...(m ? { mes: m } : {}) }).toString(); return `/notas${p ? `?${p}` : ''}`; };
-  const soAparelho = (await rascunhosLocais()).filter((r) => !r.noServidor && !rascunhoEmBranco(r));
-  const mostrarLocais = soAparelho.length > 0 && (!filtro || filtro === 'rascunho');
+  // Rascunhos que ainda não chegaram à conta (feitos sem internet): entram em "Todas" e "Rascunhos" e seguem a competência escolhida.
+  const soAparelho = !filtro || filtro === 'rascunho'
+    ? (await rascunhosLocais()).filter((r) => !r.noServidor && !rascunhoEmBranco(r) && (!mes || String(r.rascunho.competencia || '').startsWith(mes)))
+    : [];
 
   // Competência (mês) e busca: o contador fecha o mês olhando a lista e o total.
   const meses = mesesServidor || [...new Set(notas.map((n) => String(n.competencia || '').slice(0, 7)).filter(Boolean))].sort().reverse();
@@ -58,6 +60,7 @@ export async function tela(_, query) {
   let visiveis = notas;
   const resumo = h('p', { class: 'resumo-lista', role: 'status' });
   const corpo = h('div', {});
+  const blocoLocais = h('div', {});
   // Total só do ambiente atual da empresa: notas de testes não somam com as de produção.
   const totalEmitido = (lista) => {
     const emitidas = lista.filter((n) => n.situacao === 'emitida' && !!n.homologacao === empresaEmTestes());
@@ -66,6 +69,12 @@ export async function tela(_, query) {
   const mostrar = () => {
     const t = termo.toLowerCase().trim();
     visiveis = notas.filter((n) => (!t || (n.clienteNome || '').toLowerCase().includes(t) || (n.nNfse || '').includes(t) || (n.chaveAcesso || '').includes(t.replace(/\s/g, ''))));
+    // A busca vale também para os rascunhos só do aparelho.
+    const locais = soAparelho.filter((r) => !t || (r.meta?.cliente?.nome || '').toLowerCase().includes(t));
+    blocoLocais.replaceChildren(...(locais.length ? [h('section', { class: 'grupo-mes' }, h('div', { class: 'secao-titulo' }, h('h3', {}, 'Só neste aparelho (sem internet)')),
+      h('ul', { class: 'lista' }, locais.map((r) => h('li', {}, h('a', { class: 'linha-nota', href: `#/nota/${r.id}` },
+        partesDaLinha({ cliente: r.meta?.cliente?.nome || 'Rascunho sem cliente', numero: '', competencia: r.rascunho.competencia ? data(r.rascunho.competencia) : '',
+          situacao: h('span', { class: 'situacao s-rascunho' }, 'Rascunho · não emitida'), valor: moeda(r.rascunho.valor) }))))))] : []));
     // Um bloco por competência, da mais recente para a mais antiga; dentro do mês, a ordem do servidor (última alteração).
     const porMes = new Map();
     for (const n of visiveis) { const m = String(n.competencia || '').slice(0, 7); if (!porMes.has(m)) porMes.set(m, []); porMes.get(m).push(n); }
@@ -80,7 +89,7 @@ export async function tela(_, query) {
           h('span', { class: 'secao-extra' }, e.qtd && !limitado ? `${moeda(e.total)} em ${plural(e.qtd, 'emitida', 'emitidas')}` : plural(lista.length, 'nota', 'notas'))),
         h('ul', { class: 'lista' }, lista.map((n) => h('li', {}, linhaNota(n))))));
     }
-    if (!visiveis.length && !mostrarLocais) {
+    if (!visiveis.length && !locais.length) {
       corpo.append(notas.length || mes || filtro || t
         ? vazio({ icone: ICONES.busca, titulo: 'Nenhuma nota com estes filtros', texto: 'Mude a situação, a competência ou o texto da busca.',
           acoes: [h('a', { class: 'btn', href: '#/notas' }, 'Limpar filtros')] })
@@ -117,12 +126,7 @@ export async function tela(_, query) {
       }, t))),
       h('div', { class: 'barra-lista' }, busca, seletorMes, exportar),
       resumo,
-      mostrarLocais
-        ? h('section', { class: 'grupo-mes' }, h('div', { class: 'secao-titulo' }, h('h3', {}, 'Só neste aparelho (sem internet)')),
-          h('ul', { class: 'lista' }, soAparelho.map((r) => h('li', {}, h('a', { class: 'linha-nota', href: `#/nota/${r.id}` },
-            partesDaLinha({ cliente: r.meta?.cliente?.nome || 'Rascunho sem cliente', numero: '', competencia: r.rascunho.competencia ? data(r.rascunho.competencia) : '',
-              situacao: h('span', { class: 'situacao s-rascunho' }, 'Rascunho · não emitida'), valor: moeda(r.rascunho.valor) }))))))
-        : null,
+      blocoLocais,
       corpo,
       // Notas emitidas direto no Emissor Nacional também entram no histórico pelo XML.
       h('div', { class: 'cartao' }, h('p', { class: 'suave' }, 'Emitiu uma nota direto no Emissor Nacional? Traga o XML para ter o histórico, o PDF e poder clonar.'),

@@ -207,6 +207,8 @@ export async function rotasPerfil(app) {
       ultimaEmitida: ultimaEmitida && ultimaEmitida.id !== ultima?.id ? resumoNota(repo, p, ultimaEmitida) : null,
       // Para avisar com antecedência que o certificado usado na emissão está perto de vencer.
       certificadoValidoAte: cert?.validoAte || null,
+      // Por procuração, quem assina é o certificado do escritório: é ele que precisa ser trocado.
+      certificadoDoEscritorio: !!cert?.procurador,
       rascunhos: porSituacao.rascunho || 0,
       pendentes: (porSituacao.pendente || 0) + (porSituacao.enviando || 0),
       rejeitadas: porSituacao.rejeitada || 0,

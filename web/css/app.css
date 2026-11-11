@@ -375,8 +375,7 @@ summary { min-height: 48px; display: flex; align-items: center; gap: var(--esp-2
 .girando { width: 32px; height: 32px; border: 3px solid var(--azul-claro); border-top-color: var(--azul); border-radius: 50%; margin: var(--esp-4) auto; animation: gira .9s linear infinite; }
 @keyframes gira { to { transform: rotate(360deg); } }
 /* Esqueleto: só aparece quando a tela demora; tem a forma de uma tela comum (título + linhas). */
-.esqueleto { display: grid; gap: var(--esp-3); padding-top: var(--esp-1); animation: aparece .2s ease .25s both; }
-@keyframes aparece { from { opacity: 0; } }
+.esqueleto { display: grid; gap: var(--esp-3); padding-top: var(--esp-1); }
 .esq { height: 16px; border-radius: 8px; background: linear-gradient(90deg, var(--fundo-2) 25%, var(--borda) 37%, var(--fundo-2) 63%); background-size: 400% 100%; animation: brilho 1.4s ease infinite; }
 .esq-titulo { width: 45%; height: 20px; }
 .esq-curta { width: 70%; }

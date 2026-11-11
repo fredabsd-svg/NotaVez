@@ -151,6 +151,8 @@ test('fluxo completo: emitir, baixar XML e clonar como novo rascunho', async () 
   assert.deepEqual(painel.ano, { ano: painel.mes.slice(0, 4), total: '350.00', qtd: 1 });
   assert.equal(painel.ambiente, 'producao_restrita');
   assert.equal(painel.limiteAnual.valor, '81000.00', 'MEI: limite anual de receita do pacote de regras de 2026');
+  assert.equal(inicio.body.certificadoDoEscritorio, false, 'certificado próprio da empresa');
+  assert.ok(new Date(inicio.body.certificadoValidoAte) > new Date(), 'validade do certificado usado na emissão');
 
   // Clonar: novos identificadores, nada da situação original, revisão obrigatória.
   const c = await u.api('POST', '/api/notas/clonar-ultima');

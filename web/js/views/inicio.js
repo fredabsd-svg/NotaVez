@@ -97,7 +97,8 @@ export async function tela() {
   } catch (e) {
     if (!(e instanceof ErroApi)) throw e;
     dados = { elegibilidade: null };
-    falha = e;
+    // Só falha passageira (sem internet, servidor fora, limite) merece "Tentar de novo".
+    if (e.status === 0 || e.status === 429 || e.status >= 500) falha = e;
   }
   estado.inicio = dados;
   atualizarSelo();
@@ -135,8 +136,18 @@ export async function tela() {
   // Uma rejeitada mais recente que a última emitida vira alerta; o botão de clonar diz qual nota ele copia.
   const rejeitadaRecente = dados.ultima && dados.ultima.situacao === 'rejeitada' ? dados.ultima : null;
   const clonavel = dados.ultimaEmitida || (dados.ultima?.situacao === 'emitida' ? dados.ultima : null);
-  // Certificado usado na emissão perto de vencer: avisa com 30 dias de antecedência.
-  const diasCertificado = dados.certificadoValidoAte ? Math.ceil((new Date(dados.certificadoValidoAte) - Date.now()) / 86400_000) : null;
+  // Certificado usado na emissão (da empresa ou do escritório, por procuração): avisa com 30 dias de antecedência
+  // e também quando já venceu (a cópia guardada do Início pode ser anterior ao vencimento).
+  const validade = dados.certificadoValidoAte ? new Date(dados.certificadoValidoAte) - Date.now() : null;
+  const diasCertificado = validade === null ? null : Math.floor(validade / 86400_000); // negativo: já venceu
+  const doEscritorio = !!dados.certificadoDoEscritorio;
+  const qualCertificado = doEscritorio ? 'O certificado do escritório' : 'Seu certificado digital';
+  const alertaCertificado = diasCertificado === null || diasCertificado > 30 ? null
+    : h('a', { class: 'alerta-linha', href: doEscritorio ? '#/procurador' : '#/perfil' },
+      h('span', {}, diasCertificado < 0
+        ? `${qualCertificado} venceu em ${data(dados.certificadoValidoAte)}. Envie o novo para voltar a emitir pelo app.`
+        : `${qualCertificado} vence ${diasCertificado === 0 ? 'em menos de 24 horas' : `em ${plural(diasCertificado, 'dia', 'dias')}`} (${data(dados.certificadoValidoAte)}). Sem ele, o app não emite: envie o novo antes.`),
+      h('b', { class: 'alerta-acao' }, 'Trocar ›'));
 
   const atalho = (href, ic, titulo, sub) => h('li', {}, h('a', { class: 'item item-seta', href },
     icone(ic), h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo' }, titulo), sub ? h('div', { class: 'item-sub' }, sub) : null)));
@@ -156,10 +167,7 @@ export async function tela() {
           // Uma linha no Início; a lista completa fica em Dados da empresa.
           ? h('a', { class: 'alerta-linha', href: '#/perfil' },
             h('span', {}, `Falta pouco para emitir pelo app: ${plural(dados.elegibilidade.pendencias.length, 'item pendente', 'itens pendentes')}. Enquanto isso, prepare a nota e emita pelo Emissor Nacional.`), h('b', { class: 'alerta-acao' }, 'Ver ›'))
-          : diasCertificado !== null && diasCertificado >= 0 && diasCertificado <= 30
-            ? h('a', { class: 'alerta-linha', href: '#/perfil' },
-              h('span', {}, `Seu certificado digital vence ${diasCertificado === 0 ? 'hoje' : `em ${plural(diasCertificado, 'dia', 'dias')}`} (${data(dados.certificadoValidoAte)}). Sem ele, o app não emite: envie o novo antes.`), h('b', { class: 'alerta-acao' }, 'Trocar ›'))
-            : null,
+          : alertaCertificado,
       h('div', { class: 'acoes-inicio' },
         h('a', { class: 'btn btn-primario btn-grande', href: '#/nova' }, icone(ICONES.mais), 'Nova nota'),
         dados.podeClonar

@@ -58,6 +58,10 @@ test('escritório emite e baixa tomadas pelo cliente com o próprio certificado;
   const ativa = await api('PUT', '/api/perfil/procuracao', { ativa: true }, h);
   assert.equal(ativa.status, 200, JSON.stringify(ativa.body));
   assert.equal(ativa.body.perfil.usaProcuracao, true);
+  // O Início avisa do vencimento do certificado que de fato assina: aqui, o do escritório.
+  const inicio = await api('GET', '/api/inicio', undefined, h);
+  assert.equal(inicio.body.certificadoDoEscritorio, true);
+  assert.ok(inicio.body.certificadoValidoAte, 'validade do certificado do escritório');
   assert.equal(ativa.body.elegibilidade.podeEmitir, true, JSON.stringify(ativa.body.elegibilidade.pendencias));
   assert.match(ativa.body.elegibilidade.itens.find((i) => i.id === 'certificado').aviso, /procuração eletrônica/);
   const lista = (await api('GET', '/api/empresas')).body.empresas;

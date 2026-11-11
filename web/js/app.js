@@ -67,8 +67,11 @@ export const ir = (hash, { substituir = false } = {}) => {
 // Só vale para "voltar/avançar" de verdade: abrir uma tela por um link começa sempre do alto.
 const rolagens = new Map();
 let enderecoNaTela = null;
-let voltando = false;
-window.navigation?.addEventListener('navigate', (e) => { if (e.navigationType === 'traverse') voltando = true; });
+// Momento do último "voltar/avançar". Vale por instantes: se a volta sair do app (outra página) e não houver
+// troca de tela aqui, a marca não pode sobrar para o próximo toque num link.
+let voltouEm = -Infinity;
+const marcarVolta = () => { voltouEm = performance.now(); };
+window.navigation?.addEventListener('navigate', (e) => { if (e.navigationType === 'traverse') marcarVolta(); });
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // a posição é devolvida aqui, depois que a tela chega
 
 let renderizando = 0;
@@ -80,8 +83,8 @@ async function renderizar() {
     if (rolagens.size > 50) rolagens.delete(rolagens.keys().next().value);
     enderecoNaTela = null;
   }
-  const rolagem = voltando ? rolagens.get(location.hash) || 0 : 0;
-  voltando = false;
+  const rolagem = performance.now() - voltouEm < 1000 ? rolagens.get(location.hash) || 0 : 0;
+  voltouEm = -Infinity;
   const [caminho, qs] = (location.hash.slice(1) || '/').split('?');
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
   const main = document.getElementById('conteudo');
@@ -89,8 +92,12 @@ async function renderizar() {
   if (estado.conta && !estado.conta.prestadorId && !SEM_EMPRESA.has(caminho)) return ir(estado.conta.empresas ? '/empresas' : '/empresas/nova', { substituir: true });
 
   const rota = casar(caminho) || casar('/');
-  // O esqueleto entra já, mas só fica visível se a tela demorar (o CSS atrasa a aparição): telas rápidas não piscam.
-  main.replaceChildren(esqueleto());
+  // O esqueleto entra escondido e só aparece se a tela demorar: telas rápidas não piscam.
+  // (Por tempo, não por animação: vale também para quem pediu "reduzir movimento".)
+  const espera = esqueleto();
+  espera.hidden = true;
+  main.replaceChildren(espera);
+  setTimeout(() => { espera.hidden = false; }, 250);
   let tela;
   try {
     tela = await rota.fn(rota.params, query);
@@ -132,7 +139,8 @@ async function renderizar() {
   amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
   empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
   for (const a of document.querySelectorAll('.abas a')) {
-    if (a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    // Só destinos com data-aba (a marca da barra lateral não é um): tela sem aba não marca nada.
+    if (a.dataset.aba && a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   main.replaceChildren(tela.node);
   main.focus({ preventScroll: true });
@@ -211,7 +219,7 @@ function atualizarOnline() {
 
 document.getElementById('voltar').addEventListener('click', () => {
   // Navegadores sem a API de navegação: o botão Voltar do app também devolve a posição da lista.
-  if (history.length > 1) { voltando = true; history.back(); } else ir('/');
+  if (history.length > 1) { marcarVolta(); history.back(); } else ir('/');
 });
 window.addEventListener('hashchange', renderizar);
 window.addEventListener('online', atualizarOnline);

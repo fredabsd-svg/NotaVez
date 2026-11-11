@@ -115,6 +115,16 @@ try {
   await page.unroute('**/api/inicio');
   await page.getByRole('button', { name: 'Tentar de novo' }).click();
   await page.getByRole('heading', { name: 'Notas recentes' }).waitFor();
+  // Certificado perto de vencer: o Início avisa e aponta para o certificado que de fato assina (aqui, o do escritório).
+  await page.route('**/api/inicio', async (r) => {
+    const resposta = await r.fetch();
+    await r.fulfill({ response: resposta, json: { ...(await resposta.json()), certificadoValidoAte: new Date(Date.now() + 10.5 * 86400_000).toISOString(), certificadoDoEscritorio: true } });
+  });
+  await page.goto(`${base}/#/notas`);
+  await page.goto(`${base}/#/`);
+  await page.getByText(/O certificado do escritório vence em 10 dias/).waitFor();
+  assert.equal(await page.locator('a.alerta-linha').getAttribute('href'), '#/procurador');
+  await page.unroute('**/api/inicio');
   // O navegador usa o módulo real para guardar um rascunho ainda não enviado.
   const idLocal = await page.evaluate(async () => {
     const s = await import('/js/store.js');
