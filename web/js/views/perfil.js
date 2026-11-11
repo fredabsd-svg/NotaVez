@@ -1,7 +1,9 @@
 import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, buscaComSugestoes } from '../ui.js';
 import { api, ErroApi } from '../api.js';
-import { buscarMunicipio, kvGravar } from '../store.js';
-import { sair, estado, atualizarSelo, carregarConta } from '../app.js';
+import { buscarMunicipio } from '../store.js';
+import { estado, carregarConta, ir } from '../app.js';
+import { copiarTexto } from '../ui.js';
+import { consultaAutomatica } from '../cnpj.js';
 
 function checklist(eleg) {
   return h('ul', { class: 'check' }, eleg.itens.map((i) => h('li', {},
@@ -11,17 +13,14 @@ function checklist(eleg) {
       i.aviso ? h('span', { class: 'suave', style: 'display:block' }, i.aviso) : null))));
 }
 
-export async function tela() {
-  const dados = await api('GET', '/api/perfil');
-  const p = dados.perfil || {};
-  const node = h('div');
-
-  // ----- Perfil fiscal -----
+// Formulário dos dados fiscais de uma empresa: edição da empresa ativa e
+// cadastro de uma nova. `salvarDados(corpo)` faz a chamada e o que vem depois.
+export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao = 'Salvar dados da empresa', salvarDados }) {
   const cnpj = campo({ rotulo: 'CNPJ da empresa', valor: mascaraDocumento(p.documento || ''), atributos: { inputmode: 'text', autocapitalize: 'characters', autocomplete: 'off' }, oninput: (e) => { e.target.value = mascaraDocumento(e.target.value); } });
   const nome = campo({ rotulo: 'Nome ou razão social', ajuda: 'Só para exibição no app (a nota usa o nome do cadastro do CNPJ).', valor: p.nome || '', atributos: { maxlength: 300 } });
   let municipioIbge = p.municipioIbge || '';
   const municipio = buscaComSugestoes({
-    rotulo: 'Município do seu CNPJ', ajuda: 'O mesmo do endereço do CNPJ na Receita.',
+    rotulo: 'Município do CNPJ', ajuda: 'O mesmo do endereço do CNPJ na Receita.',
     valorInicial: p.municipio ? `${p.municipio.nome} - ${p.municipio.uf}` : '', placeholder: 'Digite a cidade',
     buscar: buscarMunicipio, formatar: (m) => `${m.nome} - ${m.uf}`,
     aoEscolher: (m, c) => { municipioIbge = m.ibge; c.entrada.value = `${m.nome} - ${m.uf}`; },
@@ -97,10 +96,51 @@ export async function tela() {
   const serie = campo({ rotulo: 'Série da DPS', ajuda: 'Deixe 1, a menos que use outro sistema de emissão (faixa 1–49999).', valor: p.serieDps || '1', atributos: { inputmode: 'numeric', maxlength: 5 } });
   const ambiente = campo({
     rotulo: 'Ambiente da Receita', valor: p.ambiente || 'producao_restrita',
-    opcoes: [['producao_restrita', 'Testes (produção restrita) — sem validade jurídica'], ...(dados.producaoLiberada ? [['producao', 'Produção — notas reais']] : [])],
+    opcoes: [['producao_restrita', 'Testes (produção restrita) — sem validade jurídica'], ...(producaoLiberada ? [['producao', 'Produção — notas reais']] : [])],
   });
   const erroPerfil = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
-  const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, 'Salvar perfil');
+  const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
+
+  // Lembra o que veio da consulta: ao corrigir o CNPJ, o que era da empresa errada é trocado.
+  const preenchido = { email: null, fone: null, municipio: null, nome: null, cnpj: null, regime: null, apuracao: null };
+  const regimeInicial = regime.entrada.value;
+  const apuracaoInicial = apuracao.entrada.value;
+  const trocarSeAutomatico = (cmp, chave, valor) => {
+    if (!cmp.entrada.value || cmp.entrada.value === preenchido[chave]) { cmp.entrada.value = valor || ''; preenchido[chave] = cmp.entrada.value || null; }
+  };
+  // CNPJ completo: razão social, município e enquadramento vêm da base pública.
+  const consulta = consultaAutomatica(cnpj.entrada, {
+    inicial: p.documento,
+    aoFalhar: (_, cnpjFalhou) => {
+      // Falhou a nova consulta do MESMO CNPJ ("Atualizar"): o que veio antes continua certo.
+      if (cnpjFalhou && cnpjFalhou === preenchido.cnpj) return;
+      preenchido.cnpj = null;
+      if (preenchido.nome && nome.entrada.value === preenchido.nome) { nome.entrada.value = ''; preenchido.nome = null; }
+      // Regime e apuração da empresa errada voltam ao que estava antes da consulta.
+      if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); }
+      if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) apuracao.entrada.value = apuracaoInicial;
+      preenchido.regime = null; preenchido.apuracao = null;
+      if (preenchido.municipio && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
+      for (const [cmp, k] of [[email, 'email'], [fone, 'fone']]) if (preenchido[k] && cmp.entrada.value === preenchido[k]) { cmp.entrada.value = ''; preenchido[k] = null; }
+    },
+    aoEncontrar: (d, cnpjAchado) => {
+      preenchido.cnpj = cnpjAchado;
+      nome.entrada.value = d.razaoSocial;
+      preenchido.nome = d.razaoSocial;
+      // Sem município na base, não fica o da consulta anterior (CNPJ corrigido).
+      if (d.municipio) { municipioIbge = d.municipio.ibge; municipio.entrada.value = `${d.municipio.nome} - ${d.municipio.uf}`; preenchido.municipio = municipioIbge; }
+      else if (municipioIbge && municipioIbge === preenchido.municipio) { municipioIbge = ''; municipio.entrada.value = ''; preenchido.municipio = null; }
+      if (d.enquadramento?.opSimpNac) { regime.entrada.value = d.enquadramento.opSimpNac; mostrarSimples(); preenchido.regime = regime.entrada.value; }
+      // CNPJ achado sem enquadramento: o regime que veio da empresa anterior (consulta errada) volta ao inicial.
+      else if (preenchido.regime && regime.entrada.value === preenchido.regime) { regime.entrada.value = regimeInicial; mostrarSimples(); preenchido.regime = null; }
+      if (d.enquadramento?.apuracao) { apuracao.entrada.value = d.enquadramento.apuracao; preenchido.apuracao = apuracao.entrada.value; }
+      else if (preenchido.apuracao && apuracao.entrada.value === preenchido.apuracao) { apuracao.entrada.value = apuracaoInicial; preenchido.apuracao = null; }
+      if (regime.entrada.value === '1' && cstPisCofins.entrada.value === '01' && !aliqPis.entrada.value && !aliqCofins.entrada.value) padroes.click();
+      trocarSeAutomatico(email, 'email', d.email);
+      trocarSeAutomatico(fone, 'fone', d.fone);
+    },
+  });
+  const atualizarDaReceita = null; // o botão "Buscar dados do CNPJ" da consulta faz isso
   const formPerfil = h('form', {
     novalidate: true,
     onsubmit: async (e) => {
@@ -108,34 +148,51 @@ export async function tela() {
       salvarPerfil.disabled = true;
       erroPerfil.hidden = true;
       try {
-        await api('PUT', '/api/perfil', {
+        await salvarDados({
           documento: cnpj.entrada.value, nome: nome.entrada.value, municipioIbge, opSimpNac: regime.entrada.value,
           email: email.entrada.value, fone: fone.entrada.value, inscricaoMunicipal: im.entrada.value, serieDps: serie.entrada.value, ambiente: ambiente.entrada.value,
           regApTribSN: regApTribSN.entrada.value, pTotTribSN: pTotTribSN.entrada.value, aliqIssSN: aliqIssSN.entrada.value,
           apuracao: apuracao.entrada.value, cstPisCofins: cstPisCofins.entrada.value, aliqPis: aliqPis.entrada.value, aliqCofins: aliqCofins.entrada.value,
           pTotTribFed: pTotFed.entrada.value, pTotTribMun: pTotMun.entrada.value, aliqIss: aliqIss.entrada.value,
         });
-        aviso('Perfil salvo.');
-        await carregarConta({ permitirOffline: false });
-        estado.inicio = await api('GET', '/api/inicio');
-        await kvGravar('inicio', estado.inicio);
-        atualizarSelo();
-        location.reload();
       } catch (err) {
         if (err instanceof ErroApi && err.dados?.campos) mostrarErros({ documento: cnpj, municipioIbge: municipio, opSimpNac: regime, regApTribSN, pTotTribSN, aliqIssSN, cstPisCofins, aliqPis, aliqCofins, pTotTribFed: pTotFed, pTotTribMun: pTotMun, aliqIss, email, serieDps: serie, ambiente }, err.dados.campos);
         else { erroPerfil.textContent = err.message; erroPerfil.hidden = false; }
       } finally { salvarPerfil.disabled = false; }
     },
-  }, cnpj, nome, municipio, regime, blocoSimples, blocoFederais, email, fone, h('details', {}, h('summary', {}, 'Opções avançadas'), im, serie, ambiente), erroPerfil, salvarPerfil);
+  }, cnpj, consulta, atualizarDaReceita, nome, municipio, regime, blocoSimples, blocoFederais, email, fone, h('details', {}, h('summary', {}, 'Opções avançadas'), im, serie, ambiente), erroPerfil, salvarPerfil);
+  return formPerfil;
+}
 
-  // ----- Certificado -----
-  const cert = dados.certificado;
-  const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda: 'Formato .pfx ou .p12 (e-CNPJ).', tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
+// Procuração em uso: quem assina e como a empresa concede a procuração na Receita.
+function cartaoProcuracao(dados) {
+  const pr = dados.procurador;
+  return h('section', { class: `cartao ${pr ? 'cartao-ok' : 'cartao-alerta'}` },
+    pr ? h('div', {}, h('strong', {}, 'Assina pelo escritório: '), pr.titular, h('p', { class: 'suave' }, `${pr.documentoFormatado} · válido até ${data(pr.validoAte)}`))
+      : h('p', {}, h('strong', {}, 'Falta o certificado do escritório. '), 'Envie em Certificado do escritório.'),
+    h('p', {}, 'A empresa precisa conceder a procuração no ', h('strong', {}, 'Portal de Serviços da Receita'), ' (servicos.receitafederal.gov.br) › "Nova Autorização": informar o ',
+      pr ? `${pr.documentoFormatado} ` : 'CPF/CNPJ do procurador ', 'como procurador, a vigência e escolher o serviço ', h('strong', {}, 'NFS-e'), '. A Receita confere a procuração a cada envio.'),
+    pr ? h('button', { class: 'btn btn-pequeno', type: 'button', onclick: (e) => copiarTexto(pr.documentoFormatado.replace(/\W/g, ''), e.currentTarget) }, 'Copiar CPF/CNPJ do procurador') : null,
+    h('a', { class: 'btn btn-pequeno btn-texto', href: '#/procurador' }, 'Certificado do escritório'));
+}
+
+// Envio de certificado A1 (.pfx): da empresa ou do procurador da conta.
+export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certificado', aoEnviar, consentimentoTexto }) {
+  const arquivo = campo({ rotulo: 'Arquivo do certificado A1', ajuda, tipo: 'file', atributos: { accept: '.pfx,.p12,application/x-pkcs12' } });
+  // Botão próprio em português no lugar do "Choose File" do navegador; o input continua ligado ao rótulo.
+  arquivo.entrada.classList.add('visualmente-oculto');
+  const nomeArquivo = h('span', { class: 'suave', 'aria-live': 'polite' }, 'Nenhum arquivo escolhido.');
+  arquivo.entrada.addEventListener('change', () => { nomeArquivo.textContent = arquivo.entrada.files?.[0]?.name || 'Nenhum arquivo escolhido.'; arquivo.erro(''); });
+  arquivo.entrada.after(h('div', { class: 'arquivo-escolha' },
+    h('button', { class: 'btn', type: 'button', tabindex: '-1', 'aria-hidden': 'true', onclick: () => arquivo.entrada.click() }, 'Escolher arquivo .pfx'), nomeArquivo));
+  arquivo.entrada.addEventListener('focus', () => arquivo.classList.add('com-foco'));
+  arquivo.entrada.addEventListener('blur', () => arquivo.classList.remove('com-foco'));
   const senha = campo({ rotulo: 'Senha do certificado', tipo: 'password', atributos: { autocomplete: 'off' } });
-  const consentimento = h('input', { type: 'checkbox', id: 'consentimento' });
+  const idConsentimento = `consentimento-${url.replace(/\W/g, '')}`;
+  const consentimento = h('input', { type: 'checkbox', id: idConsentimento });
   const erroCert = h('div', { class: 'erro-campo', role: 'alert', hidden: true });
-  const enviar = h('button', { class: 'btn btn-primario', type: 'submit' }, cert ? 'Trocar certificado' : 'Enviar certificado');
-  const formCert = h('form', {
+  const enviar = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
+  return h('form', {
     novalidate: true,
     onsubmit: async (e) => {
       e.preventDefault();
@@ -148,19 +205,61 @@ export async function tela() {
         const bytes = new Uint8Array(await f.arrayBuffer());
         let bin = '';
         for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        await api('POST', '/api/certificado', { pfxBase64: btoa(bin), senha: senha.entrada.value, consentimento: true });
+        await api('POST', url, { pfxBase64: btoa(bin), senha: senha.entrada.value, consentimento: true });
         senha.entrada.value = '';
-        aviso('Certificado verificado e guardado com segurança.');
-        location.reload();
+        aoEnviar();
       } catch (err) {
         erroCert.replaceChildren(err.message, ...(err.dados?.problemas || []).map((x) => h('span', { style: 'display:block' }, `• ${x}`)));
         erroCert.hidden = false;
       } finally { enviar.disabled = false; }
     },
   }, arquivo, senha,
-  h('label', { class: 'caixa', for: 'consentimento' }, consentimento,
-    h('span', {}, 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
+  h('label', { class: 'caixa', for: idConsentimento }, consentimento,
+    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
   erroCert, enviar);
+}
+
+// Como a empresa assina: certificado próprio ou procuração eletrônica NFS-e (certificado do escritório).
+function escolhaAssinatura(dados) {
+  const usaProc = !!dados.perfil?.usaProcuracao;
+  const definir = async (ativa) => {
+    if (ativa === usaProc) return;
+    try {
+      await api('PUT', '/api/perfil/procuracao', { ativa });
+      aviso(ativa ? 'Esta empresa passa a assinar com o certificado do escritório.' : 'Esta empresa volta a assinar com o próprio certificado.');
+      location.reload();
+    } catch (err) {
+      if (err.dados?.acao === 'procurador') { aviso(err.message, 7000); ir('/procurador'); } else aviso(err.message, 7000);
+    }
+  };
+  const opcao = (ativa, titulo, sub) => h('button', { class: 'item', type: 'button', 'aria-pressed': String(ativa === usaProc), onclick: () => definir(ativa) },
+    h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo', style: 'white-space:normal' }, titulo), h('div', { class: 'item-sub', style: 'white-space:normal' }, sub)));
+  return h('div', { role: 'group', 'aria-label': 'Como esta empresa assina as notas' },
+    opcao(false, 'Certificado A1 desta empresa', 'O e-CNPJ da própria empresa assina e envia as notas.'),
+    opcao(true, 'Certificado do escritório (procuração eletrônica)', 'Um só certificado, o do escritório ou do contador, para todas as empresas que concederam a procuração NFS-e na Receita.'));
+}
+
+export async function tela() {
+  const dados = await api('GET', '/api/perfil');
+  const p = dados.perfil || {};
+  const node = h('div');
+  const formPerfil = formularioEmpresa({
+    p, producaoLiberada: dados.producaoLiberada,
+    salvarDados: async (corpo) => {
+      await api('PUT', '/api/perfil', corpo);
+      aviso('Dados da empresa salvos.');
+      await carregarConta({ permitirOffline: false });
+      location.reload();
+    },
+  });
+
+  // ----- Certificado -----
+  const cert = dados.certificadoEmpresa;
+  const usaProc = !!dados.perfil?.usaProcuracao;
+  const formCert = formularioCertificado({
+    url: '/api/certificado', ajuda: 'Formato .pfx ou .p12 (e-CNPJ desta empresa).', textoBotao: cert ? 'Trocar certificado' : 'Enviar certificado',
+    aoEnviar: () => { aviso('Certificado verificado e guardado com segurança.'); location.reload(); },
+  });
 
   const statusCert = cert
     ? h('div', { class: 'cartao cartao-ok' }, h('strong', {}, 'Certificado ativo'), h('p', {}, cert.titular), h('p', { class: 'suave' }, `Válido até ${data(cert.validoAte)} · ${cert.emissor}`),
@@ -176,20 +275,31 @@ export async function tela() {
 
   anexar(node,
     h('section', { class: 'cartao' }, h('h2', { style: 'font-size:19px;margin-top:0' }, dados.elegibilidade.podeEmitir ? 'Tudo pronto para emitir' : 'O que falta para emitir'), checklist(dados.elegibilidade)),
-    h('h3', {}, 'Perfil fiscal'), formPerfil,
+    h('h3', {}, 'Dados fiscais'), formPerfil,
     h('h3', { id: 'certificado' }, 'Certificado digital'),
     h('details', { class: 'cartao' }, h('summary', {}, 'Por que preciso do certificado?'),
-      h('p', {}, 'A Receita só aceita notas enviadas por aplicativos quando elas são assinadas com o certificado digital ICP-Brasil do próprio CNPJ (e-CNPJ). Para ME/EPP, o certificado também é usado para consultar se o seu município está no Sistema Nacional. O login gov.br serve para o Emissor Nacional no site, mas não autoriza outros aplicativos a emitir por você.'),
+      h('p', {}, 'A Receita só aceita notas enviadas por aplicativos quando são assinadas com um certificado digital ICP-Brasil: o do próprio CNPJ (e-CNPJ) ou, desde 1º/11/2026, o de um procurador com procuração eletrônica NFS-e da empresa. O login gov.br e o usuário e senha do Portal servem para o Emissor Nacional no site, não para outros aplicativos.'),
       h('p', {}, 'Aceitamos o modelo A1 (arquivo). O modelo A3 (cartão ou token) não pode ser usado por um servidor.'),
       h('p', {}, 'Sem certificado, você pode continuar preparando rascunhos e emitir pelo Emissor Nacional.')),
-    statusCert,
-    !dados.perfil ? h('p', { class: 'suave' }, 'Salve o perfil primeiro.') : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
-    h('h3', {}, 'Conta'),
-    h('a', { class: 'btn', href: '#/conta' }, 'Gerenciar e excluir conta'),
-    h('a', { class: 'btn btn-texto', href: '/privacidade.html' }, 'Privacidade'),
-    h('a', { class: 'btn btn-texto', href: '/recuperar-conta.html' }, 'Recuperar senha'),
-    h('a', { class: 'btn', href: '#/instalar' }, 'Instalar na tela inicial'),
-    h('button', { class: 'btn btn-texto', type: 'button', onclick: sair }, 'Sair da conta'),
+    dados.perfil ? escolhaAssinatura(dados) : null,
+    usaProc ? cartaoProcuracao(dados) : null,
+    usaProc ? null : statusCert,
+    !dados.perfil ? h('p', { class: 'suave' }, 'Salve o perfil primeiro.')
+      : usaProc ? h('details', {}, h('summary', {}, 'Certificado próprio desta empresa (opcional)'), statusCert, formCert)
+        : cert ? h('details', {}, h('summary', {}, 'Trocar certificado'), formCert) : formCert,
+    h('h3', {}, 'Empresa'),
+    h('button', {
+      class: 'btn btn-texto btn-perigo', type: 'button',
+      onclick: async () => {
+        if (!confirm(`Remover "${p.nome || 'esta empresa'}" da sua conta? Só é possível enquanto ela não tiver enviado notas à Receita. Rascunhos, clientes, serviços, notas tomadas baixadas e o certificado desta empresa serão apagados.`)) return;
+        try {
+          await api('DELETE', `/api/empresas/${estado.conta.prestadorId}`);
+          aviso('Empresa removida.');
+          await carregarConta({ permitirOffline: false, empresa: null });
+          ir('/empresas', { substituir: true });
+        } catch (err) { aviso(err.message, 8000); }
+      },
+    }, 'Remover empresa da conta'),
   );
-  return { titulo: 'Perfil', aba: 'perfil', node };
+  return { titulo: 'Dados da empresa', aba: 'perfil', voltar: true, node };
 }

@@ -1,6 +1,6 @@
 // Cada titular tem sua própria partição. Sair/expirar preserva seus rascunhos;
 // apagar a conta ou descartar um rascunho são ações explícitas.
-import { api, ErroApi, definirIdentidadeApi } from './api.js';
+import { api, ErroApi, definirIdentidadeApi, urlConta } from './api.js';
 
 let bancoP;
 function banco() {
@@ -46,6 +46,14 @@ export async function definirConta(conta) {
   sinonimos = {};
   return contaAtiva;
 }
+// Encerra só nesta aba (memória), sem mexer na conta guardada que outras abas usam.
+export function esquecerContaNestaAba() {
+  epoca++;
+  contaAtiva = null;
+  definirIdentidadeApi(null);
+  for (const k of Object.keys(tabelas)) delete tabelas[k];
+}
+export const contaGuardada = () => op('contas', 'readonly', (s) => s.get('ativa'));
 export const sessaoEncerrada = () => op('contas', 'readonly', (s) => s.get('encerrada'));
 export async function recuperarContaOffline() {
   const c = await op('contas', 'readonly', (s) => s.get('ativa'));
@@ -122,7 +130,7 @@ export async function salvarLocal(id, rascunho, extra = {}, ctx = contextoConta(
 }
 async function validarSessao(ctx) {
   conferirContexto(ctx);
-  const c = await api('GET', '/api/conta');
+  const c = await api('GET', urlConta(ctx.conta.prestadorId));
   conferirContexto(ctx);
   if (dono(c) !== ctx.chave) {
     window.dispatchEvent(new CustomEvent('notavez:sessao-expirada'));
@@ -206,7 +214,7 @@ export async function resolverConflito(id, manterLocal) {
 }
 export async function sincronizarTodos() {
   for (const r of await rascunhosLocais()) {
-    if (!r.sincronizado && !r.conflito) { try { await sincronizar(r.id); } catch (e) { if (e.status === 401 || e.dados?.codigo === 'CONTA_ALTERADA') break; } }
+    if (!r.sincronizado && !r.conflito && !(!r.noServidor && r.emBranco === true)) { try { await sincronizar(r.id); } catch (e) { if (e.status === 401 || e.dados?.codigo === 'CONTA_ALTERADA') break; } }
   }
 }
 

@@ -14,11 +14,28 @@ Alterações exigem `X-NotaVez: 1`, mesma origem e cookie HttpOnly. A API tem no
 
 `criarAutenticacao` instala `recuperacoes_senha` e `limites_conta` também nos bancos existentes. Tokens contêm 32 bytes aleatórios e apenas HMAC é persistido, TTL padrão 30 minutos (opção `recuperacaoTtlMs`, até 24 horas). Nova solicitação invalida token anterior. Limites por identidade/IP persistem no SQLite e expiram em 15 minutos. A chave mestra precisa ser estável entre processos/reinícios.
 
+## Acesso: usuário e senha, primeiro acesso e gov.br
+
+Como no Portal da NFS-e, a tela de entrada tem:
+
+- **Usuário e senha** — o usuário é o **CPF, CNPJ ou e-mail** (`POST /api/conta/entrar` com `usuario`; o campo `email` antigo continua aceito). O CPF/CNPJ fica cifrado, com índice cego para a busca, e é único por conta.
+- **Fazer primeiro acesso** — CPF ou CNPJ (usuário), e-mail (para recuperar a senha) e senha (`POST /api/conta/cadastrar` com `documento`). "Esqueci a minha senha" aceita CPF, CNPJ ou e-mail.
+- **Manter conectado neste aparelho** — marcado por padrão: sessão de 90 dias **renovada a cada uso** (no máximo uma gravação por dia), então quem usa o app não precisa entrar de novo. Desmarcado: 12 horas e cookie que some ao fechar o navegador. "Sair da conta" encerra a sessão.
+- **Entrar com gov.br** — Login Único (OpenID Connect, `code` + PKCE S256, `state` e `nonce`). O retorno só é aceito no mesmo navegador (cookie `nv_govbr`, Lax, uso único, 10 min) e o `id_token` é conferido: assinatura RS256 pela chave publicada em `/jwk`, emissor, público, `nonce`, validade e CPF no `sub`.
+  - Primeira entrada cria a conta com o CPF **confirmado**; as próximas reconhecem o vínculo.
+  - Se o CPF ou o e-mail verificado já estiverem em uma conta com senha, o app **não junta as contas sozinho**: pede para entrar com a senha e vincular em **Conta › Vincular minha conta gov.br**.
+  - O gov.br só **identifica** o titular. Emitir continua exigindo o certificado A1 de cada empresa; a senha gov.br nunca passa pelo app.
+  - Depende de credenciais do Login Único (`NOTAVEZ_GOVBR_CLIENT_ID`, `_SECRET`, `_REDIRECT_URI`, `_AMBIENTE`, ver `ops/notavez.env.example`), solicitadas ao governo para a URL `…/api/conta/govbr/retorno`. Sem elas, o botão não aparece. A elegibilidade de aplicativos privados precisa ser confirmada na solicitação da credencial.
+
 ## Entrega e publicação exigem configuração real
 
 `criarEntregaRecuperacao` em `security/recuperacao-entrega.js` envia POST JSON `{email, token, expiraEm}` por webhook HTTPS com Bearer, sem redirects. Testes usam transporte simulado; nenhuma mensagem real foi enviada.
 
-- `NOTAVEZ_RECUPERACAO_WEBHOOK`: endpoint HTTPS do serviço de entrega escolhido.
+- **Recuperação de senha** — três caminhos, do que não depende de nada ao que depende de configuração:
+  - **Código de recuperação** (sempre disponível): 20 letras e números mostrados uma única vez no primeiro acesso e gerados de novo em Conta (pede a senha atual). Em "Esqueci a minha senha › Tenho o código", troca a senha; o código usado deixa de valer e um novo é mostrado. Guardado só como hash; tentativas limitadas por conta e IP.
+  - **Link por e-mail via SMTP**: `NOTAVEZ_SMTP_URL` (`smtps://…:465` ou `smtp://…:587` com STARTTLS obrigatório), `NOTAVEZ_SMTP_DE` e `NOTAVEZ_URL_PUBLICA` (https do app).
+  - **Link no terminal** (uso no próprio computador): na demonstração (`npm run demo`) ou com `NOTAVEZ_RECUPERACAO=terminal`, o link aparece na janela onde o servidor roda.
+- `NOTAVEZ_RECUPERACAO_WEBHOOK`: endpoint HTTPS do serviço de entrega escolhido (alternativa ao SMTP).
 - `NOTAVEZ_RECUPERACAO_WEBHOOK_TOKEN`: segredo Bearer fora do código/logs.
 - `NOTAVEZ_RESPONSAVEL`: identificação real do responsável.
 - `NOTAVEZ_CONTATO_PRIVACIDADE`: contato real para solicitações.

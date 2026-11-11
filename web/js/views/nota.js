@@ -1,14 +1,16 @@
-import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES } from '../ui.js';
+import { h, anexar, campo, aviso, hoje, moeda, data as dataBr, buscaComSugestoes, icone, ICONES, codigoServico } from '../ui.js';
 import { api, ErroApi } from '../api.js';
-import { salvarLocal, removerLocal, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
+import { salvarLocal, removerLocal, rascunhosLocais, resolverConflito, contextoConta, conferirContexto, comCache, kvLer, buscarServicoNacional, buscarMunicipio, municipioPorCodigo, servicoNacionalPorCodigo } from '../store.js';
 import { carregar, salvar, salvarAgora, rascunhoVazio } from '../rascunho.js';
 import { usarNaNota } from './servicos.js';
 import { ir, estado } from '../app.js';
 
 export async function nova() {
   const id = crypto.randomUUID();
-  await salvarLocal(id, rascunhoVazio(), { meta: {} });
-  try { await salvarAgora(id); } catch { /* segue no aparelho */ }
+  // Só fica no aparelho até a primeira escolha: abrir "Emitir" e voltar não deixa rascunho vazio na conta.
+  // Rascunhos em branco abertos antes e abandonados saem (não se acumulam no aparelho).
+  for (const r of await rascunhosLocais()) if (r.emBranco === true && !r.noServidor) await removerLocal(r.id).catch(() => {});
+  await salvarLocal(id, rascunhoVazio(), { meta: {}, emBranco: true });
   ir(`/nota/${id}`, { substituir: true });
   return null;
 }
@@ -39,7 +41,9 @@ export async function tela({ id }) {
   if (!['rascunho', 'rejeitada'].includes(dados.situacao)) { ir(`/notas/${id}`, { substituir: true }); return null; }
   const r = { ...rascunhoVazio(), ...dados.rascunho };
   const meta = { ...dados.meta };
-  const perfil = estado.inicio?.perfil || (await kvLer('inicio'))?.perfil;
+  // Perfil atual da empresa (o regime pode ter mudado); sem internet, a última cópia.
+  let perfil = null;
+  try { perfil = (await comCache('perfil', () => api('GET', '/api/perfil?leve=1'))).perfil; } catch { perfil = estado.inicio?.perfil || (await kvLer('inicio'))?.perfil; }
   if (!meta.servicoNacional && r.cTribNac) meta.servicoNacional = await servicoNacionalPorCodigo(r.cTribNac);
   let servicos = [];
   try { servicos = (await comCache('servicos', () => api('GET', '/api/servicos'))).servicos; } catch { /* sem cache */ }
@@ -90,7 +94,7 @@ export async function tela({ id }) {
   const mostrarNacional = () => {
     atualizarIbs?.();
     const n = meta.servicoNacional;
-    nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${n.codigo} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
+    nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${codigoServico(n.codigo)} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
     if (n?.grupoExigido) nacionalTexto.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Este serviço exige dados de obra/evento, ainda não suportados. Use o Emissor Nacional para ele.'));
     blocoLocal.open = n?.incidencia === 'LP';
     avisoLocal.replaceChildren(n?.incidencia === 'LP'
@@ -113,7 +117,7 @@ export async function tela({ id }) {
   }, s.apelido)));
   const buscaNacional = buscaComSugestoes({
     rotulo: 'Ou busque na lista nacional', placeholder: 'Ex.: manutenção, design, aula',
-    buscar: buscarServicoNacional, formatar: (x) => `${x.codigo} — ${x.descricao}`,
+    buscar: buscarServicoNacional, formatar: (x) => `${codigoServico(x.codigo)} — ${x.descricao}`,
     aoEscolher: (x, c) => {
       c.entrada.value = '';
       if (r.cTribNac !== x.codigo) { r.cNBS = null; r.cIndOp = null; r.cClassTrib = null; }
@@ -129,9 +133,21 @@ export async function tela({ id }) {
     buscaNacional, nacionalTexto, descricao, marcador('descricao'));
 
   // ----- Quando e quanto -----
+  // dd/mm/aaaa digitado: o seletor de data nativo segue o idioma do aparelho (ex.: 11/01/2026 em inglês).
   const competencia = campo({
-    rotulo: 'Competência', ajuda: 'Data em que o serviço foi prestado (não pode ser futura).', tipo: 'date', valor: r.competencia,
-    atributos: { max: hoje() }, oninput: (e) => { r.competencia = e.target.value; revisado('competencia'); persistir(); },
+    rotulo: 'Competência', ajuda: 'Data em que o serviço foi prestado, dd/mm/aaaa (não pode ser futura).', valor: dataBr(r.competencia) === '—' ? '' : dataBr(r.competencia),
+    atributos: { inputmode: 'numeric', placeholder: 'dd/mm/aaaa', autocomplete: 'off', maxlength: '10' },
+    oninput: (e) => {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 8);
+      e.target.value = [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('/');
+      if (d.length < 8) { competencia.erro(''); return; }
+      const iso = `${d.slice(4)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+      const valida = !Number.isNaN(Date.parse(`${iso}T12:00:00Z`)) && new Date(`${iso}T12:00:00Z`).toISOString().slice(0, 10) === iso;
+      if (!valida) { competencia.erro('Data inválida.'); return; }
+      if (iso > hoje()) { competencia.erro('A competência não pode ser uma data futura.'); return; }
+      competencia.erro('');
+      r.competencia = iso; revisado('competencia'); persistir();
+    },
   });
   const valor = campo({
     rotulo: 'Valor do serviço (R$)', valor: r.valor ? Number(r.valor).toFixed(2).replace('.', ',') : '',
@@ -310,8 +326,8 @@ export async function tela({ id }) {
     : null;
 
   return {
-    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : 'Nova nota', voltar: true, aba: 'inicio',
-    node: h('div', {},
+    titulo: dados.meta?.clonadaDe || dados.nota?.origemId ? 'Nova nota (clonada)' : (dados.local && !dados.noServidor) || !dados.nota ? 'Nova nota' : 'Rascunho', tarefa: true, voltar: true, aba: 'emitir',
+    node: h('div', { class: 'tela-tarefa' },
       rejeitada,
       dados.conflito ? h('div', { class: 'cartao cartao-alerta', role: 'alert' },
         h('h2', {}, 'Rascunho alterado em outro aparelho'),
@@ -327,9 +343,10 @@ export async function tela({ id }) {
           try { conferirContexto(ctx); await resolverConflito(id, false); window.dispatchEvent(new HashChangeEvent('hashchange')); }
           catch (e) { aviso(e.message); }
         } }, 'Usar versão da conta')) : null,
-      h('p', { class: 'suave' }, 'Rascunho: tudo é salvo automaticamente. Você pode sair e continuar depois.'),
+      // "Salvo" no topo: no rodapé ele cobria o campo de descrição.
+      h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Tudo é salvo automaticamente. Pode sair e continuar depois.'), status),
       blocoCliente, blocoServico, blocoQuando, blocoTrib, blocoLocal,
-      h('div', { class: 'rodape-fixo' }, status,
+      h('div', { class: 'rodape-fixo' },
         h('button', {
           class: 'btn btn-primario', type: 'button',
           onclick: async () => {

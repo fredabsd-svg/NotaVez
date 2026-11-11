@@ -22,7 +22,7 @@ let handler;
 globalThis.fetch = async (url, opts) => {
   const body = opts.body ? JSON.parse(opts.body) : null;
   pedidos.push({ url, metodo: opts.method, body, headers: opts.headers });
-  if (url === '/api/conta') return sessao ? Response.json(sessao) : Response.json({ erro: 'Sessão expirada' }, { status: 401 });
+  if (url.split('?')[0] === '/api/conta') return sessao ? Response.json(sessao) : Response.json({ erro: 'Sessão expirada' }, { status: 401 });
   if (opts.headers['X-NotaVez-Usuario'] !== sessao.usuarioId || opts.headers['X-NotaVez-Prestador'] !== sessao.prestadorId) {
     return Response.json({ codigo: 'CONTA_ALTERADA' }, { status: 409 });
   }
@@ -62,14 +62,14 @@ test('offline: isolamento, versão, resposta perdida e conflitos', async (t) => 
   await t.test('conta deve ser confirmada antes de sincronizar, inclusive troca em outra aba', async () => {
     sessao = B; limparPedidos();
     await assert.rejects(store.sincronizar('a-local'), { status: 401 });
-    assert.deepEqual(pedidos.map((p) => p.url), ['/api/conta']);
+    assert.deepEqual(pedidos.map((p) => p.url.split('?')[0]), ['/api/conta']);
     sessao = A; await store.definirConta(A);
     assert.ok(await store.rascunhoLocal('a-local'));
   });
   await t.test('sessão expirada impede sync sem apagar drafts do titular', async () => {
     sessao = null; limparPedidos();
     await assert.rejects(store.sincronizar('a-local'), { status: 401 });
-    assert.deepEqual(pedidos.map((p) => p.url), ['/api/conta']);
+    assert.deepEqual(pedidos.map((p) => p.url.split('?')[0]), ['/api/conta']);
     sessao = A; await store.definirConta(A);
     assert.equal((await store.rascunhoLocal('a-local')).rascunho.valor, '150.00');
   });

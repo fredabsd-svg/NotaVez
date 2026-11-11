@@ -25,25 +25,26 @@ const esperar = (t) => p.getByText(t, { exact: false }).first().waitFor({ timeou
 
 await p.goto(BASE);
 await esperar('Nota fiscal de serviço');
-await p.getByRole('tab', { name: 'Criar conta' }).click();
-await p.getByLabel('E-mail').fill(`me${Date.now()}@exemplo.com`);
-await p.getByLabel('Senha').fill('senha-segura-1');
-await p.getByRole('button', { name: 'Criar conta' }).click();
-await esperar('O que falta para emitir');
+await p.getByRole('button', { name: 'Fazer primeiro acesso' }).click();
+await p.getByLabel(/^E-mail/).fill(`me${Date.now()}@exemplo.com`);
+await p.getByLabel(/^Senha/).fill('senha-segura-1');
+await p.getByLabel(/^Repita a senha/).fill('senha-segura-1');
+await p.getByRole('button', { name: 'Criar acesso' }).click();
+await esperar('CNPJ da empresa');
 
 await p.getByLabel('CNPJ da empresa').fill('11222333000181');
 await p.getByLabel('Nome ou razão social').fill('Estúdio Souza Ltda');
-await p.getByRole('combobox', { name: /Município do seu CNPJ/ }).fill('são paulo');
+await p.getByRole('combobox', { name: /Município do CNPJ/ }).fill('são paulo');
 await p.getByRole('button', { name: 'São Paulo - SP' }).click();
 await p.getByLabel('Regime tributário').selectOption('3');
 await p.getByLabel(/Percentual aproximado de tributos/).fill('6,00');
 await p.getByLabel(/Alíquota do ISS no Simples/).fill('2,00');
 await foto('20-perfil-me-epp');
-await p.getByRole('button', { name: 'Salvar perfil' }).click();
+await p.getByRole('button', { name: 'Cadastrar empresa' }).click();
 await p.waitForLoadState('load'); await esperar('Certificado digital');
 await p.getByLabel('Arquivo do certificado A1').setInputFiles(join(tmpdir(), 'notavez-certificado-DEMO.pfx'));
 await p.getByLabel('Senha do certificado').fill('demo1234');
-await p.locator('#consentimento').check();
+await p.getByLabel(/Autorizo o Nota Sem Stress a guardar/).check();
 await p.getByRole('button', { name: 'Enviar certificado' }).click();
 await esperar('Tudo pronto para emitir');
 await foto('21-perfil-me-epp-pronto');

@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS notas (
 );
 CREATE INDEX IF NOT EXISTS ix_notas_prestador ON notas(prestador_id, atualizado_em);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(chave_indice) WHERE chave_indice IS NOT NULL;
+-- A mesma NFS-e pode estar em mais de uma conta (dono e contador): única por empresa.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(prestador_id, chave_indice) WHERE chave_indice IS NOT NULL;
 
 -- Numeração da DPS por EMITENTE (índice cego do CNPJ/CPF), ambiente e série.
 -- Duas contas com o mesmo CNPJ compartilham a sequência (evita E0014). Nunca reutilizada.
@@ -156,3 +157,54 @@ CREATE TABLE IF NOT EXISTS parametros_municipais_cache (
   dados TEXT NOT NULL,
   obtido_em TEXT NOT NULL
 );
+
+-- NFS-e recebidas: a empresa é a TOMADORA. Baixadas do ADN (distribuição por NSU)
+-- com o certificado da própria empresa; o XML oficial é guardado cifrado.
+CREATE TABLE IF NOT EXISTS notas_tomadas (
+  id TEXT PRIMARY KEY,
+  prestador_id TEXT NOT NULL REFERENCES prestadores(id) ON DELETE CASCADE,
+  ambiente TEXT NOT NULL,
+  nsu INTEGER NOT NULL,
+  chave_cifrada TEXT NOT NULL,
+  chave_indice TEXT NOT NULL,
+  resumo_cifrado TEXT NOT NULL,     -- {emitente, descricao, servico, municípios}
+  n_nfse TEXT,
+  competencia TEXT,
+  emitida_em TEXT,
+  valor TEXT,
+  valor_liquido TEXT,
+  iss_retido INTEGER NOT NULL DEFAULT 0,
+  situacao TEXT NOT NULL DEFAULT 'normal',  -- normal | cancelada
+  xml_cifrado TEXT NOT NULL,
+  baixada_em TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tomadas_chave ON notas_tomadas(prestador_id, ambiente, chave_indice);
+CREATE INDEX IF NOT EXISTS ix_tomadas_prestador ON notas_tomadas(prestador_id, ambiente, competencia);
+
+-- Último NSU lido do ADN por empresa, ambiente e CNPJ consultado.
+CREATE TABLE IF NOT EXISTS distribuicao_dfe (
+  prestador_id TEXT NOT NULL REFERENCES prestadores(id) ON DELETE CASCADE,
+  ambiente TEXT NOT NULL,
+  documento_indice TEXT NOT NULL,
+  ultimo_nsu INTEGER NOT NULL DEFAULT 0,
+  sincronizado_em TEXT,
+  PRIMARY KEY (prestador_id, ambiente, documento_indice)
+);
+
+-- Certificado do procurador (escritório/contador) da conta: usado pelas empresas
+-- que concederam procuração eletrônica NFS-e no Portal de Serviços da Receita.
+CREATE TABLE IF NOT EXISTS certificados_procurador (
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  pfx_cifrado TEXT NOT NULL,
+  senha_cifrada TEXT NOT NULL,
+  titular TEXT,
+  tipo_documento TEXT,
+  documento_cifrado TEXT,
+  emissor TEXT,
+  valido_de TEXT,
+  valido_ate TEXT,
+  criado_em TEXT NOT NULL,
+  removido_em TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_cert_procurador_usuario ON certificados_procurador(usuario_id, removido_em);

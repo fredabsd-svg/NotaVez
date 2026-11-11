@@ -28,6 +28,11 @@ export const data = (iso) => {
   const [a, m, d] = String(iso).slice(0, 10).split('-');
   return `${d}/${m}/${a}`;
 };
+// Formatos do Emissor Nacional: código de tributação 01.07.01 e CEP 01001-000.
+export const codigoServico = (c) => (/^\d{6}$/.test(String(c || '')) ? String(c).replace(/^(\d{2})(\d{2})(\d{2})$/, '$1.$2.$3') : (c || ''));
+export const cep = (c) => (/^\d{8}$/.test(String(c || '')) ? String(c).replace(/^(\d{5})(\d{3})$/, '$1-$2') : (c || ''));
+// Plural de verdade: plural(3, 'nota pendente', 'notas pendentes') → "3 notas pendentes".
+export const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 export const hoje = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 export const chaveFormatada = (c) => (c ? c.replace(/(\d{4})(?=\d)/g, '$1 ') : '');
@@ -69,6 +74,12 @@ export const ICONES = {
   copiar: 'M9 9h11v11H9zM5 15H4V4h11v1',
   atualizar: 'M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5',
   documento: 'M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h5',
+  recebida: 'M6 2h9l5 5v15H6zM14 2v6h6M12 11v7M9 15l3 3 3-3',
+  empresa: 'M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 9h4a1 1 0 011 1v11M3 21h18M8 8h3M8 12h3M8 16h3',
+  rascunho: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+  ajustes: 'M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4',
+  servico: 'M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
+  busca: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5',
 };
 
 // Campo de formulário com rótulo, ajuda e mensagem de erro associadas (acessível).
@@ -136,4 +147,23 @@ export function buscaComSugestoes({ rotulo, ajuda, placeholder, buscar, formatar
   });
   c.append(lista);
   return c;
+}
+
+// Copia para a área de transferência e confirma no próprio botão.
+export async function copiarTexto(texto, botao) {
+  try {
+    await navigator.clipboard.writeText(texto);
+  } catch {
+    const area = h('textarea', { style: 'position:fixed;opacity:0' });
+    area.value = texto;
+    document.body.append(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+  if (botao) {
+    const antes = botao.textContent;
+    botao.textContent = 'Copiado ✓';
+    setTimeout(() => { botao.textContent = antes; }, 1500);
+  }
 }

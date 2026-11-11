@@ -37,6 +37,14 @@ export const config = {
     retencao: process.env.NOTAVEZ_RETENCAO || '',
   },
   assetlinksArquivo: process.env.NOTAVEZ_ASSETLINKS_FILE || '',
+  // Entrar com gov.br (Login Único): credenciais concedidas pelo governo para a URL de retorno
+  // (…/api/conta/govbr/retorno). Sem elas, o botão gov.br não aparece.
+  govbr: {
+    clientId: process.env.NOTAVEZ_GOVBR_CLIENT_ID || '',
+    clientSecret: process.env.NOTAVEZ_GOVBR_CLIENT_SECRET || '',
+    redirectUri: process.env.NOTAVEZ_GOVBR_REDIRECT_URI || '',
+    base: process.env.NOTAVEZ_GOVBR_AMBIENTE === 'staging' ? 'https://sso.staging.acesso.gov.br' : 'https://sso.acesso.gov.br',
+  },
   bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './notavez.db'),
   // 'producao_restrita' (homologação) é o padrão. Produção só com liberação explícita.
   ambientePadrao: 'producao_restrita',

@@ -73,6 +73,19 @@ Para **Lucro Presumido/Real**, use `NOTAVEZ_REGIME=nao-optante` (opcionais: `NOT
 
 Para **ME/EPP** (CNPJ optante do Simples, em município conveniado), acrescente `NOTAVEZ_REGIME=me-epp NOTAVEZ_PTOTTRIBSN=6.00` (e, se for o caso, `NOTAVEZ_REGAPTRIBSN=2`). O script consulta o convênio do município (caso 0) e, no caso 5, espera **E0625** (alíquota sem retenção) em vez de E0600.
 
+**Por procuração eletrônica (escritório/contador, desde 01/11/2026):** use o certificado do escritório (e-CNPJ) ou do contador (e-CPF) e informe a empresa cliente que concedeu a procuração NFS-e no Portal de Serviços da Receita:
+
+```bash
+NOTAVEZ_CERT_PFX=/caminho/certificado-escritorio.pfx \
+NOTAVEZ_CERT_SENHA='senha' \
+NOTAVEZ_EMITENTE_CNPJ=<CNPJ da empresa cliente> \
+NOTAVEZ_MUNICIPIO_IBGE=<IBGE do município da empresa cliente> \
+NOTAVEZ_SEM_PROCURACAO_CNPJ=<CNPJ de uma empresa que NÃO deu procuração> \
+npm run homologacao
+```
+
+Os casos 1 a 7 rodam em nome da empresa cliente; o **caso 7** lê o ADN (notas tomadas) com `cnpjConsulta` da empresa; o **caso 8** confirma que a Receita **recusa** emitir por quem não deu procuração e registra o código de rejeição usado (ainda não documentado).
+
 O script usa sempre `tpAmb = 2` (sem validade jurídica), a série 900 e números de DPS derivados do horário, para não colidir com execuções anteriores. Ele grava o XML e um relatório `.md` em `server/homologacao-saida/`.
 
 | Caso | Esperado |

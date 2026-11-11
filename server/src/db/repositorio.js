@@ -4,6 +4,9 @@ import { ErroApp } from '../util/erros.js';
 import { XMLParser } from 'fast-xml-parser';
 import { cifrar, decifrar, decifrarJson, indiceCego } from '../security/cripto.js';
 
+// O CN do ICP-Brasil é "NOME:CPF" ou "RAZÃO:CNPJ": guarda só o nome (o documento já vai cifrado).
+export const nomeTitular = (cn) => String(cn || '').replace(/:[0-9A-Z]{11,14}$/i, '').trim() || null;
+
 // Bancos anteriores não tinham snapshot. A identidade só pode vir da DPS
 // persistida, nunca do perfil atual (que pode ter mudado desde o envio).
 function contextoLegado(row) {
@@ -31,6 +34,7 @@ export function criarRepositorio(db) {
     ...(decifrarJson(row.contato_cifrado) || {}),
     serieDps: row.serie_dps,
     ambiente: row.ambiente,
+    usaProcuracao: !!row.usa_procuracao,
     ...(row.config_fiscal ? JSON.parse(row.config_fiscal) : {}),
   };
 
@@ -69,16 +73,64 @@ export function criarRepositorio(db) {
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
     versao: row.versao,
+    canal: row.canal ?? null,
+    importadaConferida: !!row.importada_conferida,
+  };
+
+  const tomadaDe = (row) => row && {
+    id: row.id, ambiente: row.ambiente, nsu: row.nsu, chaveAcesso: decifrar(row.chave_cifrada), ...decifrarJson(row.resumo_cifrado),
+    nNfse: row.n_nfse, competencia: row.competencia, emitidaEm: row.emitida_em, valor: row.valor, valorLiquido: row.valor_liquido,
+    issRetido: !!row.iss_retido, situacao: row.situacao, baixadaEm: row.baixada_em,
   };
 
   return {
     // ---------- prestador ----------
     prestadorDoUsuario: (usuarioId) => prestadorDe(db.get('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId)),
     prestador: (id) => prestadorDe(db.get('SELECT * FROM prestadores WHERE id = ?', id)),
-    salvarPrestador(usuarioId, p) {
-      const atual = db.get('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY criado_em LIMIT 1', usuarioId);
+    // Toda seleção de empresa passa pelo dono: o id vindo do app nunca basta.
+    prestadorDoUsuarioPorId: (usuarioId, id) => prestadorDe(db.get('SELECT * FROM prestadores WHERE usuario_id = ? AND id = ?', usuarioId, String(id ?? ''))),
+    contarPrestadores: (usuarioId) => db.get('SELECT count(*) n FROM prestadores WHERE usuario_id = ?', usuarioId).n,
+    prestadorPorDocumento: (usuarioId, documento) => prestadorDe(db.get('SELECT * FROM prestadores WHERE usuario_id = ? AND documento_indice = ?', usuarioId, indiceCego(documento))),
+    // Lista de empresas da conta com os números de cada uma (uma consulta por tabela, não por empresa).
+    listarPrestadores(usuarioId) {
+      const certs = new Map(db.all(`SELECT c.prestador_id, c.valido_ate FROM certificados c JOIN prestadores p ON p.id = c.prestador_id
+        WHERE p.usuario_id = ? AND c.removido_em IS NULL`, usuarioId).map((r) => [r.prestador_id, r.valido_ate]));
+      const notas = new Map(db.all(`SELECT n.prestador_id,
+          sum(n.situacao = 'rascunho') rascunhos, sum(n.situacao IN ('pendente','enviando')) pendentes,
+          sum(n.situacao = 'emitida' AND substr(n.competencia, 1, 7) = ?) emitidas_mes,
+          max(n.emitida_em) ultima_emissao
+        FROM notas n JOIN prestadores p ON p.id = n.prestador_id WHERE p.usuario_id = ? GROUP BY n.prestador_id`, agora().slice(0, 7), usuarioId).map((r) => [r.prestador_id, r]));
+      // Mesmo critério da tela de tomadas: só as do ambiente atual da empresa.
+      const tomadas = new Map(db.all(`SELECT t.prestador_id, count(*) n FROM notas_tomadas t JOIN prestadores p ON p.id = t.prestador_id
+        WHERE p.usuario_id = ? AND t.ambiente = p.ambiente GROUP BY t.prestador_id`, usuarioId).map((r) => [r.prestador_id, r.n]));
+      const procurador = db.get('SELECT valido_ate FROM certificados_procurador WHERE usuario_id = ? AND removido_em IS NULL ORDER BY criado_em DESC LIMIT 1', usuarioId);
+      return db.all('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY lower(nome), criado_em', usuarioId).map((row) => {
+        const n = notas.get(row.id) || {};
+        return {
+          ...prestadorDe(row), certificadoValidoAte: (row.usa_procuracao ? procurador?.valido_ate : certs.get(row.id)) || null,
+          rascunhos: n.rascunhos || 0, pendentes: n.pendentes || 0, emitidasNoMes: n.emitidas_mes || 0, ultimaEmissao: n.ultima_emissao || null,
+          tomadas: tomadas.get(row.id) || 0,
+        };
+      });
+    },
+    // prestadorId nulo cria uma empresa nova na conta.
+    salvarPrestador(usuarioId, prestadorId, p) {
+      const atual = prestadorId ? db.get('SELECT * FROM prestadores WHERE usuario_id = ? AND id = ?', usuarioId, prestadorId) : null;
+      if (prestadorId && !atual) throw new ErroApp(404, 'Empresa não encontrada.');
+      const outra = db.get('SELECT id FROM prestadores WHERE usuario_id = ? AND documento_indice = ?', usuarioId, indiceCego(p.documento));
+      if (outra && outra.id !== atual?.id) throw new ErroApp(409, 'Este CNPJ já está cadastrado na sua conta.', { campos: { documento: 'Este CNPJ já está cadastrado na sua conta.' }, empresaId: outra.id });
       if (atual && prestadorDe(atual).documento !== p.documento && db.all("SELECT * FROM notas WHERE prestador_id = ? AND situacao IN ('pendente','enviando')", atual.id).some((n) => notaDe(n).contextoEmitente?.documento !== p.documento)) {
         throw new ErroApp(409, 'Verifique as notas pendentes antes de mudar o CNPJ do perfil.');
+      }
+      // Com histórico fiscal (notas enviadas ou tomadas) ou certificado do CNPJ, o CNPJ não muda:
+      // o histórico e o certificado pertencem ao CNPJ antigo. Outro CNPJ = outra empresa.
+      if (atual && prestadorDe(atual).documento !== p.documento && (
+        // Rejeitada não conta: a própria rejeição (ex.: E0082) pode mandar corrigir o CNPJ.
+        db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao NOT IN ('rascunho','rejeitada') LIMIT 1", atual.id)
+        || db.get('SELECT 1 FROM notas_tomadas WHERE prestador_id = ? LIMIT 1', atual.id)
+        || db.get('SELECT 1 FROM certificados WHERE prestador_id = ? AND removido_em IS NULL LIMIT 1', atual.id))) {
+        throw new ErroApp(409, 'Esta empresa já tem notas ou certificado deste CNPJ e o CNPJ não pode ser trocado. Cadastre o novo CNPJ como outra empresa em Empresas › Adicionar empresa.',
+          { campos: { documento: 'O CNPJ não pode mudar depois de notas emitidas, notas tomadas ou certificado. Cadastre como outra empresa.' } });
       }
       const campos = [
         p.tipoDocumento, cifrar(p.documento), indiceCego(p.documento), p.nome, p.municipioIbge, p.opSimpNac, p.regEspTrib ?? '0',
@@ -96,6 +148,18 @@ export function criarRepositorio(db) {
       ...campos, id, usuarioId, agora());
       return id;
     },
+    // Só sai da conta a empresa que nunca enviou nota à Receita (o histórico fiscal fica).
+    removerPrestador(usuarioId, id) {
+      return db.transacao(() => {
+        const p = db.get('SELECT id FROM prestadores WHERE usuario_id = ? AND id = ?', usuarioId, id);
+        if (!p) throw new ErroApp(404, 'Empresa não encontrada.');
+        if (db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao <> 'rascunho' LIMIT 1", id)) {
+          throw new ErroApp(409, 'Esta empresa já enviou notas à Receita e não pode ser removida. O histórico fiscal precisa ficar guardado.');
+        }
+        db.run("UPDATE certificados SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '', titular = NULL WHERE prestador_id = ?", agora(), id);
+        db.run('DELETE FROM prestadores WHERE id = ?', id);
+      });
+    },
 
     // ---------- certificado ----------
     certificadoAtivo(prestadorId) {
@@ -104,15 +168,44 @@ export function criarRepositorio(db) {
     },
     salvarCertificado(prestadorId, { pfx, senha, info }) {
       return db.transacao(() => {
-        db.run('UPDATE certificados SET removido_em = ?, pfx_cifrado = ?, senha_cifrada = ? WHERE prestador_id = ? AND removido_em IS NULL', agora(), '', '', prestadorId);
+        db.run('UPDATE certificados SET removido_em = ?, pfx_cifrado = ?, senha_cifrada = ?, titular = NULL WHERE prestador_id = ? AND removido_em IS NULL', agora(), '', '', prestadorId);
         const id = novoId();
         db.run(`INSERT INTO certificados (id, prestador_id, pfx_cifrado, senha_cifrada, titular, documento_cifrado, emissor, valido_de, valido_ate, criado_em)
-          VALUES (?,?,?,?,?,?,?,?,?,?)`, id, prestadorId, cifrar(pfx), cifrar(senha), info.titular, cifrar(info.cnpj || info.cpf || ''), info.emissor, info.validoDe, info.validoAte, agora());
+          VALUES (?,?,?,?,?,?,?,?,?,?)`, id, prestadorId, cifrar(pfx), cifrar(senha), nomeTitular(info.titular), cifrar(info.cnpj || info.cpf || ''), info.emissor, info.validoDe, info.validoAte, agora());
         return id;
       });
     },
+    // ---------- certificado do procurador (conta) ----------
+    certificadoProcurador(usuarioId) {
+      const r = db.get('SELECT * FROM certificados_procurador WHERE usuario_id = ? AND removido_em IS NULL ORDER BY criado_em DESC LIMIT 1', usuarioId);
+      return r && { id: r.id, procurador: true, titular: r.titular, emissor: r.emissor, tipoDocumento: r.tipo_documento, documento: decifrar(r.documento_cifrado),
+        validoDe: r.valido_de, validoAte: r.valido_ate, criadoEm: r.criado_em, _pfx: r.pfx_cifrado, _senha: r.senha_cifrada };
+    },
+    salvarCertificadoProcurador(usuarioId, { pfx, senha, info }) {
+      return db.transacao(() => {
+        db.run("UPDATE certificados_procurador SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '', titular = NULL WHERE usuario_id = ? AND removido_em IS NULL", agora(), usuarioId);
+        const id = novoId();
+        db.run(`INSERT INTO certificados_procurador (id, usuario_id, pfx_cifrado, senha_cifrada, titular, tipo_documento, documento_cifrado, emissor, valido_de, valido_ate, criado_em)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`, id, usuarioId, cifrar(pfx), cifrar(senha), nomeTitular(info.titular), info.cnpj ? 'CNPJ' : 'CPF', cifrar(info.cnpj || info.cpf), info.emissor, info.validoDe, info.validoAte, agora());
+        return id;
+      });
+    },
+    removerCertificadoProcurador: (usuarioId) => db.run("UPDATE certificados_procurador SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '', titular = NULL WHERE usuario_id = ? AND removido_em IS NULL", agora(), usuarioId),
+    // Certificado que assina e conecta pela empresa: o dela ou, com procuração, o do procurador da conta.
+    certificadoEmissao(prestador) {
+      if (!prestador) return null;
+      // Sempre pelo cadastro atual (a nota pode carregar um retrato antigo da empresa).
+      const atual = prestadorDe(db.get('SELECT * FROM prestadores WHERE id = ?', prestador.id)) || prestador;
+      if (!atual) return null;
+      if (atual.usaProcuracao) return this.certificadoProcurador(atual.usuarioId);
+      return this.certificadoAtivo(atual.id);
+    },
+    definirProcuracao(usuarioId, prestadorId, ativa) {
+      const r = db.run('UPDATE prestadores SET usa_procuracao = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ativa ? 1 : 0, agora(), usuarioId, prestadorId);
+      if (r.changes !== 1) throw new ErroApp(404, 'Empresa não encontrada.');
+    },
     // Remoção apaga o material criptográfico (não só marca).
-    removerCertificado: (prestadorId) => db.run("UPDATE certificados SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '' WHERE prestador_id = ? AND removido_em IS NULL", agora(), prestadorId),
+    removerCertificado: (prestadorId) => db.run("UPDATE certificados SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '', titular = NULL WHERE prestador_id = ? AND removido_em IS NULL", agora(), prestadorId),
 
     // ---------- clientes ----------
     listarClientes: (prestadorId) => db.all('SELECT * FROM clientes WHERE prestador_id = ? ORDER BY COALESCE(usado_em, atualizado_em) DESC', prestadorId).map(clienteDe),
@@ -150,13 +243,17 @@ export function criarRepositorio(db) {
     // ---------- notas ----------
     nota: (prestadorId, id) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id = ?', prestadorId, id)),
     notaPorId: (id) => notaDe(db.get('SELECT * FROM notas WHERE id = ?', id)),
-    listarNotas(prestadorId, { situacao, limite = 50, antesDe } = {}) {
+    listarNotas(prestadorId, { situacao, limite = 50, antesDe, competencia } = {}) {
       const where = ['prestador_id = ?'];
       const p = [prestadorId];
       if (situacao) { where.push('situacao = ?'); p.push(situacao); }
+      if (competencia) { where.push('substr(competencia, 1, 7) = ?'); p.push(competencia); }
       if (antesDe) { where.push('atualizado_em < ?'); p.push(antesDe); }
       return db.all(`SELECT * FROM notas WHERE ${where.join(' AND ')} ORDER BY atualizado_em DESC LIMIT ?`, ...p, limite).map(notaDe);
     },
+    // Competências (AAAA-MM) com notas, da mais recente para a mais antiga: o filtro de mês da lista.
+    mesesDasNotas: (prestadorId, situacao) => db.all(`SELECT DISTINCT substr(competencia, 1, 7) AS mes FROM notas WHERE prestador_id = ? AND competencia IS NOT NULL${situacao ? ' AND situacao = ?' : ''} ORDER BY mes DESC`,
+      ...[prestadorId, ...(situacao ? [situacao] : [])]).map((r) => r.mes),
     // "Última nota" para clonar: a emissão confirmada mais recente.
     ultimaEmitida: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao = 'emitida' ORDER BY emitida_em DESC LIMIT 1", prestadorId)),
     ultimaEnviada: (prestadorId) => notaDe(db.get("SELECT * FROM notas WHERE prestador_id = ? AND situacao IN ('emitida','rejeitada','pendente','enviando') ORDER BY COALESCE(ultimo_envio_em, atualizado_em) DESC LIMIT 1", prestadorId)),
@@ -177,6 +274,35 @@ export function criarRepositorio(db) {
         WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada') AND versao = ?`,
       cifrar(rascunho), rascunho.valor ?? null, rascunho.competencia ?? null, agora(), prestadorId, id, versao);
       return r.changes === 1;
+    },
+    // Nota emitida pela própria pessoa no Emissor Nacional (XML importado). Com
+    // notaId, o rascunho que gerou o roteiro passa a ser a nota emitida.
+    notaPorIdDps: (prestadorId, idDps) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id_dps_indice = ?', prestadorId, indiceCego(idDps))),
+    removerImportadaDuplicada: (prestadorId, chave, exceto) => db.run("DELETE FROM notas WHERE prestador_id = ? AND chave_indice = ? AND canal = 'emissor_nacional' AND id <> ?", prestadorId, indiceCego(chave), exceto),
+    // Nota importada "não conferida" que agora foi conferida: guarda a versão oficial.
+    // Tudo o que aparece na tela (valor, tomador, descrição, competência) passa a vir do XML oficial.
+    reconferirImportada: (prestadorId, id, { xml, nNfse, emitidaEm, rascunho, ambiente }) => db.run(`UPDATE notas SET nfse_xml_cifrado = ?, n_nfse = ?, emitida_em = ?,
+      rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?, importada_conferida = 1,
+      atualizado_em = ?, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND canal = 'emissor_nacional' AND importada_conferida = 0`,
+    cifrar(xml), nNfse, emitidaEm, cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, agora(), prestadorId, id).changes === 1,
+    registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto, conferida = false }) {
+      // Só dentro da empresa: a mesma NFS-e pode estar também na conta do contador ou do dono.
+      const minha = db.get('SELECT id FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chaveAcesso));
+      if (minha) throw new ErroApp(409, 'Esta NFS-e já está no histórico.', { notaId: minha.id });
+      const campos = [cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, cifrar(contexto),
+        cifrar(chaveAcesso), indiceCego(chaveAcesso), nNfse, cifrar(xml), emitidaEm, agora(), conferida ? 1 : 0];
+      if (notaId) {
+        const r = db.run(`UPDATE notas SET situacao = 'emitida', canal = 'emissor_nacional', rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?,
+          contexto_emitente_cifrado = ?, chave_cifrada = ?, chave_indice = ?, n_nfse = ?, nfse_xml_cifrado = ?, emitida_em = ?, atualizado_em = ?,
+          importada_conferida = ?, erros_json = NULL, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')`, ...campos, prestadorId, notaId);
+        if (r.changes !== 1) throw new ErroApp(409, 'Esta nota não é mais um rascunho. Atualize a tela.');
+        return notaId;
+      }
+      const id = novoId();
+      db.run(`INSERT INTO notas (rascunho_cifrado, valor, competencia, ambiente, contexto_emitente_cifrado, chave_cifrada, chave_indice, n_nfse,
+        nfse_xml_cifrado, emitida_em, atualizado_em, importada_conferida, id, prestador_id, situacao, canal, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'emitida','emissor_nacional',?)`,
+      ...campos, id, prestadorId, agora());
+      return id;
     },
     removerRascunho: (prestadorId, id) => db.run("DELETE FROM notas WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')", prestadorId, id).changes === 1,
     xmlDps: (id) => decifrar(db.get('SELECT dps_xml_cifrado x FROM notas WHERE id = ?', id)?.x),
@@ -209,7 +335,12 @@ export function criarRepositorio(db) {
       if (esperado.versao !== undefined) { condicoes.push('versao = ?'); parametros.push(esperado.versao); }
       if (esperado.token !== undefined) { condicoes.push('processamento_token = ?'); parametros.push(esperado.token); }
       if (esperado.prestadorVersao !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM prestadores p WHERE p.id = notas.prestador_id AND p.versao = ?)'); parametros.push(esperado.prestadorVersao); }
-      if (esperado.certificadoId !== undefined) { condicoes.push('EXISTS (SELECT 1 FROM certificados c WHERE c.id = ? AND c.prestador_id = notas.prestador_id AND c.removido_em IS NULL)'); parametros.push(esperado.certificadoId); }
+      if (esperado.certificadoId !== undefined) {
+        // O certificado precisa continuar sendo o de emissão desta empresa: o dela ou, com procuração, o do procurador.
+        condicoes.push(`(EXISTS (SELECT 1 FROM certificados c JOIN prestadores p ON p.id = c.prestador_id WHERE c.id = ? AND c.prestador_id = notas.prestador_id AND c.removido_em IS NULL AND p.usa_procuracao = 0)
+          OR EXISTS (SELECT 1 FROM certificados_procurador cp JOIN prestadores p ON p.usuario_id = cp.usuario_id WHERE cp.id = ? AND p.id = notas.prestador_id AND p.usa_procuracao = 1 AND cp.removido_em IS NULL))`);
+        parametros.push(esperado.certificadoId, esperado.certificadoId);
+      }
       return db.run(`UPDATE notas SET ${sets.join(', ')} WHERE id = ? AND situacao IN (${origem.map(() => '?').join(',')}) ${condicoes.length ? `AND ${condicoes.join(' AND ')}` : ''}`, ...vals, id, ...origem, ...parametros).changes === 1;
     },
 
@@ -224,6 +355,31 @@ export function criarRepositorio(db) {
       });
     },
     notaPorChave: (prestadorId, chave) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chave))),
+
+    // ---------- notas tomadas (recebidas pela empresa) ----------
+    distribuicao(prestadorId, ambiente, documento) {
+      const r = db.get('SELECT ultimo_nsu, sincronizado_em FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));
+      return { ultimoNsu: r?.ultimo_nsu ?? 0, sincronizadoEm: r?.sincronizado_em ?? null };
+    },
+    gravarDistribuicao: (prestadorId, ambiente, documento, ultimoNsu) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, sincronizado_em) VALUES (?,?,?,?,?)
+      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET ultimo_nsu = max(ultimo_nsu, excluded.ultimo_nsu), sincronizado_em = excluded.sincronizado_em`,
+    prestadorId, ambiente, indiceCego(`nsu:${documento}`), ultimoNsu, agora()),
+    // Idempotente: a mesma chave baixada de novo não duplica.
+    salvarTomada(prestadorId, ambiente, t) {
+      return db.run(`INSERT INTO notas_tomadas (id, prestador_id, ambiente, nsu, chave_cifrada, chave_indice, resumo_cifrado, n_nfse, competencia, emitida_em,
+        valor, valor_liquido, iss_retido, situacao, xml_cifrado, baixada_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+      novoId(), prestadorId, ambiente, t.nsu, cifrar(t.chaveAcesso), indiceCego(t.chaveAcesso), cifrar(t.resumo), t.nNfse, t.competencia, t.emitidaEm,
+      t.valor, t.valorLiquido, t.issRetido ? 1 : 0, t.situacao || 'normal', cifrar(t.xml), agora()).changes === 1;
+    },
+    cancelarTomada: (prestadorId, ambiente, chave) => db.run("UPDATE notas_tomadas SET situacao = 'cancelada' WHERE prestador_id = ? AND ambiente = ? AND chave_indice = ? AND situacao <> 'cancelada'",
+      prestadorId, ambiente, indiceCego(chave)).changes === 1,
+    listarTomadas(prestadorId, ambiente, { competencia } = {}) {
+      const filtro = competencia ? ' AND substr(competencia, 1, 7) = ?' : '';
+      return db.all(`SELECT * FROM notas_tomadas WHERE prestador_id = ? AND ambiente = ?${filtro} ORDER BY COALESCE(emitida_em, baixada_em) DESC LIMIT 1000`,
+        prestadorId, ambiente, ...(competencia ? [competencia] : [])).map(tomadaDe);
+    },
+    tomada: (prestadorId, id) => tomadaDe(db.get('SELECT * FROM notas_tomadas WHERE prestador_id = ? AND id = ?', prestadorId, id)),
+    xmlTomada: (prestadorId, id) => decifrar(db.get('SELECT xml_cifrado x FROM notas_tomadas WHERE prestador_id = ? AND id = ?', prestadorId, id)?.x),
 
     // Cache de parâmetros municipais (dados públicos; sem cifragem).
     parametroEmCache(chave, validadeMs) {
