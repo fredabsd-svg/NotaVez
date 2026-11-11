@@ -1,4 +1,4 @@
-import { h, campo, mostrarErros, aviso, moeda, icone, ICONES, buscaComSugestoes, codigoServico } from '../ui.js';
+import { h, campo, mostrarErros, aviso, moeda, icone, ICONES, buscaComSugestoes, codigoServico, vazio } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { comCache, buscarServicoNacional, servicoNacionalPorCodigo } from '../store.js';
 import { aplicar } from '../rascunho.js';
@@ -31,7 +31,9 @@ export async function lista(_, query) {
     node: h('div', {},
       h('div', { class: 'cabecalho-acoes' }, h('p', { class: 'suave', style: 'margin:0;flex:1' }, 'Guarde os serviços que você presta com frequência. Na nota, é só escolher.'),
         h('a', { class: 'btn btn-pequeno', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço')),
-      itens.length ? h('ul', { class: 'lista duas-colunas' }, itens) : h('p', {}, 'Nenhum serviço salvo ainda.')),
+      itens.length ? h('ul', { class: 'lista' }, itens)
+        : vazio({ icone: ICONES.servico, titulo: 'Seus serviços salvos aparecem aqui', texto: 'Salve o código, a descrição e o valor de cada serviço que você presta. Na nota, um toque preenche tudo.',
+          acoes: [h('a', { class: 'btn btn-primario', href: `#/servicos/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo serviço')] })),
   };
 }
 

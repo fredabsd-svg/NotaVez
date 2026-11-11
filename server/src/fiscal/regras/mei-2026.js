@@ -9,6 +9,11 @@ export const pacote = {
   id: 'MEI-2026',
   descricao: 'MEI — regras do leiaute DPS v1.01 (sem grupos IBS/CBS, obrigatórios para o Simples só a partir de 2027)',
   aplica: ({ opSimpNac, competencia }) => opSimpNac === '2' && competencia >= '2023-09-01' && competencia <= '2026-12-31',
+  // Limite de receita bruta do MEI no ano-calendário de 2026 (LC 123/2006, art. 18-A, §§ 1º e 2º):
+  // R$ 81.000,00; no ano de abertura, R$ 6.750,00 por mês de atividade (fração de mês conta como mês).
+  // Fonte conferida em 11/11/2026: gov.br/memp/pt-br/teto-do-mei e "Perguntas e Respostas MEI e Simei" (CGSN).
+  // Vale só para 2026: o pacote de 2027 deve trazer o limite daquele ano (a LC 238/2026 prevê novos valores).
+  limiteReceitaAnual: { ano: '2026', valor: '81000.00', porMesNoAnoDeAbertura: '6750.00', base: 'LC 123/2006, art. 18-A, § 1º' },
   // O MEI dispensa convênio e parametrização municipal (E0016, E0037–E0039 "exceto MEI").
   precisaParametros: () => ({ convenioEmissor: false, convenioIncidencia: false }),
 

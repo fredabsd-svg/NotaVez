@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS notas (
   versao INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS ix_notas_prestador ON notas(prestador_id, atualizado_em);
+-- Contagens por situação e totais por competência (Início e lista de notas) sem varrer a tabela.
+CREATE INDEX IF NOT EXISTS ix_notas_prestador_situacao ON notas(prestador_id, situacao, competencia);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
 -- A mesma NFS-e pode estar em mais de uma conta (dono e contador): única por empresa.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_notas_chave ON notas(prestador_id, chave_indice) WHERE chave_indice IS NOT NULL;

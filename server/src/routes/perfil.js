@@ -6,6 +6,8 @@ import { ErroApp, invalido } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
 import { config } from '../config.js';
 import { resumoNota } from './notas.js';
+import { hojeBrasilia } from '../fiscal/dps.js';
+import { escolherPacote } from '../fiscal/regras/index.js';
 
 export function exigirPrestador(req) {
   if (!req.prestador) throw new ErroApp(409, 'Escolha ou cadastre uma empresa primeiro.', { acao: 'empresas' });
@@ -29,6 +31,29 @@ export async function elegibilidadeDe(emissao, prestador, cert) {
   let convenioEmissor = null;
   try { convenioEmissor = await emissao.convenioEmissor(prestador); } catch { /* segue como "não confirmado" */ }
   return avaliarElegibilidade(prestador, cert, { convenioEmissor });
+}
+
+// Painel do Início: o que foi emitido por competência nos últimos 6 meses e no ano, só no ambiente
+// atual da empresa. Para o MEI, vai junto o limite anual de receita do pacote de regras vigente.
+export function painelDe(repo, p, hoje = hojeBrasilia()) {
+  const ano = hoje.slice(0, 4);
+  const mesNumero = Number(hoje.slice(5, 7));
+  const meses = [];
+  for (let i = 5; i >= 0; i--) meses.push(new Date(Date.UTC(Number(ano), mesNumero - 1 - i, 1)).toISOString().slice(0, 7));
+  const de = `${meses[0] < `${ano}-01` ? meses[0] : `${ano}-01`}-01`;
+  const ate = new Date(Date.UTC(Number(ano), mesNumero, 1)).toISOString().slice(0, 10);
+  const porMes = new Map(repo.emitidasPorMes(p.id, p.ambiente, de, ate).map((r) => [r.mes, r]));
+  const reais = (centavos) => (centavos / 100).toFixed(2);
+  let centavosAno = 0;
+  let qtdAno = 0;
+  for (const [m, r] of porMes) if (m.startsWith(ano)) { centavosAno += r.centavos; qtdAno += r.qtd; }
+  const { pacote } = escolherPacote({ opSimpNac: p.opSimpNac, competencia: hoje });
+  return {
+    mes: hoje.slice(0, 7), ambiente: p.ambiente,
+    meses: meses.map((m) => ({ mes: m, total: reais(porMes.get(m)?.centavos || 0), qtd: porMes.get(m)?.qtd || 0 })),
+    ano: { ano, total: reais(centavosAno), qtd: qtdAno },
+    limiteAnual: pacote?.limiteReceitaAnual || null,
+  };
 }
 
 const pct = (v) => {
@@ -171,7 +196,8 @@ export async function rotasPerfil(app) {
     const cert = repo.certificadoEmissao(p);
     const ultima = repo.ultimaEnviada(p.id);
     const ultimaEmitida = repo.ultimaEmitida(p.id);
-    const todas = repo.listarNotas(p.id, { limite: 500 });
+    // Contagens e totais por consulta agregada: nada de carregar (e decifrar) centenas de notas para contar.
+    const porSituacao = repo.contarNotasPorSituacao(p.id);
     return {
       perfil: perfilPublico(p),
       elegibilidade: await elegibilidadeDe(emissao, p, cert),
@@ -179,8 +205,15 @@ export async function rotasPerfil(app) {
       podeClonar: !!ultimaEmitida,
       // É esta que "Clonar a última nota" copia (pode não ser a última enviada, se esta foi rejeitada).
       ultimaEmitida: ultimaEmitida && ultimaEmitida.id !== ultima?.id ? resumoNota(repo, p, ultimaEmitida) : null,
-      rascunhos: todas.filter((n) => n.situacao === 'rascunho').length,
-      pendentes: todas.filter((n) => ['pendente', 'enviando'].includes(n.situacao)).length,
+      // Para avisar com antecedência que o certificado usado na emissão está perto de vencer.
+      certificadoValidoAte: cert?.validoAte || null,
+      rascunhos: porSituacao.rascunho || 0,
+      pendentes: (porSituacao.pendente || 0) + (porSituacao.enviando || 0),
+      rejeitadas: porSituacao.rejeitada || 0,
+      emitidas: porSituacao.emitida || 0,
+      painel: painelDe(repo, p),
+      // As mais recentes de qualquer situação, para a lista curta do Início.
+      recentes: repo.listarNotas(p.id, { limite: 5 }).map((n) => resumoNota(repo, p, n)),
     };
   });
 }

@@ -140,6 +140,17 @@ test('fluxo completo: emitir, baixar XML e clonar como novo rascunho', async () 
   const inicio = await u.api('GET', '/api/inicio');
   assert.equal(inicio.body.ultima.situacao, 'emitida');
   assert.equal(inicio.body.podeClonar, true);
+  // Painel do Início: contagens e totais por consulta agregada, só do ambiente da empresa.
+  assert.equal(inicio.body.emitidas, 1);
+  assert.equal(inicio.body.rascunhos, 0);
+  assert.equal(inicio.body.pendentes, 0);
+  assert.equal(inicio.body.recentes[0].id, nota.id, 'a nota recém-emitida aparece nas recentes');
+  const painel = inicio.body.painel;
+  assert.equal(painel.meses.length, 6);
+  assert.deepEqual(painel.meses.at(-1), { mes: painel.mes, total: '350.00', qtd: 1 }, 'a competência de hoje entra no mês atual');
+  assert.deepEqual(painel.ano, { ano: painel.mes.slice(0, 4), total: '350.00', qtd: 1 });
+  assert.equal(painel.ambiente, 'producao_restrita');
+  assert.equal(painel.limiteAnual.valor, '81000.00', 'MEI: limite anual de receita do pacote de regras de 2026');
 
   // Clonar: novos identificadores, nada da situação original, revisão obrigatória.
   const c = await u.api('POST', '/api/notas/clonar-ultima');

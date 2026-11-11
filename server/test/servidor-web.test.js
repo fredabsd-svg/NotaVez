@@ -21,6 +21,10 @@ test('serve o PWA com cache correto e volta ao index nas rotas do app', async ()
   const logo = await get('/icons/logo.svg');
   assert.equal(logo.statusCode, 200);
   assert.match(logo.headers['content-type'], /image\/svg\+xml/);
+  assert.equal(logo.headers['cache-control'], 'public, max-age=86400', 'ícones ficam um dia em cache');
+  const css = await get('/css/app.css');
+  assert.equal(css.statusCode, 200);
+  assert.doesNotMatch(String(css.headers['cache-control']), /max-age=[1-9]/, 'CSS e JS não ficam presos em cache: sempre revalidam');
   const rotaDoApp = await get('/qualquer/rota');
   assert.equal(rotaDoApp.statusCode, 200);
   assert.match(rotaDoApp.body, /<!doctype html>/i);

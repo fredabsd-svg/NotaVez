@@ -165,6 +165,34 @@ test('MEI não pode ter ISS retido (E0583)', () => {
   assert.ok(pacote.validar({ prestador, nota: { ...notaBase, issRetido: true }, hoje: '2026-09-25' }).map((e) => e.regra).includes('E0583'));
 });
 
+// ---------------- Painel do Início ----------------
+import { painelDe } from '../src/routes/perfil.js';
+
+test('painel: últimos 6 meses atravessam a virada do ano e o total anual só soma o ano corrente', () => {
+  const pedidos = [];
+  const repo = { emitidasPorMes: (...a) => { pedidos.push(a); return [{ mes: '2025-12', qtd: 2, centavos: 100050 }, { mes: '2026-01', qtd: 1, centavos: 35000 }, { mes: '2026-02', qtd: 3, centavos: 120010 }]; } };
+  const p = painelDe(repo, { id: 'e1', ambiente: 'producao', opSimpNac: '2' }, '2026-02-10');
+  assert.deepEqual(pedidos[0], ['e1', 'producao', '2025-09-01', '2026-03-01'], 'busca do mês mais antigo do gráfico até o fim do mês atual');
+  assert.deepEqual(p.meses.map((m) => m.mes), ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02']);
+  assert.deepEqual(p.meses.at(-3), { mes: '2025-12', total: '1000.50', qtd: 2 });
+  assert.deepEqual(p.meses[0], { mes: '2025-09', total: '0.00', qtd: 0 }, 'mês sem nota aparece zerado');
+  assert.deepEqual(p.ano, { ano: '2026', total: '1550.10', qtd: 4 }, 'dezembro de 2025 fica fora do total de 2026');
+  assert.equal(p.limiteAnual.valor, '81000.00');
+  assert.equal(p.limiteAnual.porMesNoAnoDeAbertura, '6750.00');
+});
+
+test('painel: no fim do ano busca desde janeiro; ME/EPP e Lucro Presumido não têm limite de MEI', () => {
+  const pedidos = [];
+  const repo = { emitidasPorMes: (...a) => { pedidos.push(a); return []; } };
+  const simples = painelDe(repo, { id: 'e2', ambiente: 'producao_restrita', opSimpNac: '3' }, '2026-11-11');
+  assert.deepEqual(pedidos[0], ['e2', 'producao_restrita', '2026-01-01', '2026-12-01']);
+  assert.equal(simples.limiteAnual, null);
+  assert.deepEqual(simples.ano, { ano: '2026', total: '0.00', qtd: 0 });
+  assert.equal(painelDe(repo, { id: 'e3', ambiente: 'producao', opSimpNac: '1' }, '2026-11-11').limiteAnual, null);
+  // Sem pacote de regras para a data (2027 ainda não publicado no app): o painel segue, sem limite.
+  assert.equal(painelDe(repo, { id: 'e4', ambiente: 'producao', opSimpNac: '2' }, '2027-01-05').limiteAnual, null);
+});
+
 // ---------------- Lucro Presumido / Real ----------------
 import { pacote as naoOptante, tipoRetencaoPisCofins } from '../src/fiscal/regras/nao-optante-2026.js';
 import { resolverIbsCbs, inicioObrigatoriedade } from '../src/fiscal/ibscbs.js';

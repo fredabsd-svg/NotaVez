@@ -36,6 +36,18 @@ export const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 export const hoje = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
 export const chaveFormatada = (c) => (c ? c.replace(/(\d{4})(?=\d)/g, '$1 ') : '');
+// "2026-11" → "novembro de 2026" (ou "nov", na forma curta dos gráficos).
+export const nomeMes = (m, { curto = false } = {}) => {
+  const [a, mm] = String(m || '').split('-').map(Number);
+  if (!a || !mm) return '';
+  const d = new Date(a, mm - 1, 1);
+  return curto ? d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') : d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+};
+// Iniciais para o círculo ao lado do nome ("Padaria Pão Quente Ltda" → "PP").
+export const iniciais = (nome) => {
+  const p = String(nome || '').trim().split(/\s+/).filter((x) => /^[\p{L}\p{N}]/u.test(x) && !/^(de|da|do|das|dos|e)$/i.test(x));
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '?';
+};
 
 export function mascaraDocumento(v) {
   const s = String(v || '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
@@ -84,7 +96,8 @@ export const ICONES = {
 
 // Campo de formulário com rótulo, ajuda e mensagem de erro associadas (acessível).
 let seq = 0;
-export function campo({ rotulo, ajuda, erro, tipo = 'text', valor = '', nome, oninput, onchange, atributos = {}, area = false, opcoes }) {
+// `rotuloOculto`: rótulo só para leitores de tela (busca e filtros de lista, que já se explicam pelo conteúdo).
+export function campo({ rotulo, ajuda, erro, tipo = 'text', valor = '', nome, oninput, onchange, atributos = {}, area = false, opcoes, rotuloOculto = false }) {
   const id = `c${++seq}`;
   const idAjuda = ajuda ? `${id}-a` : undefined;
   const idErro = `${id}-e`;
@@ -104,7 +117,7 @@ export function campo({ rotulo, ajuda, erro, tipo = 'text', valor = '', nome, on
   }
   const msgErro = h('p', { class: 'erro-campo', id: idErro, hidden: !erro }, erro || '');
   const wrap = h('div', { class: 'campo' },
-    h('label', { for: id }, rotulo, ajuda ? h('span', { class: 'ajuda', id: idAjuda }, ajuda) : null),
+    h('label', { for: id, class: rotuloOculto ? 'visualmente-oculto' : null }, rotulo, ajuda ? h('span', { class: 'ajuda', id: idAjuda }, ajuda) : null),
     entrada, msgErro);
   wrap.entrada = entrada;
   wrap.erro = (m) => {
@@ -128,6 +141,30 @@ export const situacaoSelo = (n) => h('span', { class: `situacao s-${n.situacao}`
 
 export function carregando(texto = 'Carregando…') {
   return h('div', { class: 'carregando', role: 'status' }, h('div', { class: 'girando', 'aria-hidden': 'true' }), texto);
+}
+
+// Esqueleto de uma tela comum (título e linhas): só é mostrado quando a tela demora a chegar.
+export function esqueleto() {
+  return h('div', { class: 'esqueleto', role: 'status', 'aria-label': 'Carregando…' },
+    h('div', { class: 'esq esq-titulo' }), h('div', { class: 'esq esq-curta' }),
+    h('div', { class: 'esq esq-bloco' }), h('div', { class: 'esq esq-bloco' }), h('div', { class: 'esq esq-bloco' }));
+}
+
+// Lista vazia: diz o que vai aparecer ali e oferece o próximo passo (nunca só "nada aqui").
+export function vazio({ icone: ic = ICONES.documento, titulo, texto, acoes = [] }) {
+  return h('div', { class: 'vazio' },
+    h('div', { class: 'vazio-icone', 'aria-hidden': 'true' }, icone(ic)),
+    h('p', { class: 'vazio-titulo' }, titulo),
+    texto ? h('p', { class: 'vazio-texto' }, texto) : null,
+    acoes);
+}
+
+// Entrega um arquivo gerado no aparelho (ex.: a lista de notas em CSV).
+export function baixarArquivo(nome, conteudo, tipo) {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
+  const a = h('a', { href: url, download: nome });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 // Busca com sugestões (usada para município e serviço nacional).

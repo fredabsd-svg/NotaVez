@@ -1,9 +1,10 @@
 // Notas tomadas: NFS-e que fornecedores emitiram para a empresa ativa,
 // baixadas do Ambiente de Dados Nacional com o certificado da empresa.
-import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico } from '../ui.js';
+import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico, vazio } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade } from '../api.js';
 import { comCache } from '../store.js';
 import { ir } from '../app.js';
+import { partesDaLinha } from './historico.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const mesAtual = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 7);
@@ -27,15 +28,17 @@ async function baixar(t, tipo, { abrir = false } = {}) {
 export async function lista(_, query) {
   const mes = /^\d{4}-\d{2}$/.test(query.mes || '') ? query.mes : '';
   const dados = await comCache(`tomadas:${mes}`, () => api('GET', `/api/tomadas${mes ? `?competencia=${mes}` : ''}`));
-  const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
+  const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
+  const semItens = h('div', {});
   const contador = h('p', { class: 'suave', role: 'status' });
+  const cabecalho = h('div', { class: 'cab-notas com-doc', 'aria-hidden': 'true' },
+    h('span', {}, 'Fornecedor'), h('span', { class: 'ln-doc' }, 'CNPJ/CPF'), h('span', { class: 'ln-num' }, 'Número'), h('span', {}, 'Competência'), h('span', {}, 'Situação'), h('span', {}, 'Valor'));
 
-  const item = (t) => h('li', {}, h('a', { class: 'item', href: `#/tomadas/${t.id}` },
-    h('div', { class: 'item-corpo' },
-      h('div', { class: 'item-titulo' }, t.emitente?.nome || 'Fornecedor'),
-      h('div', { class: 'item-sub item-sub-quebra' }, [t.nNfse ? `NFS-e nº ${t.nNfse}` : null, data(t.competencia), t.emitente?.documentoFormatado].filter(Boolean).join(' · ')),
-      h('div', { class: 'marcadores', style: 'margin-top:6px' }, selo(t), t.issRetido ? h('span', { class: 'marcador marcador-alerta' }, 'ISS retido') : null, t.homologacao ? h('span', { class: 'marcador' }, 'Testes') : null)),
-    h('div', { class: 'item-valor' }, moeda(t.valor))));
+  // Mesma linha das notas emitidas: fornecedor e valor em destaque; número, competência e situação como apoio.
+  const item = (t) => h('li', {}, h('a', { class: 'linha-nota com-doc', href: `#/tomadas/${t.id}` },
+    partesDaLinha({ cliente: t.emitente?.nome || 'Fornecedor', documento: t.emitente?.documentoFormatado || '', numero: t.nNfse ? `NFS-e nº ${t.nNfse}` : '', competencia: data(t.competencia),
+      situacao: h('span', { class: 'marcadores' }, selo(t), t.issRetido ? h('span', { class: 'marcador marcador-alerta' }, 'ISS retido') : null, t.homologacao ? h('span', { class: 'marcador' }, 'Testes') : null),
+      valor: moeda(t.valor) })));
 
   function mostrar(q = '') {
     const s = semAcento(q).trim();
@@ -44,7 +47,12 @@ export async function lista(_, query) {
       || (dig.length >= 3 && [t.emitente?.documentoFormatado, t.nNfse, t.chaveAcesso].some((x) => semAcento(x).replace(/[^0-9a-z]/g, '').includes(dig))));
     contador.textContent = plural(visiveis.length, 'nota', 'notas');
     ul.replaceChildren(...visiveis.map(item));
-    if (!visiveis.length) ul.append(h('li', { class: 'suave' }, dados.tomadas.length ? 'Nenhuma nota encontrada.' : dados.temCertificado ? 'Nenhuma nota tomada baixada ainda. Toque em "Buscar notas na Receita".' : 'Nenhuma nota tomada baixada ainda. Envie o certificado (acima) para buscar as notas na Receita.'));
+    cabecalho.hidden = !visiveis.length;
+    semItens.replaceChildren(...(visiveis.length ? [] : [dados.tomadas.length
+      ? vazio({ icone: ICONES.busca, titulo: 'Nenhuma nota encontrada', texto: 'Confira o fornecedor, o CNPJ, o número ou a chave digitados.' })
+      : vazio({ icone: ICONES.recebida, titulo: mes ? 'Nenhuma nota recebida nesta competência' : 'As notas recebidas aparecem aqui',
+        texto: dados.temCertificado ? 'Toque em "Buscar notas na Receita" para trazer as notas que fornecedores emitiram para esta empresa.'
+          : 'Envie o certificado (acima) para buscar na Receita as notas que fornecedores emitiram para esta empresa.' })]));
   }
   mostrar();
 
@@ -71,9 +79,13 @@ export async function lista(_, query) {
   if (mes && !ultimos.includes(mes)) ultimos.push(mes);
   const rotuloMes = (m) => (m === mesAtual() ? `Este mês (${nomeMes(m)})` : m === mesAnterior() ? `Mês passado (${nomeMes(m)})` : nomeMes(m));
   const filtroMes = campo({
-    rotulo: 'Competência', valor: mes, opcoes: [['', 'Todas as competências'], ...ultimos.map((m) => [m, rotuloMes(m)])],
+    rotulo: 'Competência', rotuloOculto: true, valor: mes, opcoes: [['', 'Todas as competências'], ...ultimos.map((m) => [m, rotuloMes(m)])],
     onchange: (e) => ir(`/tomadas${e.target.value ? `?mes=${e.target.value}` : ''}`, { substituir: true }),
   });
+  filtroMes.classList.add('campo-mes');
+  const busca = dados.tomadas.length > 5 ? campo({ rotulo: 'Pesquisar notas tomadas', rotuloOculto: true,
+    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar fornecedor, CNPJ, número ou chave' }, oninput: (e) => mostrar(e.target.value) }) : null;
+  busca?.classList.add('busca-icone');
   const s = dados.sincronizacao || {};
   return {
     titulo: 'Notas tomadas', aba: 'tomadas',
@@ -91,15 +103,15 @@ export async function lista(_, query) {
             h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
       // Sem certificado e sem notas: só o cartão de como começar (sem filtro nem totais zerados).
       ...(dados.tomadas.length || dados.temCertificado || mes ? [
-        filtroMes,
-        h('section', { class: 'cartao', 'aria-label': 'Totais' },
-          h('p', { class: 'suave', style: 'margin:0' }, `${mes ? nomeMes(mes) : 'Todas as competências'} · ${plural(dados.totais.quantidade, 'nota válida', 'notas válidas')}`),
-          h('div', { class: 'totais' },
-            h('div', {}, h('span', { class: 'suave' }, 'Valor dos serviços'), h('strong', {}, moeda(dados.totais.valor))),
-            h('div', {}, h('span', { class: 'suave' }, 'Valor líquido'), h('strong', {}, moeda(dados.totais.valorLiquido))))),
-        dados.tomadas.length > 5 ? campo({ rotulo: 'Pesquisar', ajuda: 'Fornecedor, CNPJ, número ou chave', atributos: { type: 'search', autocomplete: 'off' }, oninput: (e) => mostrar(e.target.value) }) : null,
+        h('div', { class: 'barra-lista' }, busca, filtroMes),
+        h('section', { 'aria-label': 'Totais' },
+          h('div', { class: 'secao-titulo' }, h('h3', { class: 'titulo-mes' }, mes ? nomeMes(mes) : 'Todas as competências'),
+            h('span', { class: 'secao-extra' }, plural(dados.totais.quantidade, 'nota válida', 'notas válidas'))),
+          h('div', { class: `painel${moeda(dados.totais.valor).length > 13 ? ' uma-coluna' : ''}` },
+            h('div', { class: 'cartao kpi' }, h('div', { class: 'kpi-rotulo' }, 'Valor dos serviços'), h('div', { class: 'kpi-valor' }, moeda(dados.totais.valor))),
+            h('div', { class: 'cartao kpi' }, h('div', { class: 'kpi-rotulo' }, 'Valor líquido'), h('div', { class: 'kpi-valor' }, moeda(dados.totais.valorLiquido))))),
         dados.tomadas.length ? contador : null] : []),
-      ul),
+      cabecalho, ul, semItens),
   };
 }
 

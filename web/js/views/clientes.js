@@ -1,4 +1,4 @@
-import { h, campo, mostrarErros, aviso, mascaraDocumento, icone, ICONES, buscaComSugestoes, plural } from '../ui.js';
+import { h, campo, mostrarErros, aviso, mascaraDocumento, icone, ICONES, buscaComSugestoes, plural, iniciais, vazio } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { comCache, buscarMunicipio, municipioPorCodigo } from '../store.js';
 import { aplicar } from '../rascunho.js';
@@ -20,20 +20,27 @@ export async function lista(_, query) {
   const para = query.para;
   const { clientes } = await comCache('clientes', () => api('GET', '/api/clientes'));
   const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
+  const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
+  const semItens = h('div', {});
   const contador = h('p', { class: 'suave', role: 'status' });
+  const novoCliente = `#/clientes/novo${para ? `?para=${para}` : ''}`;
 
   const itemCliente = (c) => h('li', {}, h('button', {
     class: 'item', type: 'button',
     onclick: () => (para ? escolherParaNota(para, c) : ir(`/clientes/${c.id}`)),
   },
+  h('span', { class: 'avatar', 'aria-hidden': 'true' }, iniciais(c.nome)),
   h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo' }, c.nome), h('div', { class: 'item-sub' }, `${c.tipo} ${c.documentoExibicao}`)),
-  para ? h('span', { class: 'selo selo-teste' }, 'Escolher') : null));
+  para ? h('span', { class: 'marcador' }, 'Escolher') : null));
 
   function exibir(itens, filtrando) {
     contador.textContent = filtrando ? plural(itens.length, 'encontrado', 'encontrados') : plural(itens.length, 'cliente', 'clientes');
     ul.replaceChildren(...itens.map(itemCliente));
-    if (!itens.length) ul.append(h('li', { class: 'suave' }, filtrando ? 'Nenhum cliente encontrado. Cadastre um novo abaixo.' : 'Nenhum cliente ainda.'));
+    semItens.replaceChildren(...(itens.length ? [] : [filtrando
+      ? vazio({ icone: ICONES.busca, titulo: 'Nenhum cliente encontrado', texto: 'Confira o nome ou o CPF/CNPJ digitado, ou cadastre um cliente novo.',
+        acoes: [h('a', { class: 'btn', href: novoCliente }, icone(ICONES.mais), 'Novo cliente')] })
+      : vazio({ icone: ICONES.pessoas, titulo: 'Seus clientes aparecem aqui', texto: 'Cadastre uma vez e, nas próximas notas, é só escolher. Com o CNPJ, buscamos os dados na Receita.',
+        acoes: [h('a', { class: 'btn btn-primario', href: novoCliente }, icone(ICONES.mais), 'Novo cliente')] })]));
   }
 
   // Nome: filtra no aparelho. CPF/CNPJ (3+ dígitos): o servidor compara o documento completo.
@@ -53,18 +60,18 @@ export async function lista(_, query) {
   }
 
   const busca = campo({
-    rotulo: 'Pesquisar', ajuda: 'Nome, CPF ou CNPJ',
-    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Ex.: Maria ou 123.456' },
+    rotulo: 'Pesquisar clientes', rotuloOculto: true,
+    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar por nome, CPF ou CNPJ' },
     oninput: (e) => mostrar(e.target.value),
   });
+  busca.classList.add('busca-icone');
   mostrar();
   return {
     titulo: para ? 'Escolher cliente' : 'Clientes', aba: 'clientes', voltar: !!para,
     node: h('div', {},
-      busca,
-      h('div', { class: 'cabecalho-acoes' }, contador,
-        h('a', { class: 'btn btn-pequeno', href: `#/clientes/novo${para ? `?para=${para}` : ''}` }, icone(ICONES.mais), 'Novo cliente')),
-      ul),
+      h('div', { class: 'barra-lista' }, busca, contador,
+        h('a', { class: 'btn btn-pequeno', href: novoCliente }, icone(ICONES.mais), 'Novo cliente')),
+      ul, semItens),
   };
 }
 

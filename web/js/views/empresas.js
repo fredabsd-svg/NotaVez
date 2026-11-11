@@ -34,7 +34,7 @@ export async function lista(_, query) {
   const { empresas } = await comCache('empresas', () => api('GET', '/api/empresas'));
   todasEmTestes = empresas.length > 1 && empresas.every((e) => e.ambiente === 'producao_restrita');
   const filtro = FILTROS.some(([v]) => v === query.filtro) ? query.filtro : '';
-  const ul = h('ul', { class: 'lista duas-colunas', 'aria-live': 'polite' });
+  const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
   // Primeiro o que precisa de atenção, depois por nome.
   const ordenadas = [...empresas].sort((a, b) => (precisaAtencao(b) - precisaAtencao(a)) || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
   const contador = h('p', { class: 'suave', role: 'status' });
@@ -62,22 +62,25 @@ export async function lista(_, query) {
     });
     contador.textContent = `${visiveis.length} de ${plural(empresas.length, 'empresa', 'empresas')}`;
     ul.replaceChildren(...visiveis.map(item));
-    if (!visiveis.length) ul.append(h('li', { class: 'suave' }, empresas.length ? 'Nenhuma empresa encontrada.' : 'Nenhuma empresa cadastrada ainda.'));
+    // Sem nenhuma empresa, o cartão "Cadastre sua primeira empresa" já explica o que fazer.
+    if (!visiveis.length && empresas.length) ul.append(h('li', { class: 'suave' }, 'Nenhuma empresa encontrada.'));
   }
   mostrar();
 
   const atencao = empresas.filter(precisaAtencao).length;
+  const busca = empresas.length > 3 ? campo({ rotulo: 'Pesquisar empresa', rotuloOculto: true,
+    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar por nome, CNPJ ou cidade' }, oninput: (e) => { termo = e.target.value; mostrar(); } }) : null;
+  busca?.classList.add('busca-icone');
   const node = h('div', {},
     empresas.length ? null
       : h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Cadastre sua primeira empresa'),
         h('p', {}, 'Digite o CNPJ: buscamos razão social, município e enquadramento (MEI, Simples, Presumido ou Real) na Receita para você.')),
-    empresas.length > 3 ? campo({ rotulo: 'Pesquisar empresa', ajuda: 'Nome, CNPJ ou cidade', atributos: { type: 'search', autocomplete: 'off' }, oninput: (e) => { termo = e.target.value; mostrar(); } }) : null,
+    h('div', { class: 'barra-lista' }, busca, empresas.length ? contador : null,
+      h('a', { class: `btn ${empresas.length ? 'btn-pequeno' : 'btn-primario'}`, href: '#/empresas/nova' }, icone(ICONES.mais), 'Adicionar empresa')),
     empresas.length > 1 ? h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrar empresas' }, FILTROS.map(([v, t]) => h('button', {
       class: 'chip', type: 'button', 'aria-pressed': String(v === filtro),
       onclick: () => { location.replace(`#/empresas${v ? `?filtro=${v}` : ''}`); },
     }, v === 'atencao' ? `${t} (${atencao})` : t))) : null,
-    h('div', { class: 'cabecalho-acoes' }, empresas.length ? contador : h('span'),
-      h('a', { class: `btn ${empresas.length ? 'btn-pequeno' : 'btn-primario'}`, href: '#/empresas/nova' }, icone(ICONES.mais), 'Adicionar empresa')),
     ul,
     h('h3', {}, 'Certificado do escritório'),
     h('p', { class: 'suave' }, 'Com procuração eletrônica NFS-e, um único certificado (do escritório ou do contador) emite por todas as empresas que autorizaram.'),
