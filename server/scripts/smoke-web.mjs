@@ -198,6 +198,9 @@ try {
   await page.goto(`${base}/#/perfil`);
   await page.getByRole('button', { name: /Certificado do escritório \(procuração eletrônica\)/ }).click();
   await page.getByText('Assina pelo escritório:').waitFor();
+  // A barra da empresa diz que ela é atendida por procuração, e a procuração ainda não foi conferida na Receita.
+  await page.locator('#empresa-ativa .ctx-proc:visible').waitFor();
+  await page.getByText('A procuração desta empresa ainda não foi conferida na Receita.').waitFor();
   assert.equal(app.ctx.db.get("SELECT usa_procuracao u FROM prestadores WHERE nome = 'CONSULTORIA FICTICIA LTDA'").u, 1);
   const draftsSegunda = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsSegunda.length, 0, 'rascunhos ficam no ambiente da empresa');
@@ -234,13 +237,21 @@ try {
   assert.match(page.url(), /#\/notas$/, 'continua em Notas depois de trocar de empresa');
   // Escritório: busca de todas as empresas de uma vez (a segunda usa o certificado do escritório, por procuração).
   await page.goto(`${base}/#/empresas`);
+  // A lista de empresas começa pelo certificado do escritório, com quantas empresas o usam.
+  await page.getByRole('link', { name: /Certificado do escritório \(procuração\).*1 de 2 empresas por procuração/ }).waitFor();
   await page.getByRole('button', { name: 'Buscar notas de todas na Receita' }).click();
   await page.getByText(/Última busca em todas as empresas/).waitFor();
   // Procuração em várias empresas de uma vez, na tela do certificado do escritório.
   await page.goto(`${base}/#/procurador`);
   await page.getByRole('heading', { name: 'Empresas atendidas por procuração' }).waitFor();
+  // A consulta deu certo: a tela mostra que a Receita aceitou a procuração da empresa.
+  await page.getByText(/Aceita pela Receita na consulta de/).waitFor();
   assert.equal(await page.getByRole('checkbox', { name: /CONSULTORIA FICTICIA LTDA/ }).isChecked(), true);
   assert.equal(await page.getByRole('checkbox', { name: /EMPRESA FICTICIA SMOKE MEI/ }).isChecked(), false);
+  // "Conferir todas na Receita" leva à lista de empresas, que acompanha a consulta.
+  await page.getByRole('button', { name: 'Conferir todas na Receita' }).click();
+  await page.getByText(/Última busca em todas as empresas|Consultando a Receita/).first().waitFor();
+  assert.match(page.url(), /#\/empresas$/);
   await page.goto(`${base}/#/empresas`);
   await page.getByRole('button', { name: /EMPRESA FICTICIA SMOKE MEI/ }).click();
   await page.locator('#empresa-ativa').getByText('EMPRESA FICTICIA SMOKE MEI').waitFor();

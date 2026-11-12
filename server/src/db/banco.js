@@ -62,6 +62,9 @@ const COLUNAS_NOVAS = [
   // Leitura do ADN: bancos antigos ficam com 1 (a fila foi lida só para as notas tomadas) e são
   // relidos uma vez desde o início, para trazer também as notas que a empresa emitiu fora do app.
   ['distribuicao_dfe', 'leitura', 'INTEGER NOT NULL DEFAULT 1'],
+  // Última recusa da Receita à consulta do ADN (motivo cifrado: pode citar o CNPJ).
+  ['distribuicao_dfe', 'falha_em', 'TEXT'],
+  ['distribuicao_dfe', 'falha_cifrada', 'TEXT'],
 ];
 function migrar(db) {
   db.exec('BEGIN IMMEDIATE');

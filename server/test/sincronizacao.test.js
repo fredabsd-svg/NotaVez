@@ -137,6 +137,41 @@ test('nota emitida pelo próprio app não é duplicada quando aparece na fila do
   assert.equal((await api('GET', '/api/notas', undefined, h)).body.notas.length, 2);
 });
 
+test('numeração de DPS já usada por outro sistema da empresa: a nota do app não vira emitida com a nota dele', async () => {
+  const { api, h } = await contaComEmpresa('outro-sistema@exemplo.com');
+  const rascunho = async () => (await api('POST', '/api/notas', { rascunho: { tomador: { tipo: 'CPF', documento: '52998224725', nome: 'Maria' }, cTribNac: '010101', descricao: 'Site', valor: '200,00' } }, h)).body.nota;
+  const emitir = async (id) => {
+    const n = (await api('GET', `/api/notas/${id}`, undefined, h)).body.nota;
+    const v = await api('POST', `/api/notas/${id}/validar`, { versao: n.versao }, h);
+    return (await api('POST', `/api/notas/${id}/emitir`, { versao: v.body.versao, revisao: v.body.revisao }, h)).body.nota;
+  };
+  const primeira = await emitir((await rascunho()).id);
+  assert.equal(primeira.situacao, 'emitida');
+  // O ERP da empresa já emitiu, na mesma série, a nota com o próximo número que o app vai usar.
+  const dele = sefin.adicionarTomada({ prestador: EMPRESA, tomador: CLIENTE, valor: '999.00', serie: primeira.dps.serie, numero: Number(primeira.dps.numero) + 1 });
+
+  const segunda = await rascunho();
+  const resultado = await emitir(segunda.id);
+  assert.equal(resultado.situacao, 'rejeitada', 'a Receita recusou por duplicidade e a nota encontrada não é a do app');
+  assert.equal(resultado.chaveAcesso, null);
+  assert.notEqual(resultado.chaveAcesso, dele.chave);
+  assert.equal(resultado.erros[0].codigo, 'DPS_DE_OUTRO_SISTEMA');
+  assert.equal((await api('GET', '/api/inicio', undefined, h)).body.emitidas, 1, 'só a primeira conta como emitida');
+  assert.equal((await api('GET', `/api/notas/${segunda.id}/xml`, undefined, h)).status, 404);
+
+  // A nota do outro sistema entra pelo lugar certo: emitida fora do app, na sincronização.
+  const s = await api('POST', '/api/notas/sincronizar', {}, h);
+  assert.equal(s.body.emitidas, 1);
+  const notas = (await api('GET', '/api/notas', undefined, h)).body.notas;
+  assert.ok(notas.some((n) => n.canal === 'sincronizada' && n.valor === '999.00' && n.chaveAcesso === dele.chave));
+
+  // Enviada de novo, a nota do app sai com o número seguinte e é emitida de verdade.
+  const reenviada = await emitir(segunda.id);
+  assert.equal(reenviada.situacao, 'emitida');
+  assert.equal(Number(reenviada.dps.numero), Number(primeira.dps.numero) + 2);
+  assert.notEqual(reenviada.chaveAcesso, dele.chave);
+});
+
 test('cancelamento feito no portal: a nota vira "Cancelada", sai dos totais e mantém o XML', async () => {
   const { api, h, empresaId } = await contaComEmpresa('cancelada@exemplo.com');
   const competencia = hojeBrasilia();
@@ -196,7 +231,97 @@ test('Receita recusa a consulta: a mensagem dela aparece (com a dica da procura�
   try {
     await assert.rejects(servico.sincronizar({ ...p, usaProcuracao: true }), (e) => e.status === 502 && /Procuração eletrônica não localizada/.test(e.message) && /procuração eletrônica NFS-e desta empresa/.test(e.message));
   } finally { app.ctx.emissao.distribuirDfe = original; }
-  assert.equal((await api('GET', '/api/notas', undefined, h)).body.notas.length, 0);
+  const lista = (await api('GET', '/api/notas', undefined, h)).body;
+  assert.equal(lista.notas.length, 0);
+  // A recusa fica guardada (motivo cifrado) e aparece nas telas até uma consulta dar certo.
+  assert.ok(lista.sincronizacao.recusadaEm);
+  assert.match(lista.sincronizacao.recusaMotivo, /Procuração eletrônica não localizada/);
+  const linha = app.ctx.db.get('SELECT falha_cifrada f FROM distribuicao_dfe WHERE prestador_id = ?', empresaId);
+  assert.ok(linha.f && !/Procura/.test(linha.f), 'o motivo dado pela Receita não fica em claro no banco');
+  const naLista = (await api('GET', '/api/empresas')).body.empresas.find((e) => e.id === empresaId);
+  assert.ok(naLista.consultaRecusadaEm);
+  assert.match(naLista.consultaRecusadaMotivo, /Procuração eletrônica não localizada/);
+  assert.ok((await api('GET', '/api/inicio', undefined, h)).body.receita.recusadaEm);
+  assert.ok((await api('GET', '/api/perfil', undefined, h)).body.receita.recusadaEm);
+  // A consulta seguinte dá certo: a recusa some.
+  assert.equal((await api('POST', '/api/notas/sincronizar', {}, h)).status, 200);
+  const depois = (await api('GET', '/api/empresas')).body.empresas.find((e) => e.id === empresaId);
+  assert.equal(depois.consultaRecusadaEm, null);
+  assert.ok(depois.sincronizadoEm);
+  const receita = (await api('GET', '/api/perfil', undefined, h)).body.receita;
+  assert.equal(receita.recusadaEm, null);
+  assert.ok(receita.consultadaEm);
+});
+
+test('produção é o ambiente padrão quando liberada: empresa nova, troca em lote e edição sem mudar de ambiente', async () => {
+  const { config, producaoLiberadaEm } = await import('../src/config.js');
+  // Regra do servidor: produção por padrão; 0 prende aos testes; desenvolvimento só com 1; demonstração nunca.
+  assert.equal(producaoLiberadaEm({}), true);
+  assert.equal(producaoLiberadaEm({ variavel: '0' }), false);
+  assert.equal(producaoLiberadaEm({ dev: true }), false);
+  assert.equal(producaoLiberadaEm({ dev: true, variavel: '1' }), true);
+  assert.equal(producaoLiberadaEm({ demo: true, variavel: '1' }), false, 'simulação nunca vira nota real');
+  assert.equal(config.producaoLiberada, false, 'nos testes automatizados a produção fica fechada');
+  assert.equal(config.ambientePadrao, 'producao_restrita');
+
+  const api = sessao();
+  await api('POST', '/api/conta/cadastrar', { email: 'producao@exemplo.com', senha: 'senha-segura-1' });
+  const dados = (documento, nome, extra = {}) => ({ documento, nome, municipioIbge: '3550308', opSimpNac: '2', ...extra });
+  // Com a produção fechada: a empresa nasce em testes e não entra em produção.
+  const a = (await api('POST', '/api/empresas', dados(EMPRESA, 'Em testes'))).body;
+  assert.equal(a.empresa.ambiente, 'producao_restrita');
+  assert.equal((await api('POST', '/api/empresas', dados(OUTRA, 'Quer produção', { ambiente: 'producao' }))).status, 422);
+  assert.equal((await api('PUT', '/api/empresas/ambiente', { empresas: [a.empresaId], ambiente: 'producao' })).status, 409);
+  assert.equal((await api('GET', '/api/empresas')).body.producaoLiberada, false);
+
+  config.producaoLiberada = true;
+  try {
+    assert.equal(config.ambientePadrao, 'producao');
+    assert.equal((await api('GET', '/api/empresas')).body.producaoLiberada, true);
+    // Empresa nova já nasce em produção; quem pede testes continua podendo.
+    const b = (await api('POST', '/api/empresas', dados(OUTRA, 'Nova em produção'))).body;
+    assert.equal(b.empresa.ambiente, 'producao');
+    const c = (await api('POST', '/api/empresas', dados(CLIENTE, 'Pediu testes', { ambiente: 'producao_restrita' }))).body;
+    assert.equal(c.empresa.ambiente, 'producao_restrita');
+    assert.equal((await api('GET', '/api/perfil', undefined, { 'x-notavez-prestador': b.empresaId })).body.ambientePadrao, 'producao');
+
+    // As que ficaram em testes passam para a produção de uma vez; ids de fora são ignorados.
+    assert.equal((await api('PUT', '/api/empresas/ambiente', { empresas: [], ambiente: 'producao' })).status, 422);
+    const lote = await api('PUT', '/api/empresas/ambiente', { empresas: [a.empresaId, b.empresaId, c.empresaId, 'nao-existe'], ambiente: 'producao' });
+    assert.equal(lote.status, 200, JSON.stringify(lote.body));
+    assert.equal(lote.body.alteradas, 2, 'A e C estavam em testes; B já estava em produção');
+    assert.ok(lote.body.empresas.every((e) => e.ambiente === 'producao'));
+    assert.equal(app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id IN (?, ?)", a.empresaId, c.empresaId).length, 2);
+
+    // Editar os dados sem dizer o ambiente não tira a empresa de onde ela está.
+    const h = { 'x-notavez-prestador': a.empresaId };
+    const editada = await api('PUT', '/api/perfil', dados(EMPRESA, 'Nome novo'), h);
+    assert.equal(editada.status, 200, JSON.stringify(editada.body));
+    assert.equal(editada.body.perfil.ambiente, 'producao');
+    // Voltar para testes também fica registrado.
+    assert.equal((await api('PUT', '/api/perfil', dados(EMPRESA, 'Nome novo', { ambiente: 'producao_restrita' }), h)).body.perfil.ambiente, 'producao_restrita');
+    assert.equal(app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id = ?", a.empresaId).length, 2);
+  } finally { config.producaoLiberada = false; }
+});
+
+test('por procuração: a conta sabe que a empresa é atendida assim e a recusa do certificado fala da procuração', async () => {
+  const { explicar, explicarPorProcuracao } = await import('../src/fiscal/mensagens.js');
+  const recusa = { codigo: 'E0718', descricao: 'Assinatura deve ser do emitente.' };
+  assert.match(explicar(recusa).proximoPasso, /certificado A1 do CNPJ/);
+  const porProcuracao = explicarPorProcuracao(recusa);
+  assert.match(porProcuracao.mensagem, /não reconheceu a procuração/);
+  assert.match(porProcuracao.proximoPasso, /Portal de Serviços da Receita/);
+  assert.equal(porProcuracao.oficial, recusa.descricao, 'a mensagem oficial continua junto');
+  assert.deepEqual(explicarPorProcuracao({ codigo: 'E0082', descricao: 'x' }), explicar({ codigo: 'E0082', descricao: 'x' }), 'as demais recusas não mudam');
+
+  const api = sessao();
+  await api('POST', '/api/conta/cadastrar', { email: 'conta-procuracao@exemplo.com', senha: 'senha-segura-1' });
+  assert.equal((await api('POST', '/api/procurador/certificado', pfx(cert))).status, 200);
+  const lista = (await api('GET', '/api/empresas')).body;
+  assert.ok(lista.procurador?.validoAte, 'a lista de empresas traz o certificado do escritório');
+  const { empresaId } = (await api('POST', '/api/empresas', { documento: OUTRA, nome: 'Cliente por procuração', municipioIbge: '3550308', opSimpNac: '2', usaProcuracao: true })).body;
+  const conta = (await api('GET', `/api/conta?empresa=${empresaId}`)).body;
+  assert.equal(conta.empresaPorProcuracao, true);
 });
 
 test('escritório: procuração em lote, empresa que já nasce por procuração e busca de todas as empresas', async () => {

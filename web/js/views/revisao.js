@@ -116,6 +116,8 @@ export async function tela({ id }) {
       h('p', { class: 'valor-grande', style: 'margin:4px 0 0' }, moeda(nota.valor))),
     h('div', { class: 'cartao' }, h('dl', { class: 'dados' },
       linha('Emitente (você)', `${perfil.perfil.nome || ''} ${perfil.perfil.documentoFormatado}`, h('br'), h('span', { class: 'suave' }, `${perfil.perfil.municipio?.nome || ''} - ${perfil.perfil.municipio?.uf || ''} · ${{ 2: 'MEI', 3: 'ME/EPP (Simples Nacional)', 1: perfil.perfil.apuracao === 'real' ? 'Lucro Real' : 'Lucro Presumido' }[perfil.perfil.opSimpNac] || ''}`)),
+      // Por procuração, quem assina e envia é o certificado do escritório, em nome da empresa.
+      perfil.certificado?.procurador ? linha('Assinatura', 'Por procuração eletrônica', h('br'), h('span', { class: 'suave' }, `Certificado do escritório: ${perfil.certificado.titular || ''}`)) : null,
       linha('Cliente (tomador)', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
         end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${cep(end.cep)}`) : null),
       linha('Serviço (lista nacional)', nota.servicoNacional ? `${codigoServico(nota.servicoNacional.codigo)} — ${nota.servicoNacional.descricao}` : '—'),

@@ -101,7 +101,9 @@ export async function lista(_, query) {
     node: h('div', {},
       h('p', { class: 'suave' }, 'Notas de serviço que fornecedores emitiram para esta empresa, baixadas do Ambiente de Dados Nacional da NFS-e.'),
       dados.temCertificado
-        ? h('div', {}, buscar, h('p', { class: 'suave' }, s.sincronizadoEm ? `Última busca: ${dataHora(s.sincronizadoEm)}.` : 'Ainda não buscamos as notas desta empresa.'))
+        ? h('div', {}, buscar, s.recusadaEm ? h('p', { class: 'erro-campo', role: 'alert' }, `A Receita recusou a busca de ${dataHora(s.recusadaEm)}${s.recusaMotivo ? `: ${s.recusaMotivo}` : '.'}${dados.porProcuracao ? ' Confira a procuração desta empresa.' : ''}`) : null,
+          h('p', { class: 'suave' }, s.sincronizadoEm ? `Última busca: ${dataHora(s.sincronizadoEm)}${dados.porProcuracao ? ', por procuração' : ''}.`
+          : `Ainda não buscamos as notas desta empresa${dados.porProcuracao ? ' (a busca usa o certificado do escritório, por procuração)' : ''}.`))
         : dados.porProcuracao
           // Empresa por procuração: quem falta é o certificado do escritório, não o da empresa.
           ? h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado do escritório'),

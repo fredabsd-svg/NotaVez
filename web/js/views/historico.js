@@ -53,7 +53,7 @@ export async function tela(_, query) {
   const mes = /^\d{4}-\d{2}$/.test(query.mes || '') ? query.mes : '';
   // Competência filtrada no servidor: com centenas de notas, o mês escolhido vem completo.
   const qs = new URLSearchParams({ ...(filtro ? { situacao: filtro } : {}), ...(mes ? { competencia: mes } : {}) }).toString();
-  const { notas, limitado, meses: mesesServidor, sincronizacao, temCertificado, canceladas } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
+  const { notas, limitado, meses: mesesServidor, sincronizacao, temCertificado, canceladas, porProcuracao } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
   const rota = (situacao, m) => { const p = new URLSearchParams({ ...(situacao ? { situacao } : {}), ...(m ? { mes: m } : {}) }).toString(); return `/notas${p ? `?${p}` : ''}`; };
   // Rascunhos que ainda não chegaram à conta (feitos sem internet): entram em "Todas" e "Rascunhos" e seguem a competência escolhida.
   const soAparelho = !filtro || filtro === 'rascunho'
@@ -134,8 +134,11 @@ export async function tela(_, query) {
       buscarNaReceita.textContent = 'Buscar na Receita agora';
     }
   } }, 'Buscar na Receita agora');
+  // Recusa da Receita (por procuração: procuração não vigente) fica à vista até uma consulta dar certo.
   const linhaReceita = temCertificado ? h('p', { class: 'resumo-lista' },
-    h('span', {}, sincronizacao?.sincronizadoEm ? `Receita consultada em ${dataHora(sincronizacao.sincronizadoEm)}.` : 'A Receita ainda não foi consultada para esta empresa.'),
+    sincronizacao?.recusadaEm
+      ? h('span', { class: 'erro-campo', role: 'alert' }, `A Receita recusou a consulta de ${dataHora(sincronizacao.recusadaEm)}${sincronizacao.recusaMotivo ? `: ${sincronizacao.recusaMotivo}` : '.'}${porProcuracao ? ' Confira a procuração desta empresa.' : ''}`)
+      : h('span', {}, sincronizacao?.sincronizadoEm ? `Receita consultada em ${dataHora(sincronizacao.sincronizadoEm)}${porProcuracao ? ', por procuração' : ''}.` : 'A Receita ainda não foi consultada para esta empresa.'),
     buscarNaReceita) : null;
   const busca = campo({ rotulo: 'Pesquisar notas', rotuloOculto: true,
     atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar cliente, número ou chave' }, oninput: (e) => { termo = e.target.value; mostrar(); } });

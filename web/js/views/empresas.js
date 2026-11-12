@@ -2,7 +2,7 @@
 import { h, campo, aviso, data, dataHora, icone, ICONES, plural } from '../ui.js';
 import { api } from '../api.js';
 import { comCache } from '../store.js';
-import { estado, entrarNaEmpresa, sair, AREAS_DA_EMPRESA, empresasRecentes } from '../app.js';
+import { estado, entrarNaEmpresa, sair, carregarConta, AREAS_DA_EMPRESA, empresasRecentes } from '../app.js';
 import { formularioEmpresa } from './perfil.js';
 import { resumoDaBusca } from './historico.js';
 
@@ -17,6 +17,8 @@ function marcadores(e) {
   const venceEmBreve = e.certificadoValidoAte && !e.certificadoVencido && new Date(e.certificadoValidoAte) - Date.now() < 30 * 86400_000;
   if (e.pendentes) mk(plural(e.pendentes, 'nota pendente', 'notas pendentes'), 'marcador-alerta');
   else if (e.certificadoVencido) mk('Certificado vencido', 'marcador-erro');
+  // A Receita recusou a última consulta: por procuração, é o sinal de que ela não está vigente.
+  else if (e.consultaRecusadaEm) mk(e.porProcuracao ? 'Procuração recusada pela Receita' : 'Consulta recusada pela Receita', 'marcador-erro');
   else if (venceEmBreve) mk(`Certificado vence ${data(e.certificadoValidoAte)}`, 'marcador-alerta');
   else if (e.rascunhos) mk(plural(e.rascunhos, 'rascunho', 'rascunhos'));
   // Sem certificado (da empresa ou do escritório, por procuração) a empresa não emite pelo app.
@@ -27,13 +29,14 @@ function marcadores(e) {
   return m;
 }
 
-const precisaAtencao = (e) => e.pendentes > 0 || e.certificadoVencido || !e.certificadoValidoAte
+const precisaAtencao = (e) => e.pendentes > 0 || e.certificadoVencido || !e.certificadoValidoAte || !!e.consultaRecusadaEm
   || new Date(e.certificadoValidoAte) - Date.now() < 30 * 86400_000;
 let todasEmTestes = false;
 
 export async function lista(_, query) {
-  const { empresas } = await comCache('empresas', () => api('GET', '/api/empresas'));
-  todasEmTestes = empresas.length > 1 && empresas.every((e) => e.ambiente === 'producao_restrita');
+  const { empresas, producaoLiberada, procurador } = await comCache('empresas', () => api('GET', '/api/empresas'));
+  // Com a produção liberada, ambiente de testes é a exceção e leva marcador; num servidor só de testes, não.
+  todasEmTestes = !producaoLiberada && empresas.every((e) => e.ambiente === 'producao_restrita');
   const filtro = FILTROS.some(([v]) => v === query.filtro) ? query.filtro : '';
   const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
   // Primeiro o que precisa de atenção, depois por nome.
@@ -125,12 +128,53 @@ export async function lista(_, query) {
       acompanhar(s);
     } catch (e) { aviso(e.status === 0 ? 'Sem internet: a busca na Receita precisa de conexão.' : e.message, 7000); botaoLote.disabled = false; }
   });
+  // O escritório trabalha por procuração: o certificado dele abre a tela, com quantas empresas o usam.
+  const porProcuracao = empresas.filter((e) => e.porProcuracao).length;
+  const vencimento = procurador ? new Date(procurador.validoAte) - Date.now() : null;
+  const cartaoEscritorio = procurador
+    ? h('a', { class: `item item-seta cartao-escritorio${vencimento < 30 * 86400_000 ? ' atencao' : ''}`, href: '#/procurador' },
+      h('div', { class: 'item-corpo' },
+        h('div', { class: 'item-titulo' }, 'Certificado do escritório (procuração)'),
+        h('div', { class: 'item-sub' }, [
+          vencimento <= 0 ? `Venceu em ${data(procurador.validoAte)}: envie o novo` : `Válido até ${data(procurador.validoAte)}`,
+          empresas.length ? `${porProcuracao} de ${plural(empresas.length, 'empresa', 'empresas')} por procuração` : null,
+        ].filter(Boolean).join(' · '))))
+    : h('section', { class: 'cartao' },
+      h('strong', {}, 'Atende as empresas por procuração?'),
+      h('p', { class: 'suave' }, 'Envie uma única vez o certificado do escritório (ou do contador): ele emite e busca as notas de todas as empresas que concederam a procuração eletrônica NFS-e na Receita.'),
+      h('a', { class: 'btn btn-pequeno', href: '#/procurador' }, 'Enviar certificado do escritório'));
+
+  // Empresas ainda no ambiente de testes da Receita, com a produção liberada: as notas delas não valem.
+  const emTestes = producaoLiberada ? empresas.filter((e) => e.ambiente === 'producao_restrita') : [];
+  const passarParaProducao = h('button', { class: 'btn btn-pequeno', type: 'button', onclick: async () => {
+    if (!confirm(`Passar ${plural(emTestes.length, 'empresa', 'empresas')} para a produção? A partir daí, as notas emitidas por ${emTestes.length === 1 ? 'ela' : 'elas'} são notas fiscais de verdade. As notas de teste já emitidas continuam marcadas como teste.`)) return;
+    passarParaProducao.disabled = true;
+    try {
+      const r = await api('PUT', '/api/empresas/ambiente', { empresas: emTestes.map((e) => e.id), ambiente: 'producao' });
+      aviso(`${plural(r.alteradas, 'empresa passou', 'empresas passaram')} para a produção.`, 6000);
+      // A empresa aberta pode ser uma delas: a barra do topo acompanha.
+      await carregarConta({ permitirOffline: false }).catch(() => {});
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch (e) { aviso(e.status === 0 ? 'Sem internet: tente de novo quando a conexão voltar.' : e.message, 7000); passarParaProducao.disabled = false; }
+  } }, 'Passar para produção');
+  const cartaoTestes = emTestes.length ? h('div', { class: 'cartao cartao-alerta' },
+    h('p', {}, h('strong', {}, `${plural(emTestes.length, 'empresa está', 'empresas estão')} no ambiente de testes. `), 'As notas emitidas ali não têm validade jurídica.'),
+    passarParaProducao) : null;
+
   // Ao abrir a tela: retoma uma busca em andamento ou mostra o resultado da última.
   if (comCertificado > 1 && navigator.onLine) api('GET', '/api/empresas/sincronizacao').then((s) => (s.emAndamento ? acompanhar(s) : mostrarResultado(s))).catch(() => {});
   const node = h('div', {},
-    empresas.length ? null
-      : h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Cadastre sua primeira empresa'),
-        h('p', {}, 'Digite o CNPJ: buscamos razão social, município e enquadramento (MEI, Simples, Presumido ou Real) na Receita para você.')),
+    // Conta sem empresas: o escritório começa pelo certificado dele e depois cadastra as empresas.
+    empresas.length ? cartaoEscritorio
+      : h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Comece por aqui'),
+        h('ol', { class: 'passos' },
+          h('li', {}, h('strong', {}, 'Certificado do escritório. '), procurador
+            ? `Enviado: válido até ${data(procurador.validoAte)}.`
+            : 'Envie uma única vez o certificado do escritório (ou do contador): ele emite e busca as notas de todas as empresas que concederam a procuração eletrônica NFS-e na Receita. ',
+          procurador ? null : h('a', { class: 'btn btn-pequeno', href: '#/procurador' }, 'Enviar certificado do escritório')),
+          h('li', {}, h('strong', {}, 'Empresas. '), 'Digite o CNPJ de cada empresa: buscamos razão social, município e enquadramento (MEI, Simples, Presumido ou Real) na Receita para você. ',
+            procurador ? 'Elas já nascem por procuração.' : 'Sem o certificado do escritório, cada empresa precisa do próprio certificado A1.'))),
+    cartaoTestes,
     h('div', { class: 'barra-lista' }, busca, empresas.length ? contador : null,
       h('a', { class: `btn ${empresas.length ? 'btn-pequeno' : 'btn-primario'}`, href: '#/empresas/nova' }, icone(ICONES.mais), 'Adicionar empresa')),
     recentes.length ? h('div', { class: 'chips chips-recentes', role: 'group', 'aria-label': 'Empresas abertas há pouco' },
@@ -143,9 +187,6 @@ export async function lista(_, query) {
     comCertificado > 1 ? h('div', { class: 'cabecalho-acoes' }, andamento, botaoLote) : null,
     falhas,
     ul,
-    h('h3', {}, 'Certificado do escritório'),
-    h('p', { class: 'suave' }, 'Com procuração eletrônica NFS-e, um único certificado (do escritório ou do contador) emite por todas as empresas que autorizaram.'),
-    h('a', { class: 'btn', href: '#/procurador' }, 'Certificado do escritório (procuração)'),
     h('h3', {}, 'Conta'),
     h('a', { class: 'item item-seta', href: '#/conta' }, h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo' }, 'Minha conta'),
       h('div', { class: 'item-sub' }, estado.conta?.documentoFormatado || estado.conta?.email || ''))),
@@ -154,22 +195,23 @@ export async function lista(_, query) {
 }
 
 export async function nova() {
-  const [{ producaoLiberada }, procurador] = await Promise.all([
+  const [{ producaoLiberada, ambientePadrao }, procurador] = await Promise.all([
     api('GET', '/api/perfil').catch(() => ({ producaoLiberada: false })),
     api('GET', '/api/procurador').catch(() => null),
   ]);
-  // Escritório com certificado: a empresa nova pode já nascer por procuração. Vem marcado quando o
-  // escritório já trabalha assim com outras empresas; senão, é uma escolha a fazer.
-  const porProcuracao = procurador?.certificado ? h('input', { type: 'checkbox', id: 'nova-por-procuracao', checked: procurador.empresasPorProcuracao > 0 }) : null;
+  // Escritório com certificado: a empresa nova já nasce por procuração (é como o escritório trabalha);
+  // quem tiver o certificado A1 da própria empresa desmarca.
+  const porProcuracao = procurador?.certificado ? h('input', { type: 'checkbox', id: 'nova-por-procuracao', checked: true }) : null;
   const form = formularioEmpresa({
-    producaoLiberada, textoBotao: 'Cadastrar empresa',
+    producaoLiberada, ambientePadrao, textoBotao: 'Cadastrar empresa',
     salvarDados: async (corpo) => {
       const usaProcuracao = !!porProcuracao?.checked;
       const { empresaId } = await api('POST', '/api/empresas', { ...corpo, ...(usaProcuracao ? { usaProcuracao: true } : {}) });
       aviso(usaProcuracao
         ? 'Empresa cadastrada por procuração: ela usa o certificado do escritório para emitir e buscar notas.'
         : 'Empresa cadastrada. Envie o certificado A1 dela para emitir notas e baixar as tomadas.', 6000);
-      await entrarNaEmpresa(empresaId, '/perfil');
+      // Por procuração não há certificado a enviar: a empresa abre pronta para a primeira nota.
+      await entrarNaEmpresa(empresaId, usaProcuracao ? '/' : '/perfil');
     },
   });
   return {
@@ -178,7 +220,12 @@ export async function nova() {
       h('p', {}, 'Comece pelo CNPJ: o restante é preenchido com os dados públicos da Receita. Confira antes de salvar.'),
       porProcuracao ? h('label', { class: 'caixa cartao', for: 'nova-por-procuracao' }, porProcuracao,
         h('span', {}, h('strong', {}, 'Usar o certificado do escritório (procuração eletrônica)'),
-          h('span', { class: 'ajuda' }, 'Para empresas que concederam a procuração NFS-e ao escritório no Portal de Serviços da Receita. Sem marcar, a empresa precisa do próprio certificado A1.'))) : null,
+          h('span', { class: 'ajuda' }, 'Para empresas que concederam a procuração NFS-e ao escritório no Portal de Serviços da Receita. Sem marcar, a empresa precisa do próprio certificado A1.')))
+        // Sem o certificado do escritório, a procuração começa por ele.
+        : procurador ? h('div', { class: 'cartao' },
+          h('strong', {}, 'Vai atender esta empresa por procuração?'),
+          h('p', { class: 'suave' }, 'Envie antes o certificado do escritório (ou do contador): as empresas já nascem prontas para emitir e buscar notas, sem o certificado de cada uma.'),
+          h('a', { class: 'btn btn-pequeno', href: '#/procurador' }, 'Enviar certificado do escritório')) : null,
       form),
   };
 }

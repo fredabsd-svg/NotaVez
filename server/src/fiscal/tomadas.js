@@ -9,6 +9,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { municipio } from './tabelas.js';
 import { ErroApp } from '../util/erros.js';
 import { lerNfseImportada, manterVinculos } from './assistida.js';
+import { mesmaDps } from './conferencia.js';
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', removeNSPrefix: true, parseTagValue: false });
 const txt = (v) => (v === undefined || v === null ? null : String(typeof v === 'object' ? v['#text'] ?? '' : v).trim() || null);
@@ -84,7 +85,10 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
     }
     // DPS que o próprio app enviou (pendente de confirmação, por exemplo): quem conclui essa nota é a
     // verificação dela, que consulta a Receita antes de qualquer reenvio. Aqui não se cria uma segunda.
-    if (dados.idDps && repo.notaPorIdDps(prestador.id, dados.idDps)) return 'do_app';
+    // Só vale se for mesmo a DPS do app: outro sistema da empresa pode ter usado a mesma série e o mesmo
+    // número, e essa nota (que não é a do app) entra normalmente como emitida fora do app.
+    const doApp = dados.idDps ? repo.notaPorIdDps(prestador.id, dados.idDps) : null;
+    if (doApp && mesmaDps(repo.xmlDps(doApp.id), xml) !== false) return 'do_app';
     const documento = dados.rascunho.tomador?.documento;
     const cliente = documento ? repo.clientePorDocumento(prestador.id, documento) : null;
     // Na lista, a nota entra na data em que a Receita a autorizou, e não como se fosse de agora.
@@ -109,9 +113,13 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
         if (lote === 0) {
           // Com resposta da Receita, mostra o motivo dela (ex.: procuração não vigente); sem resposta, pede para tentar depois.
           const motivo = r.erros?.find((e) => e.descricao)?.descricao;
-          throw new ErroApp(502, motivo
-            ? `A Receita recusou a consulta das notas: ${motivo}${prestador.usaProcuracao ? ' Confira se a procuração eletrônica NFS-e desta empresa para o escritório está vigente.' : ''}`
-            : 'A Receita não respondeu à consulta das notas. Tente novamente em alguns minutos.', { erros: r.erros || [] });
+          const naoAutorizada = r.http === 401 || r.http === 403;
+          const dica = prestador.usaProcuracao ? ' Confira se a procuração eletrônica NFS-e desta empresa para o escritório está vigente.' : '';
+          // A recusa fica guardada: as telas avisam que a empresa precisa de atenção até uma consulta dar certo.
+          if (motivo || naoAutorizada) repo.registrarRecusaDistribuicao(prestador.id, ambiente, prestador.documento, motivo || 'A Receita não autorizou a consulta com este certificado.');
+          throw new ErroApp(502, motivo ? `A Receita recusou a consulta das notas: ${motivo}${dica}`
+            : naoAutorizada ? `A Receita não autorizou a consulta das notas com este certificado.${dica}`
+              : 'A Receita não respondeu à consulta das notas. Tente novamente em alguns minutos.', { erros: r.erros || [] });
         }
         break;
       }

@@ -19,6 +19,12 @@ const ROTULOS = {
   cancelada: { rotulo: 'Cancelada', aviso: 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais.' },
 };
 
+// O que as telas mostram sobre a busca na Receita: quando deu certo e, se a última foi recusada, o motivo.
+export function sincronizacaoPublica(repo, p) {
+  const d = repo.distribuicao(p.id, p.ambiente, p.documento);
+  return { ultimoNsu: d.ultimoNsu, sincronizadoEm: d.sincronizadoEm, recusadaEm: d.recusadaEm, recusaMotivo: d.recusaMotivo };
+}
+
 // Uma busca no ADN serve às duas telas (Notas e Notas tomadas): mesma fila, mesma resposta.
 export async function sincronizarEmpresa(app, req) {
   const p = exigirPrestador(req);
@@ -113,7 +119,7 @@ export async function rotasNotas(app) {
     if (q) notas = notas.filter((n) => (n.rascunho?.tomador?.nome || '').toLowerCase().includes(q) || (n.nNfse || '').includes(q) || (n.chaveAcesso || '').includes(q));
     return { notas: notas.map((n) => resumoNota(repo, p, n)), limitado, meses: repo.mesesDasNotas(p.id, situacao),
       // Para a tela dizer quando foi a última busca na Receita e se dá para buscar (precisa de certificado).
-      sincronizacao: { sincronizadoEm: repo.distribuicao(p.id, p.ambiente, p.documento).sincronizadoEm || null }, temCertificado: !!repo.certificadoEmissao(p), porProcuracao: !!p.usaProcuracao,
+      sincronizacao: sincronizacaoPublica(repo, p), temCertificado: !!repo.certificadoEmissao(p), porProcuracao: !!p.usaProcuracao,
       // O filtro "Canceladas" só aparece para quem tem nota cancelada.
       canceladas: repo.contarNotasPorSituacao(p.id).cancelada || 0 };
   });

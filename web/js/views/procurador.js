@@ -3,6 +3,7 @@
 import { h, aviso, data, copiarTexto, plural } from '../ui.js';
 import { api } from '../api.js';
 import { formularioCertificado } from './perfil.js';
+import { ir } from '../app.js';
 
 // Quais empresas da conta usam o certificado do escritório: marcar e salvar, todas de uma vez.
 function empresasPorProcuracaoEmLote(lista) {
@@ -12,7 +13,12 @@ function empresasPorProcuracaoEmLote(lista) {
     caixas.set(e.id, cx);
     return h('li', {}, h('label', {}, cx, h('span', { class: 'item-corpo' },
       h('span', { class: 'item-titulo' }, e.nome || 'Empresa sem nome'),
-      h('span', { class: 'item-sub' }, [e.documentoFormatado, e.regime, e.certificadoProprio ? 'tem certificado próprio' : 'sem certificado próprio'].filter(Boolean).join(' · ')))));
+      h('span', { class: 'item-sub' }, [e.documentoFormatado, e.regime, e.certificadoProprio ? 'tem certificado próprio' : 'sem certificado próprio'].filter(Boolean).join(' · ')),
+      // O que a Receita respondeu à última consulta por procuração desta empresa.
+      !e.porProcuracao ? null
+        : e.consultaRecusadaEm ? h('span', { class: 'item-sub recusada' }, `Recusada pela Receita em ${data(e.consultaRecusadaEm)}${e.consultaRecusadaMotivo ? `: ${e.consultaRecusadaMotivo}` : ''}`)
+          : e.sincronizadoEm ? h('span', { class: 'item-sub aceita' }, `Aceita pela Receita na consulta de ${data(e.sincronizadoEm)}`)
+            : h('span', { class: 'item-sub' }, 'Ainda não conferida na Receita'))));
   });
   const status = h('p', { class: 'suave', role: 'status' });
   const contar = () => { status.textContent = `${[...caixas.values()].filter((c) => c.checked).length} de ${plural(lista.length, 'empresa marcada', 'empresas marcadas')}.`; };
@@ -63,7 +69,8 @@ export async function tela() {
           await api('DELETE', '/api/procurador/certificado', {});
           location.reload();
         } }, 'Remover certificado do escritório'))
-        : null,
+        // Sem certificado ainda: enviar é a primeira coisa da tela.
+        : h('div', {}, h('h3', {}, 'Enviar o certificado do escritório'), form),
       h('h3', {}, 'Como cada empresa concede a procuração'),
       h('ol', { class: 'passos' },
         h('li', {}, 'O responsável pela empresa entra no ', h('a', { href: 'https://servicos.receitafederal.gov.br/', target: '_blank', rel: 'noopener' }, 'Portal de Serviços da Receita Federal'), ' e escolhe ', h('strong', {}, '"Nova Autorização"'), '.'),
@@ -72,8 +79,21 @@ export async function tela() {
         h('li', {}, 'Aqui no app, marque a empresa em ', h('strong', {}, '"Empresas atendidas por procuração"'), ', logo abaixo (ou em Dados da empresa › Certificado digital).')),
       c ? h('button', { class: 'btn btn-pequeno', type: 'button', onclick: (e) => copiarTexto(documento, e.currentTarget) }, `Copiar ${c.tipoDocumento} do procurador`) : null,
       lista.length ? empresasPorProcuracaoEmLote(lista) : null,
-      h('p', { class: 'suave' }, 'O app não consegue conferir a procuração antes: a Receita confere a cada envio. Se ela não estiver vigente, a nota é recusada e nada é emitido.'),
-      h('h3', {}, c ? 'Trocar o certificado' : 'Enviar o certificado do escritório'),
-      c ? h('details', {}, h('summary', {}, 'Trocar certificado do escritório'), form) : form),
+      // Com o certificado enviado e nenhuma empresa ainda: o próximo passo é cadastrar as empresas.
+      c && !lista.length ? h('section', { class: 'cartao' },
+        h('strong', {}, 'Agora cadastre as empresas'),
+        h('p', { class: 'suave' }, 'Cada empresa nova já nasce por procuração: basta o CNPJ e os dados fiscais dela.'),
+        h('a', { class: 'btn btn-primario', href: '#/empresas/nova' }, 'Adicionar empresa')) : null,
+      c && lista.some((e) => e.porProcuracao) ? h('div', {},
+        h('p', { class: 'suave' }, 'Para saber se a procuração de cada empresa está valendo antes de emitir, consulte a Receita: é só leitura das notas, nada é emitido. A empresa com procuração não vigente aparece como recusada.'),
+        h('button', { class: 'btn btn-pequeno', type: 'button', onclick: async (ev) => {
+          const botao = ev.currentTarget;
+          botao.disabled = true;
+          // A consulta roda no servidor; a tela de Empresas mostra o andamento e o que a Receita respondeu.
+          try { await api('POST', '/api/empresas/sincronizar', {}); ir('/empresas'); } catch (e) { aviso(e.status === 0 ? 'Sem internet: a consulta à Receita precisa de conexão.' : e.message, 7000); botao.disabled = false; }
+        } }, 'Conferir todas na Receita'))
+        : h('p', { class: 'suave' }, 'A Receita confere a procuração a cada envio. Se ela não estiver vigente, a nota é recusada e nada é emitido.'),
+      c ? h('h3', {}, 'Trocar o certificado') : null,
+      c ? h('details', {}, h('summary', {}, 'Trocar certificado do escritório'), form) : null),
   };
 }

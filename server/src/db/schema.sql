@@ -192,6 +192,9 @@ CREATE TABLE IF NOT EXISTS distribuicao_dfe (
   sincronizado_em TEXT,
   -- Versão da leitura: 2 = a fila já foi lida guardando também as notas emitidas pela empresa.
   leitura INTEGER NOT NULL DEFAULT 2,
+  -- Última recusa da Receita a esta consulta (ex.: procuração não vigente); some na consulta seguinte que der certo.
+  falha_em TEXT,
+  falha_cifrada TEXT,
   PRIMARY KEY (prestador_id, ambiente, documento_indice)
 );
 

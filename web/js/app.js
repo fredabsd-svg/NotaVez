@@ -146,12 +146,13 @@ async function renderizar() {
   empresa.hidden = !naEmpresa;
   empresa.querySelector('.ctx-nome').textContent = estado.conta?.empresaNome || 'Empresa';
   empresa.querySelector('.ctx-cnpj').textContent = estado.conta?.empresaDocumentoFormatado || '';
+  // Empresa atendida por procuração: quem assina e consulta é o certificado do escritório.
+  const porProcuracao = !!estado.conta?.empresaPorProcuracao;
+  empresa.querySelector('.ctx-proc').hidden = !porProcuracao;
   const amb = empresa.querySelector('.ctx-ambiente');
   const ambiente = estado.conta?.empresaAmbiente;
-  amb.hidden = !ambiente;
-  amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes';
-  amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
-  empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
+  mostrarAmbiente(amb, ambiente);
+  empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${porProcuracao ? ', por procuração' : ''}${ambiente === 'producao_restrita' ? ' (ambiente de testes)' : ''}. Trocar de empresa`);
   // A troca devolve a pessoa à mesma área em que ela estava.
   const area = areaDe(caminho);
   empresa.setAttribute('href', area === '/' ? '#/empresas' : `#/empresas?voltar=${encodeURIComponent(area)}`);
@@ -165,14 +166,21 @@ async function renderizar() {
   enderecoNaTela = location.hash;
 }
 
-// O ambiente agora aparece na barra da empresa; o selo do topo fica só para quando não há empresa aberta.
+// Produção é o normal e não leva selo; o que foge do normal (ambiente de testes, notas sem validade) aparece.
+function mostrarAmbiente(amb, ambiente) {
+  amb.hidden = ambiente !== 'producao_restrita';
+  amb.textContent = 'Testes';
+  amb.className = 'selo ctx-ambiente selo-teste';
+}
+
+// O ambiente aparece na barra da empresa; o selo do topo fica só para quando não há empresa aberta.
 export async function atualizarSelo() {
   const ambiente = estado.inicio?.perfil?.ambiente;
   document.getElementById('selo-ambiente').hidden = true;
   if (ambiente && estado.conta && estado.conta.empresaAmbiente !== ambiente) {
     estado.conta = { ...estado.conta, empresaAmbiente: ambiente };
     const amb = document.querySelector('#empresa-ativa .ctx-ambiente');
-    if (amb) { amb.hidden = false; amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes'; amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`; }
+    if (amb) mostrarAmbiente(amb, ambiente);
   }
 }
 

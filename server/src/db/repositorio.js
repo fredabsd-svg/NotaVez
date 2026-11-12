@@ -107,12 +107,16 @@ export function criarRepositorio(db) {
       // Última consulta ao ADN (notas tomadas e emitidas fora do app), no ambiente atual de cada empresa.
       const sincronizacoes = new Map(db.all(`SELECT d.prestador_id, max(d.sincronizado_em) em FROM distribuicao_dfe d JOIN prestadores p ON p.id = d.prestador_id
         WHERE p.usuario_id = ? AND d.ambiente = p.ambiente GROUP BY d.prestador_id`, usuarioId).map((r) => [r.prestador_id, r.em]));
+      // Recusa da Receita ainda em aberto (some quando uma consulta volta a dar certo).
+      const recusas = new Map(db.all(`SELECT d.prestador_id, d.falha_em, d.falha_cifrada FROM distribuicao_dfe d JOIN prestadores p ON p.id = d.prestador_id
+        WHERE p.usuario_id = ? AND d.ambiente = p.ambiente AND d.falha_em IS NOT NULL ORDER BY d.falha_em`, usuarioId).map((r) => [r.prestador_id, r]));
       return db.all('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY lower(nome), criado_em', usuarioId).map((row) => {
         const n = notas.get(row.id) || {};
         return {
           ...prestadorDe(row), certificadoValidoAte: (row.usa_procuracao ? procurador?.valido_ate : certs.get(row.id)) || null,
           rascunhos: n.rascunhos || 0, pendentes: n.pendentes || 0, emitidasNoMes: n.emitidas_mes || 0, ultimaEmissao: n.ultima_emissao || null,
           tomadas: tomadas.get(row.id) || 0, certificadoProprio: certs.has(row.id), sincronizadoEm: sincronizacoes.get(row.id) || null,
+          consultaRecusadaEm: recusas.get(row.id)?.falha_em || null, consultaRecusadaMotivo: recusas.has(row.id) ? decifrar(recusas.get(row.id).falha_cifrada) : null,
         };
       });
     },
@@ -203,6 +207,11 @@ export function criarRepositorio(db) {
       if (!atual) return null;
       if (atual.usaProcuracao) return this.certificadoProcurador(atual.usuarioId);
       return this.certificadoAtivo(atual.id);
+    },
+    // Ambiente da Receita em que a empresa emite: 'producao' (notas reais) ou 'producao_restrita' (testes).
+    definirAmbiente(usuarioId, prestadorId, ambiente) {
+      const r = db.run('UPDATE prestadores SET ambiente = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ambiente, agora(), usuarioId, prestadorId);
+      if (r.changes !== 1) throw new ErroApp(404, 'Empresa não encontrada.');
     },
     definirProcuracao(usuarioId, prestadorId, ativa) {
       const r = db.run('UPDATE prestadores SET usa_procuracao = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ativa ? 1 : 0, agora(), usuarioId, prestadorId);
@@ -374,12 +383,19 @@ export function criarRepositorio(db) {
 
     // ---------- notas tomadas (recebidas pela empresa) ----------
     distribuicao(prestadorId, ambiente, documento) {
-      const r = db.get('SELECT ultimo_nsu, sincronizado_em, leitura FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));
-      return { ultimoNsu: r?.ultimo_nsu ?? 0, sincronizadoEm: r?.sincronizado_em ?? null, leitura: r?.leitura ?? 2 };
+      const r = db.get('SELECT ultimo_nsu, sincronizado_em, leitura, falha_em, falha_cifrada FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));
+      return { ultimoNsu: r?.ultimo_nsu ?? 0, sincronizadoEm: r?.sincronizado_em ?? null, leitura: r?.leitura ?? 2,
+        // A Receita recusou a última consulta (por procuração: sinal de procuração não vigente).
+        recusadaEm: r?.falha_em ?? null, recusaMotivo: r?.falha_em ? decifrar(r.falha_cifrada) : null };
     },
     gravarDistribuicao: (prestadorId, ambiente, documento, ultimoNsu) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, sincronizado_em, leitura) VALUES (?,?,?,?,?,2)
-      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET ultimo_nsu = max(ultimo_nsu, excluded.ultimo_nsu), sincronizado_em = excluded.sincronizado_em`,
+      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET ultimo_nsu = max(ultimo_nsu, excluded.ultimo_nsu), sincronizado_em = excluded.sincronizado_em,
+        falha_em = NULL, falha_cifrada = NULL`,
     prestadorId, ambiente, indiceCego(`nsu:${documento}`), ultimoNsu, agora()),
+    // A Receita respondeu recusando a consulta: guarda o motivo (cifrado) até a próxima consulta que der certo.
+    registrarRecusaDistribuicao: (prestadorId, ambiente, documento, motivo) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, leitura, falha_em, falha_cifrada) VALUES (?,?,?,0,2,?,?)
+      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET falha_em = excluded.falha_em, falha_cifrada = excluded.falha_cifrada`,
+    prestadorId, ambiente, indiceCego(`nsu:${documento}`), agora(), cifrar(String(motivo || '').slice(0, 500))),
     // Fila lida por uma versão que só guardava as notas tomadas: volta ao início uma única vez.
     reiniciarLeitura: (prestadorId, ambiente, documento) => db.run('UPDATE distribuicao_dfe SET ultimo_nsu = 0, leitura = 2 WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ? AND leitura < 2',
       prestadorId, ambiente, indiceCego(`nsu:${documento}`)).changes === 1,

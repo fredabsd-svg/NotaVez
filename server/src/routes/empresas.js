@@ -4,6 +4,7 @@ import { ErroApp } from '../util/erros.js';
 import { formatarDocumento } from '../util/documentos.js';
 import { municipio } from '../fiscal/tabelas.js';
 import { auditar } from '../security/auditoria.js';
+import { config } from '../config.js';
 
 // Escritórios e quem cuida de várias empresas: cada empresa tem o próprio
 // ambiente (perfil fiscal, certificado, clientes, serviços e notas).
@@ -14,12 +15,38 @@ const resumo = (p) => ({
   porProcuracao: !!p.usaProcuracao, rascunhos: p.rascunhos, pendentes: p.pendentes, emitidasNoMes: p.emitidasNoMes, ultimaEmissao: p.ultimaEmissao, tomadas: p.tomadas,
   // Tem certificado só dela (além do do escritório)? E quando a Receita foi consultada pela última vez.
   certificadoProprio: !!p.certificadoProprio, sincronizadoEm: p.sincronizadoEm || null,
+  // A Receita recusou a última consulta (por procuração: é sinal de procuração não vigente).
+  consultaRecusadaEm: p.consultaRecusadaEm || null, consultaRecusadaMotivo: p.consultaRecusadaMotivo || null,
 });
 
 export async function rotasEmpresas(app) {
   const { repo, db, emissao, consultarCnpj, limites, tomadas } = app.ctx;
 
-  app.get('/empresas', async (req) => ({ empresas: repo.listarPrestadores(req.usuario.id).map(resumo), ativa: req.prestador?.id || null }));
+  app.get('/empresas', async (req) => ({ empresas: repo.listarPrestadores(req.usuario.id).map(resumo), ativa: req.prestador?.id || null,
+    // Para a tela oferecer "passar para produção" às empresas que ainda estão no ambiente de testes.
+    producaoLiberada: config.producaoLiberada,
+    // Certificado do escritório (procuração): a lista de empresas começa por ele.
+    procurador: certPublico(repo.certificadoProcurador(req.usuario.id)) }));
+
+  // Passa várias empresas de uma vez para a produção (notas reais) ou de volta para os testes.
+  // As notas já enviadas continuam no ambiente em que foram enviadas; só as próximas mudam.
+  app.put('/empresas/ambiente', async (req) => {
+    const ambiente = ['producao', 'producao_restrita'].includes(req.body?.ambiente) ? req.body.ambiente : null;
+    const ids = Array.isArray(req.body?.empresas) ? [...new Set(req.body.empresas.map(String))].slice(0, 500) : [];
+    if (!ambiente || !ids.length) throw new ErroApp(422, 'Escolha as empresas e o ambiente.');
+    if (ambiente === 'producao' && !config.producaoLiberada) throw new ErroApp(409, 'A produção não está liberada neste servidor.');
+    const minhas = new Map(repo.listarPrestadores(req.usuario.id).map((e) => [e.id, e]));
+    let alteradas = 0;
+    for (const id of ids) {
+      const e = minhas.get(id);
+      if (!e || e.ambiente === ambiente) continue; // de outra conta, removida ou já nesse ambiente
+      repo.definirAmbiente(req.usuario.id, id, ambiente);
+      emissao.fecharClientesDoPrestador(id);
+      auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'empresa.ambiente_alterado', detalhes: { de: e.ambiente, para: ambiente, emLote: true }, ip: req.ip });
+      alteradas += 1;
+    }
+    return { alteradas, empresas: repo.listarPrestadores(req.usuario.id).map(resumo) };
+  });
 
   app.post('/empresas', async (req) => {
     // Escritório com procuração: a empresa já nasce usando o certificado do escritório.

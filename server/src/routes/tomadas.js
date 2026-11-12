@@ -3,7 +3,7 @@ import { formatarDocumento } from '../util/documentos.js';
 import { naoEncontrado } from '../util/erros.js';
 import { config } from '../config.js';
 import { exigirPrestador } from './perfil.js';
-import { sincronizarEmpresa } from './notas.js';
+import { sincronizarEmpresa, sincronizacaoPublica } from './notas.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const publica = (t, completo = false) => ({
@@ -33,7 +33,7 @@ export async function rotasTomadas(app) {
     return {
       tomadas: lista.map((t) => publica(t)),
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
-      sincronizacao: repo.distribuicao(p.id, p.ambiente, p.documento),
+      sincronizacao: sincronizacaoPublica(repo, p),
       temCertificado: !!repo.certificadoEmissao(p),
       porProcuracao: !!p.usaProcuracao,
     };

@@ -98,6 +98,10 @@ p { margin: var(--esp-2) 0; }
 .empresa-ativa .ctx-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .empresa-ativa .ctx-nome { font-weight: 600; font-size: var(--fs-14); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empresa-ativa .ctx-doc { font-size: var(--fs-12); line-height: 1.4; color: var(--texto-2); display: flex; gap: var(--esp-2); align-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.empresa-ativa .ctx-cnpj { flex: none; }
+/* "por procuração" cede espaço primeiro: em tela estreita encolhe com reticências, o CNPJ fica inteiro. */
+.empresa-ativa .ctx-proc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.empresa-ativa .ctx-proc::before { content: "· "; }
 .empresa-ativa .ctx-trocar { flex: none; font-size: var(--fs-13); font-weight: 600; color: var(--azul); border: 1px solid var(--borda); border-radius: 999px; padding: 4px 12px; }
 
 .faixa-demo { background: var(--amb-fundo); color: var(--amb-texto); padding: 3px var(--esp-4); font-size: var(--fs-12); text-align: center; border-bottom: 1px solid var(--amb-borda); }
@@ -202,6 +206,10 @@ summary { min-height: 48px; display: flex; align-items: center; gap: var(--esp-2
 .cabecalho-acoes { display: flex; gap: var(--esp-3); align-items: center; justify-content: space-between; flex-wrap: wrap; margin: var(--esp-2) 0; }
 .cabecalho-acoes .btn { width: auto; margin: 0; }
 .cabecalho-acoes > p { margin: 0; flex: 1 1 200px; }
+/* Certificado do escritório no topo da lista de empresas: o escritório trabalha por procuração. */
+.cartao-escritorio { border: 1px solid var(--borda); border-radius: var(--raio); background: var(--cartao); margin: 0 0 var(--esp-3); }
+.cartao-escritorio .item-sub { white-space: normal; }
+.cartao-escritorio.atencao { border-color: var(--ambar); background: var(--ambar-claro); }
 /* Lista de marcar (ex.: empresas atendidas por procuração): a linha inteira é o alvo do toque. */
 .lista-marcar { list-style: none; padding: 0; margin: var(--esp-2) 0; background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; }
 .lista-marcar > li + li { border-top: 1px solid var(--borda); }
@@ -209,6 +217,8 @@ summary { min-height: 48px; display: flex; align-items: center; gap: var(--esp-2
 .lista-marcar input { width: 22px; height: 22px; min-height: 22px; flex: none; margin: 0; padding: 0; }
 .lista-marcar .item-corpo { flex: 1; min-width: 0; }
 .lista-marcar .item-sub { display: block; white-space: normal; overflow-wrap: anywhere; }
+.lista-marcar .item-sub.recusada { color: var(--vermelho); font-weight: 600; }
+.lista-marcar .item-sub.aceita { color: var(--verde); }
 .secao-titulo { display: flex; align-items: baseline; justify-content: space-between; gap: var(--esp-3); margin: var(--esp-6) 0 var(--esp-2); }
 .secao-titulo h3 { margin: 0; }
 .secao-titulo a, .secao-titulo .secao-extra { font-size: var(--fs-14); font-weight: 600; white-space: nowrap; }

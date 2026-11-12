@@ -63,7 +63,9 @@ const pct = (v) => {
 };
 
 // Validação comum ao perfil da empresa ativa e ao cadastro de uma nova empresa.
-export function lerPerfil(b = {}) {
+// `ambienteAtual`: ambiente da empresa que está sendo editada. Sem o campo no pedido, a empresa fica
+// onde está; a empresa nova nasce no ambiente padrão do servidor (produção, quando liberada).
+export function lerPerfil(b = {}, { ambienteAtual } = {}) {
   const doc = lerDocumento(b.documento);
   const erros = {};
   if (!doc || doc.tipo !== 'CNPJ') erros.documento = 'Informe um CNPJ válido.';
@@ -71,8 +73,9 @@ export function lerPerfil(b = {}) {
   if (!['1', '2', '3'].includes(String(b.opSimpNac))) erros.opSimpNac = 'Escolha sua situação no Simples Nacional.';
   const serie = somenteDigitos(b.serieDps || '1').replace(/^0+/, '') || '1';
   if (Number(serie) < 1 || Number(serie) > 49999) erros.serieDps = 'Série entre 1 e 49999 (faixa de aplicativo próprio).';
-  const ambiente = b.ambiente === 'producao' ? 'producao' : 'producao_restrita';
-  if (ambiente === 'producao' && !config.producaoLiberada) erros.ambiente = 'A produção ainda não está liberada neste servidor.';
+  const ambiente = ['producao', 'producao_restrita'].includes(b.ambiente) ? b.ambiente : (ambienteAtual || config.ambientePadrao);
+  // Empresa que já está em produção continua podendo ser editada; o que se barra é a ENTRADA em produção.
+  if (ambiente === 'producao' && !config.producaoLiberada && ambienteAtual !== 'producao') erros.ambiente = 'A produção não está liberada neste servidor.';
   if (b.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email)) erros.email = 'E-mail inválido.';
   // ME/EPP: regime de apuração (E0166), % aproximado de tributos (totTrib/pTotTribSN) e alíquota do ISS para retenção (E0621/E0595).
   const meEpp = String(b.opSimpNac) === '3';
@@ -131,6 +134,12 @@ export function lerPfxEnviado(b = {}) {
   }
 }
 
+// Como a Receita respondeu à última consulta das notas desta empresa (só leitura).
+export function situacaoReceita(repo, p) {
+  const d = repo.distribuicao(p.id, p.ambiente, p.documento);
+  return { consultadaEm: d.sincronizadoEm, recusadaEm: d.recusadaEm, recusaMotivo: d.recusaMotivo };
+}
+
 export async function rotasPerfil(app) {
   const { repo, db, emissao } = app.ctx;
 
@@ -146,13 +155,23 @@ export async function rotasPerfil(app) {
       procurador: certPublico(repo.certificadoProcurador(req.usuario.id)),
       elegibilidade: await elegibilidadeDe(emissao, req.prestador, cert),
       producaoLiberada: config.producaoLiberada,
+      ambientePadrao: config.ambientePadrao,
+      // Última consulta à Receita (ADN) desta empresa: aceita ou recusada (por procuração, mostra se ela está valendo).
+      receita: req.prestador ? situacaoReceita(repo, req.prestador) : null,
     };
   });
 
   // Salva a empresa ativa; sem empresa ativa (primeiro acesso), cadastra uma.
   app.put('/perfil', async (req) => {
-    const id = repo.salvarPrestador(req.usuario.id, req.prestador?.id || null, lerPerfil(req.body || {}));
+    const antes = req.prestador?.ambiente || null;
+    const id = repo.salvarPrestador(req.usuario.id, req.prestador?.id || null, lerPerfil(req.body || {}, { ambienteAtual: antes || undefined }));
     auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
+    const depois = repo.prestador(id).ambiente;
+    // Passar de testes para produção (ou voltar) muda o valor jurídico das próximas notas: fica registrado.
+    if (antes && antes !== depois) {
+      emissao.fecharClientesDoPrestador(id);
+      auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'empresa.ambiente_alterado', detalhes: { de: antes, para: depois }, ip: req.ip });
+    }
     const p = repo.prestador(id);
     return { perfil: perfilPublico(p), empresaId: id, elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoEmissao(p)) };
   });
@@ -209,6 +228,8 @@ export async function rotasPerfil(app) {
       certificadoValidoAte: cert?.validoAte || null,
       // Por procuração, quem assina é o certificado do escritório: é ele que precisa ser trocado.
       certificadoDoEscritorio: !!cert?.procurador,
+      // A Receita recusou a última consulta (por procuração: sinal de que ela não está vigente).
+      receita: situacaoReceita(repo, p),
       rascunhos: porSituacao.rascunho || 0,
       pendentes: (porSituacao.pendente || 0) + (porSituacao.enviando || 0),
       rejeitadas: porSituacao.rejeitada || 0,
