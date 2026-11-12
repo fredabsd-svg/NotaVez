@@ -140,6 +140,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
       // @fastify/static 10: setHeaders recebe o reply do Fastify (não mais o res do Node).
       setHeaders: (reply, caminho) => {
         if (/sw\.js$|index\.html$|manifest/.test(caminho)) reply.header('Cache-Control', 'no-cache');
+        // Ícones e logotipos quase nunca mudam: um dia de cache poupa pedidos a cada abertura.
+        else if (/[\\/]icons[\\/]/.test(caminho)) reply.header('Cache-Control', 'public, max-age=86400');
       },
     });
     app.setNotFoundHandler((req, reply) => (req.url.startsWith('/api/')

@@ -3,7 +3,7 @@ process.env.NODE_ENV = 'test';
 process.env.NOTAVEZ_DEMO = '1';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { gerarCertificadoTeste } from '../test/apoio/certificado-teste.js';
 import { iniciarSefinSimulada } from '../test/apoio/sefin-simulada.js';
 const { criarApp } = await import('../src/app.js');
@@ -87,6 +87,44 @@ try {
   const xml = await ctx.request.get(`${base}/api/notas/${nota.id}/xml`);
   assert.equal(xml.status(), 200);
   assert.match(await xml.text(), /<NFSe/);
+  // Início: resumo das notas emitidas (por competência), limite anual do MEI e notas recentes.
+  await page.goto(`${base}/#/`);
+  await page.getByText('Limite anual do MEI').first().waitFor();
+  await page.getByRole('heading', { name: 'Notas recentes' }).waitFor();
+  await page.getByText('Notas de teste, sem validade').waitFor();
+  await page.getByRole('link', { name: /150,00 em 1 nota emitida/ }).click();
+  // A barra do mês abre as emitidas daquela competência; a lista vem agrupada por mês, com o total.
+  await page.getByText('Emitidas no mês:').waitFor();
+  await page.getByText(/150,00 em 1 emitida/).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Emitidas', exact: true }).getAttribute('aria-pressed'), 'true');
+  // Exportar CSV: a lista mostrada, em formato de planilha em português.
+  const [baixado] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Exportar CSV' }).click()]);
+  const csv = await readFile(await baixado.path(), 'utf8');
+  assert.match(csv, /^\uFEFF"Competência";"Número da NFS-e";"Cliente";"Situação";"Valor \(R\$\)";"Chave de acesso";"Ambiente"\r\n/);
+  assert.match(csv, /"Cliente fictício";"Emitida";"150,00";"\d{50}";"Testes"\r\n$/);
+  // Filtro sem resultado: a tela diz isso e oferece limpar (não fica em branco).
+  await page.getByRole('button', { name: 'Rejeitadas', exact: true }).click();
+  await page.getByText('Nenhuma nota com estes filtros').waitFor();
+  await page.getByRole('link', { name: 'Limpar filtros' }).click();
+  await page.getByRole('link', { name: /Cliente fictício/ }).first().waitFor();
+  // Resumo indisponível (servidor falhou só no Início): a ação principal continua e há "Tentar de novo".
+  await page.route('**/api/inicio', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"erro":"Falha simulada."}' }));
+  await page.goto(`${base}/#/`);
+  await page.getByText('Não foi possível carregar o resumo agora').waitFor();
+  await page.getByRole('link', { name: 'Nova nota', exact: true }).first().waitFor();
+  await page.unroute('**/api/inicio');
+  await page.getByRole('button', { name: 'Tentar de novo' }).click();
+  await page.getByRole('heading', { name: 'Notas recentes' }).waitFor();
+  // Certificado perto de vencer: o Início avisa e aponta para o certificado que de fato assina (aqui, o do escritório).
+  await page.route('**/api/inicio', async (r) => {
+    const resposta = await r.fetch();
+    await r.fulfill({ response: resposta, json: { ...(await resposta.json()), certificadoValidoAte: new Date(Date.now() + 10.5 * 86400_000).toISOString(), certificadoDoEscritorio: true } });
+  });
+  await page.goto(`${base}/#/notas`);
+  await page.goto(`${base}/#/`);
+  await page.getByText(/O certificado do escritório vence em 10 dias/).waitFor();
+  assert.equal(await page.locator('a.alerta-linha').getAttribute('href'), '#/procurador');
+  await page.unroute('**/api/inicio');
   // O navegador usa o módulo real para guardar um rascunho ainda não enviado.
   const idLocal = await page.evaluate(async () => {
     const s = await import('/js/store.js');
@@ -218,7 +256,7 @@ try {
   await page.getByText('Responsável fictício de teste', { exact: false }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.violacoesCsp), []);
   assert.deepEqual(erros, []);
-  console.log('Smoke web aprovado: primeiro acesso e login por CPF, emissão assistida pelo Emissor Nacional, procuração eletrônica, cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, isolamento A/B, exclusão e privacidade; CSP ativa.');
+  console.log('Smoke web aprovado: primeiro acesso e login por CPF, emissão assistida pelo Emissor Nacional, procuração eletrônica, cadastro pelo CNPJ, A1, várias empresas, notas tomadas, revisão/emissão simulada, XML/PDF, painel do Início, lista por mês e exportação CSV, isolamento A/B, exclusão e privacidade; CSP ativa.');
 } catch (e) {
   if (page) {
     await mkdir('test-results', { recursive: true });

@@ -16,6 +16,28 @@
   <meta name="apple-mobile-web-app-title" content="Sem Stress">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="/css/app.css">
+  <!-- Os módulos são pedidos juntos, sem esperar o app.js ser lido para descobrir os demais. -->
+  <link rel="modulepreload" href="/js/app.js">
+  <link rel="modulepreload" href="/js/api.js">
+  <link rel="modulepreload" href="/js/ui.js">
+  <link rel="modulepreload" href="/js/store.js">
+  <link rel="modulepreload" href="/js/rascunho.js">
+  <link rel="modulepreload" href="/js/cnpj.js">
+  <link rel="modulepreload" href="/js/views/entrar.js">
+  <link rel="modulepreload" href="/js/views/inicio.js">
+  <link rel="modulepreload" href="/js/views/historico.js">
+  <link rel="modulepreload" href="/js/views/nota.js">
+  <link rel="modulepreload" href="/js/views/revisao.js">
+  <link rel="modulepreload" href="/js/views/resultado.js">
+  <link rel="modulepreload" href="/js/views/clientes.js">
+  <link rel="modulepreload" href="/js/views/servicos.js">
+  <link rel="modulepreload" href="/js/views/perfil.js">
+  <link rel="modulepreload" href="/js/views/empresas.js">
+  <link rel="modulepreload" href="/js/views/tomadas.js">
+  <link rel="modulepreload" href="/js/views/assistida.js">
+  <link rel="modulepreload" href="/js/views/conta.js">
+  <link rel="modulepreload" href="/js/views/instalar.js">
+  <link rel="modulepreload" href="/js/views/procurador.js">
 </head>
 <body>
   <a class="pular" href="#conteudo">Pular para o conteúdo</a>
@@ -32,13 +54,14 @@
     <span class="ctx-trocar">Trocar<span class="visualmente-oculto"> de empresa</span></span>
   </a>
   <div id="faixa-demo" class="faixa-demo" role="note" hidden>
-    <strong>Demonstração:</strong> a Receita é simulada e nenhuma nota real é emitida.
+    <strong>Demonstração:</strong> Receita simulada, nenhuma nota é real.
   </div>
   <div id="faixa-offline" class="faixa-offline" role="status" hidden>
     Sem internet. Você pode preparar notas: elas ficam salvas como <strong>rascunho</strong> e <strong>ainda não foram emitidas</strong>.
   </div>
   <main id="conteudo" tabindex="-1"></main>
   <nav class="abas" id="abas" aria-label="Navegação principal" hidden>
+    <a href="#/" class="nav-marca" aria-label="Nota Sem Stress: ir para o início"><img class="marca-clara" src="/icons/logo.svg" alt="" width="172" height="26"><img class="marca-escura" src="/icons/logo-escuro.svg" alt="" width="172" height="26"></a>
     <a href="#/nova" data-aba="emitir" class="aba-nova-topo so-computador"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Nova nota</span></a>
     <a href="#/" data-aba="inicio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg><span>Início</span></a>
     <a href="#/notas" data-aba="notas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h8M9 17h8"/></svg><span>Notas</span></a>

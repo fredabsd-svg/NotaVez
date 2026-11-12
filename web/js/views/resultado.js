@@ -86,7 +86,7 @@ function montar(n, { detalhe = false } = {}) {
   if (n.situacao === 'emitida') acoes.push(...blocoEmitida(n, detalhe));
   if (n.situacao === 'rejeitada' || n.situacao === 'rascunho') {
     if (n.erros?.length) {
-      acoes.push(h('div', { class: 'cartao cartao-erro' }, h('ul', { class: 'lista' }, n.erros.map((e) => h('li', { style: 'margin:8px 0' },
+      acoes.push(h('div', { class: 'cartao cartao-erro' }, h('ul', { class: 'lista-simples' }, n.erros.map((e) => h('li', { style: 'margin:8px 0' },
         h('strong', {}, e.mensagem), e.proximoPasso ? h('p', { style: 'margin:4px 0' }, 'O que fazer: ', e.proximoPasso) : null,
         e.codigo && e.codigo !== 'NAO_ENVIADA' ? h('p', { class: 'suave', style: 'margin:0' }, `Código oficial ${e.codigo}${e.oficial && e.oficial !== e.mensagem ? `: ${e.oficial}` : ''}`) : null)))));
     }
@@ -126,7 +126,7 @@ function montar(n, { detalhe = false } = {}) {
     if (n.historicoEnvio?.length) {
       const nomes = { envio: 'Envio', reenvio: 'Reenvio da mesma DPS', consulta_dps: 'Consulta da DPS', consulta_nfse: 'Consulta da NFS-e' };
       extras.push(h('details', {}, h('summary', {}, 'Registro de comunicação com a Receita'),
-        h('ul', { class: 'lista' }, n.historicoEnvio.map((c) => h('li', { class: 'suave', style: 'margin:6px 0' },
+        h('ul', { class: 'lista-simples' }, n.historicoEnvio.map((c) => h('li', { class: 'suave', style: 'margin:6px 0' },
           `${dataHora(c.criado_em)} · ${nomes[c.operacao] || c.operacao}: ${c.resultado}${c.codigos ? ` (${c.codigos})` : ''}`)))));
     }
     if (n.situacao !== 'pendente' && n.situacao !== 'enviando') {
@@ -143,7 +143,7 @@ function montar(n, { detalhe = false } = {}) {
     }
   }
 
-  const raiz = h('div', { class: `r-${n.situacao === 'enviando' ? 'pendente' : n.situacao}` },
+  const raiz = h('div', { class: `form-estreito r-${n.situacao === 'enviando' ? 'pendente' : n.situacao}` },
     h('div', { class: 'resultado', role: detalhe ? undefined : 'alert' },
       h('div', { class: 'resultado-icone', 'aria-hidden': 'true' }, icones[n.situacao]),
       h('h2', {}, titulos[n.situacao]),

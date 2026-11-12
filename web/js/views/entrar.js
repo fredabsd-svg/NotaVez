@@ -146,7 +146,7 @@ export async function tela(_, query) {
         h('p', { class: 'suave' }, 'O gov.br só identifica você. Para emitir notas, a Receita continua exigindo o certificado digital A1 da empresa.'))
         : null,
       h('div', { class: 'cartao' },
-        h('p', { class: 'suave' }, 'O Nota Sem Stress nunca pede nem guarda a sua senha gov.br. O certificado A1 de cada empresa é enviado depois, com segurança.')),
+        h('p', { class: 'suave' }, 'O Nota Sem Stress é um serviço independente, sem vínculo com o governo. Ele nunca pede nem guarda a sua senha gov.br. O certificado A1 de cada empresa é enviado depois, com segurança.')),
       h('a', { class: 'btn btn-texto', href: '#/instalar' }, 'Como instalar no celular'),
     );
   }

@@ -16,8 +16,8 @@
     { "src": "/icons/icone.svg", "sizes": "any", "type": "image/svg+xml" }
   ],
   "shortcuts": [
-    { "name": "Emitir nota", "url": "/#/nova" },
-    { "name": "Clonar última nota", "url": "/#/clonar" },
+    { "name": "Nova nota", "url": "/#/nova" },
+    { "name": "Clonar a última emitida", "url": "/#/clonar" },
     { "name": "Clientes", "url": "/#/clientes" }
   ]
 }

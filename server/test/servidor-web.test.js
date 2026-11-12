@@ -21,12 +21,32 @@ test('serve o PWA com cache correto e volta ao index nas rotas do app', async ()
   const logo = await get('/icons/logo.svg');
   assert.equal(logo.statusCode, 200);
   assert.match(logo.headers['content-type'], /image\/svg\+xml/);
+  assert.equal(logo.headers['cache-control'], 'public, max-age=86400', 'ícones ficam um dia em cache');
+  const css = await get('/css/app.css');
+  assert.equal(css.statusCode, 200);
+  assert.doesNotMatch(String(css.headers['cache-control']), /max-age=[1-9]/, 'CSS e JS não ficam presos em cache: sempre revalidam');
   const rotaDoApp = await get('/qualquer/rota');
   assert.equal(rotaDoApp.statusCode, 200);
   assert.match(rotaDoApp.body, /<!doctype html>/i);
   const apiInexistente = await get('/api/nao-existe');
   assert.equal(apiInexistente.statusCode, 404, 'rota /api desconhecida não devolve o index');
   assert.deepEqual(apiInexistente.json(), { erro: 'Rota não encontrada.' });
+});
+
+test('módulos do app: pré-carregados no index.html, guardados pelo service worker e existentes em web/js', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const web = new URL('../../web/', import.meta.url);
+  // conta-publica.js é só das páginas públicas (recuperar senha, excluir conta): fica fora da casca do app.
+  const arquivos = [...readdirSync(new URL('js/', web)).filter((f) => f.endsWith('.js') && f !== 'conta-publica.js').map((f) => `/js/${f}`),
+    ...readdirSync(new URL('js/views/', web)).filter((f) => f.endsWith('.js')).map((f) => `/js/views/${f}`)].sort();
+  const precarregados = [...readFileSync(new URL('index.html', web), 'utf8').matchAll(/rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]).sort();
+  const casca = [...readFileSync(new URL('sw.js', web), 'utf8').matchAll(/'(\/js\/[^']+\.js)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(precarregados, arquivos, 'index.html: um modulepreload para cada módulo de web/js (tela nova ou renomeada entra aqui)');
+  assert.deepEqual(casca, arquivos, 'sw.js: a casca guarda os mesmos módulos');
+  for (const url of arquivos) {
+    const r = await get(url);
+    assert.match(String(r.headers['content-type']), /javascript/, `${url} precisa ser servido como JavaScript`);
+  }
 });
 
 test('caminhos codificados não escapam de web/ nem pulam o login e o anti-CSRF', async () => {

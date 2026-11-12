@@ -1,6 +1,6 @@
 // Roteador e inicialização do PWA.
 import { api, ErroApi, urlConta } from './api.js';
-import { h, aviso, carregando } from './ui.js';
+import { h, aviso, esqueleto } from './ui.js';
 import { definirConta, recuperarContaOffline, sessaoEncerrada, temLegadoEmQuarentena, excluirDadosDaConta, sincronizarTodos, contaGuardada, esquecerContaNestaAba } from './store.js';
 import * as entrar from './views/entrar.js';
 import * as conta from './views/conta.js';
@@ -63,9 +63,28 @@ export const ir = (hash, { substituir = false } = {}) => {
   if (substituir) location.replace(`#${hash}`); else location.hash = hash;
 };
 
+// Voltar para uma lista devolve a pessoa ao ponto em que estava (ex.: histórico longo de notas).
+// Só vale para "voltar/avançar" de verdade: abrir uma tela por um link começa sempre do alto.
+const rolagens = new Map();
+let enderecoNaTela = null;
+// Momento do último "voltar/avançar". Vale por instantes: se a volta sair do app (outra página) e não houver
+// troca de tela aqui, a marca não pode sobrar para o próximo toque num link.
+let voltouEm = -Infinity;
+const marcarVolta = () => { voltouEm = performance.now(); };
+window.navigation?.addEventListener('navigate', (e) => { if (e.navigationType === 'traverse') marcarVolta(); });
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // a posição é devolvida aqui, depois que a tela chega
+
 let renderizando = 0;
 async function renderizar() {
   const meu = ++renderizando;
+  if (enderecoNaTela !== null) {
+    rolagens.delete(enderecoNaTela); // reinsere no fim: o Map guarda as 50 telas mais recentes
+    rolagens.set(enderecoNaTela, window.scrollY);
+    if (rolagens.size > 50) rolagens.delete(rolagens.keys().next().value);
+    enderecoNaTela = null;
+  }
+  const rolagem = performance.now() - voltouEm < 1000 ? rolagens.get(location.hash) || 0 : 0;
+  voltouEm = -Infinity;
   const [caminho, qs] = (location.hash.slice(1) || '/').split('?');
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
   const main = document.getElementById('conteudo');
@@ -73,7 +92,12 @@ async function renderizar() {
   if (estado.conta && !estado.conta.prestadorId && !SEM_EMPRESA.has(caminho)) return ir(estado.conta.empresas ? '/empresas' : '/empresas/nova', { substituir: true });
 
   const rota = casar(caminho) || casar('/');
-  main.replaceChildren(carregando());
+  // O esqueleto entra escondido e só aparece se a tela demorar: telas rápidas não piscam.
+  // (Por tempo, não por animação: vale também para quem pediu "reduzir movimento".)
+  const espera = esqueleto();
+  espera.hidden = true;
+  main.replaceChildren(espera);
+  setTimeout(() => { espera.hidden = false; }, 250);
   let tela;
   try {
     tela = await rota.fn(rota.params, query);
@@ -115,11 +139,13 @@ async function renderizar() {
   amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
   empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
   for (const a of document.querySelectorAll('.abas a')) {
-    if (a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    // Só destinos com data-aba (a marca da barra lateral não é um): tela sem aba não marca nada.
+    if (a.dataset.aba && a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   main.replaceChildren(tela.node);
   main.focus({ preventScroll: true });
-  window.scrollTo(0, 0);
+  window.scrollTo(0, rolagem);
+  enderecoNaTela = location.hash;
 }
 
 // O ambiente agora aparece na barra da empresa; o selo do topo fica só para quando não há empresa aberta.
@@ -192,7 +218,8 @@ function atualizarOnline() {
 }
 
 document.getElementById('voltar').addEventListener('click', () => {
-  if (history.length > 1) history.back(); else ir('/');
+  // Navegadores sem a API de navegação: o botão Voltar do app também devolve a posição da lista.
+  if (history.length > 1) { marcarVolta(); history.back(); } else ir('/');
 });
 window.addEventListener('hashchange', renderizar);
 window.addEventListener('online', atualizarOnline);
@@ -251,12 +278,11 @@ if ('serviceWorker' in navigator) {
 }
 
 document.getElementById('faixa-offline').hidden = navigator.onLine;
-try {
-  const saude = await (await fetch('/api/saude')).json();
-  estado.demo = !!saude.demo;
-} catch { /* sem internet */ }
-document.getElementById('faixa-demo').hidden = !estado.demo;
+// Situação do servidor e conta são pedidas ao mesmo tempo: a primeira tela chega uma ida e volta antes.
+const saude = fetch('/api/saude').then((r) => r.json()).catch(() => null); // sem internet: segue sem a faixa
 if (!(await sessaoEncerrada())) await carregarConta();
+estado.demo = !!(await saude)?.demo;
+document.getElementById('faixa-demo').hidden = !estado.demo;
 if (estado.conta && navigator.onLine) sincronizarTodos().catch(() => {});
 if (await temLegadoEmQuarentena()) aviso('Há rascunhos antigos sem titular identificado. Eles foram preservados separadamente e não serão exibidos nem enviados por outra conta.');
 renderizar();
