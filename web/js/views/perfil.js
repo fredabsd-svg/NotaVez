@@ -1,4 +1,4 @@
-import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, buscaComSugestoes } from '../ui.js';
+import { h, anexar, campo, mostrarErros, aviso, mascaraDocumento, data, dataHora, buscaComSugestoes } from '../ui.js';
 import { api, ErroApi } from '../api.js';
 import { buscarMunicipio } from '../store.js';
 import { estado, carregarConta, ir } from '../app.js';
@@ -15,7 +15,8 @@ function checklist(eleg) {
 
 // Formulário dos dados fiscais de uma empresa: edição da empresa ativa e
 // cadastro de uma nova. `salvarDados(corpo)` faz a chamada e o que vem depois.
-export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao = 'Salvar dados da empresa', salvarDados }) {
+// `ambientePadrao`: onde a empresa nova nasce (produção, quando o servidor está liberado).
+export function formularioEmpresa({ p = {}, producaoLiberada = false, ambientePadrao = 'producao_restrita', textoBotao = 'Salvar dados da empresa', salvarDados }) {
   const cnpj = campo({ rotulo: 'CNPJ da empresa', valor: mascaraDocumento(p.documento || ''), atributos: { inputmode: 'text', autocapitalize: 'characters', autocomplete: 'off' }, oninput: (e) => { e.target.value = mascaraDocumento(e.target.value); } });
   const nome = campo({ rotulo: 'Nome ou razão social', ajuda: 'Só para exibição no app (a nota usa o nome do cadastro do CNPJ).', valor: p.nome || '', atributos: { maxlength: 300 } });
   let municipioIbge = p.municipioIbge || '';
@@ -95,8 +96,9 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   const im = campo({ rotulo: 'Inscrição municipal', ajuda: 'Informe só se a prefeitura tiver você no cadastro complementar (CNC). Se não tiver, deixe em branco: a Receita recusa IM sem cadastro (E0120).', valor: p.inscricaoMunicipal || '', atributos: { maxlength: 15 } });
   const serie = campo({ rotulo: 'Série da DPS', ajuda: 'Deixe 1, a menos que use outro sistema de emissão (faixa 1–49999).', valor: p.serieDps || '1', atributos: { inputmode: 'numeric', maxlength: 5 } });
   const ambiente = campo({
-    rotulo: 'Ambiente da Receita', valor: p.ambiente || 'producao_restrita',
-    opcoes: [['producao_restrita', 'Testes (produção restrita) — sem validade jurídica'], ...(producaoLiberada ? [['producao', 'Produção — notas reais']] : [])],
+    rotulo: 'Ambiente da Receita', valor: p.ambiente || (producaoLiberada ? ambientePadrao : 'producao_restrita'),
+    // Produção é o normal; o ambiente de testes fica para quem quer experimentar sem emitir nota de verdade.
+    opcoes: [...(producaoLiberada || p.ambiente === 'producao' ? [['producao', 'Produção — notas fiscais de verdade']] : []), ['producao_restrita', 'Testes (produção restrita) — sem validade jurídica']],
   });
   const erroPerfil = h('p', { class: 'erro-campo', role: 'alert', hidden: true });
   const salvarPerfil = h('button', { class: 'btn btn-primario', type: 'submit' }, textoBotao);
@@ -164,12 +166,36 @@ export function formularioEmpresa({ p = {}, producaoLiberada = false, textoBotao
   return formPerfil;
 }
 
+// O que a Receita respondeu à última consulta por procuração (só leitura: nenhuma nota é enviada).
+// É a forma de saber, antes da primeira emissão, se a procuração da empresa está valendo.
+function situacaoNaReceita(dados) {
+  const r = dados.receita || {};
+  if (!dados.procurador) return null;
+  const conferir = h('button', { class: 'btn btn-pequeno', type: 'button', onclick: async () => {
+    conferir.disabled = true;
+    conferir.textContent = 'Consultando a Receita…';
+    try {
+      await api('POST', '/api/notas/sincronizar', {});
+      aviso('A Receita aceitou a consulta por procuração desta empresa.', 6000);
+    } catch (e) { aviso(e.status === 0 ? 'Sem internet: a consulta à Receita precisa de conexão.' : e.message, 9000); }
+    // Recarrega a tela (o aviso continua à vista): aceita ou recusada, a situação aparece no cartão.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } }, 'Conferir a procuração na Receita');
+  const texto = r.recusadaEm
+    ? h('p', { class: 'erro-campo' }, h('strong', {}, `A Receita recusou a consulta por procuração em ${dataHora(r.recusadaEm)}. `), r.recusaMotivo || '')
+    : r.consultadaEm
+      ? h('p', {}, h('strong', {}, 'Procuração aceita pela Receita'), ` na consulta de ${dataHora(r.consultadaEm)}.`)
+      : h('p', {}, 'A procuração desta empresa ainda não foi conferida na Receita. A consulta só lê as notas: nada é emitido.');
+  return h('div', {}, texto, conferir);
+}
+
 // Procuração em uso: quem assina e como a empresa concede a procuração na Receita.
 function cartaoProcuracao(dados) {
   const pr = dados.procurador;
   return h('section', { class: `cartao ${pr ? 'cartao-ok' : 'cartao-alerta'}` },
     pr ? h('div', {}, h('strong', {}, 'Assina pelo escritório: '), pr.titular, h('p', { class: 'suave' }, `${pr.documentoFormatado} · válido até ${data(pr.validoAte)}`))
       : h('p', {}, h('strong', {}, 'Falta o certificado do escritório. '), 'Envie em Certificado do escritório.'),
+    situacaoNaReceita(dados),
     h('p', {}, 'A empresa precisa conceder a procuração no ', h('strong', {}, 'Portal de Serviços da Receita'), ' (servicos.receitafederal.gov.br) › "Nova Autorização": informar o ',
       pr ? `${pr.documentoFormatado} ` : 'CPF/CNPJ do procurador ', 'como procurador, a vigência e escolher o serviço ', h('strong', {}, 'NFS-e'), '. A Receita confere a procuração a cada envio.'),
     pr ? h('button', { class: 'btn btn-pequeno', type: 'button', onclick: (e) => copiarTexto(pr.documentoFormatado.replace(/\W/g, ''), e.currentTarget) }, 'Copiar CPF/CNPJ do procurador') : null,
@@ -215,7 +241,7 @@ export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certifi
     },
   }, arquivo, senha,
   h('label', { class: 'caixa', for: idConsentimento }, consentimento,
-    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
+    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, consultar a situação delas e buscar na Receita as notas emitidas e recebidas por esta empresa (inclusive de tempos em tempos, de forma automática). Posso remover a qualquer momento.')),
   erroCert, enviar);
 }
 
@@ -234,9 +260,10 @@ function escolhaAssinatura(dados) {
   };
   const opcao = (ativa, titulo, sub) => h('button', { class: 'item', type: 'button', 'aria-pressed': String(ativa === usaProc), onclick: () => definir(ativa) },
     h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo', style: 'white-space:normal' }, titulo), h('div', { class: 'item-sub', style: 'white-space:normal' }, sub)));
-  return h('div', { role: 'group', 'aria-label': 'Como esta empresa assina as notas' },
-    opcao(false, 'Certificado A1 desta empresa', 'O e-CNPJ da própria empresa assina e envia as notas.'),
-    opcao(true, 'Certificado do escritório (procuração eletrônica)', 'Um só certificado, o do escritório ou do contador, para todas as empresas que concederam a procuração NFS-e na Receita.'));
+  const procuracao = opcao(true, 'Certificado do escritório (procuração eletrônica)', 'Um só certificado, o do escritório ou do contador, para todas as empresas que concederam a procuração NFS-e na Receita.');
+  const proprio = opcao(false, 'Certificado A1 desta empresa', 'O e-CNPJ da própria empresa assina e envia as notas.');
+  // Conta com certificado do escritório trabalha por procuração: essa opção vem primeiro.
+  return h('div', { role: 'group', 'aria-label': 'Como esta empresa assina as notas' }, ...(dados.procurador ? [procuracao, proprio] : [proprio, procuracao]));
 }
 
 export async function tela() {
@@ -244,7 +271,7 @@ export async function tela() {
   const p = dados.perfil || {};
   const node = h('div');
   const formPerfil = formularioEmpresa({
-    p, producaoLiberada: dados.producaoLiberada,
+    p, producaoLiberada: dados.producaoLiberada, ambientePadrao: dados.ambientePadrao,
     salvarDados: async (corpo) => {
       await api('PUT', '/api/perfil', corpo);
       aviso('Dados da empresa salvos.');
@@ -273,8 +300,15 @@ export async function tela() {
       }, 'Remover certificado'))
     : null;
 
+  // A Receita recusou a última consulta por procuração: aparece antes de tudo, porque as notas seriam recusadas.
+  const recusada = usaProc && dados.receita?.recusadaEm;
   anexar(node,
-    h('section', { class: 'cartao' }, h('h2', { style: 'font-size:19px;margin-top:0' }, dados.elegibilidade.podeEmitir ? 'Tudo pronto para emitir' : 'O que falta para emitir'), checklist(dados.elegibilidade)),
+    recusada ? h('section', { class: 'cartao cartao-erro', role: 'alert' },
+      h('strong', {}, 'A Receita recusou a consulta por procuração desta empresa'),
+      h('p', {}, `${dataHora(dados.receita.recusadaEm)}${dados.receita.recusaMotivo ? `: ${dados.receita.recusaMotivo}` : '.'}`),
+      h('p', {}, 'Enquanto a procuração eletrônica NFS-e para o escritório não estiver vigente, as notas desta empresa serão recusadas. Confira no Portal de Serviços da Receita e consulte de novo.'),
+      h('a', { class: 'btn btn-pequeno', href: '#certificado', onclick: (e) => { e.preventDefault(); document.getElementById('certificado')?.scrollIntoView({ behavior: 'smooth' }); } }, 'Ver a procuração')) : null,
+    h('section', { class: 'cartao' }, h('h2', { style: 'font-size:19px;margin-top:0' }, dados.elegibilidade.podeEmitir ? (recusada ? 'Dados prontos para emitir' : 'Tudo pronto para emitir') : 'O que falta para emitir'), checklist(dados.elegibilidade)),
     h('h3', {}, 'Dados fiscais'), formPerfil,
     h('h3', { id: 'certificado' }, 'Certificado digital'),
     h('details', { class: 'cartao' }, h('summary', {}, 'Por que preciso do certificado?'),

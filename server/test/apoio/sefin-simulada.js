@@ -97,11 +97,12 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
 
   // Nota emitida por um fornecedor PARA `tomador` (aparece na distribuição do ADN).
   function adicionarTomada({ tomador, prestador = '11444777000161', nome = 'FORNECEDOR SIMULADO LTDA', valor = '500.00', descricao = 'Serviço contratado (simulação)',
-    competencia = '2026-09-01', cTribNac = '170101', municipio: cMun = '3550308', issRetido = false } = {}) {
+    competencia = '2026-09-01', cTribNac = '170101', municipio: cMun = '3550308', issRetido = false, serie = '900', numero } = {}) {
     const n = estado.distribuicao.length + 1;
-    const idDps = `DPS${cMun}2${prestador}00900${String(n).padStart(15, '0')}`;
+    // `serie` e `numero`: para simular outro sistema da empresa que já usou uma numeração de DPS.
+    const idDps = `DPS${cMun}2${prestador}${String(serie).padStart(5, '0')}${String(numero ?? n).padStart(15, '0')}`;
     const dps = `<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infDPS Id="${idDps}"><tpAmb>2</tpAmb><dhEmi>${competencia}T10:00:00-03:00</dhEmi>`
-      + `<verAplic>SIMULADOR</verAplic><serie>900</serie><nDPS>${n}</nDPS><dCompet>${competencia}</dCompet><tpEmit>1</tpEmit><cLocEmi>${cMun}</cLocEmi>`
+      + `<verAplic>SIMULADOR</verAplic><serie>${serie}</serie><nDPS>${numero ?? n}</nDPS><dCompet>${competencia}</dCompet><tpEmit>1</tpEmit><cLocEmi>${cMun}</cLocEmi>`
       + `<prest><CNPJ>${prestador}</CNPJ><regTrib><opSimpNac>3</opSimpNac><regApTribSN>1</regApTribSN><regEspTrib>0</regEspTrib></regTrib></prest>`
       + `<toma><CNPJ>${tomador}</CNPJ><xNome>EMPRESA TOMADORA</xNome></toma>`
       + `<serv><locPrest><cLocPrestacao>${cMun}</cLocPrestacao></locPrest><cServ><cTribNac>${cTribNac}</cTribNac><xDescServ>${esc(descricao)}</xDescServ></cServ></serv>`
@@ -252,6 +253,13 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     baseAdn: `https://127.0.0.1:${porta}`,
     adicionarTomada,
     cancelarTomada,
+    // Nota que o app emitiu por aqui também aparece na fila do ADN da própria empresa.
+    distribuirGerada(idDps) {
+      const g = estado.geradas.get(idDps);
+      const doc = { nsu: estado.distribuicao.length + 1, chave: g.chave, tipo: 'NFSE', xml: g.xml };
+      estado.distribuicao.push(doc);
+      return doc;
+    },
     ca: caPem,
     fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(r); }),
   };

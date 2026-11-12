@@ -45,6 +45,12 @@ O serviço deve enviar ao e-mail cadastrado um link na origem controlada: `/recu
 
 Falha de entrega invalida token e mantém resposta genérica para não revelar existência da conta. `relatarFalhaEntrega` opcional em `criarAutenticacao` permite alerta sem identificadores/segredos. O operador precisa monitorar/testar entrega completa antes do lançamento.
 
+## Uso do certificado nas buscas na Receita
+
+O certificado guardado (da empresa ou do escritório, por procuração) também **lê** o Ambiente de Dados Nacional: notas tomadas, notas que a empresa emitiu fora do app e cancelamentos. A leitura acontece quando a pessoa pede ("Buscar na Receita agora", "Buscar notas de todas na Receita") e, de forma automática, a cada `NOTAVEZ_SINCRONIZACAO_HORAS` (padrão 6; `0` desliga). O texto de autorização do envio do certificado diz isso. Nada é transmitido à Receita nessas buscas, e as notas trazidas ficam cifradas como as demais. Uma empresa que só tem cópias vindas da Receita (nenhuma nota enviada pelo app) pode ser removida da conta: as cópias são apagadas e os documentos oficiais continuam na Receita.
+
+No aparelho, a lista "Abertas há pouco" guarda só os identificadores internos das empresas (sem nome nem CNPJ) e é apagada ao sair da conta.
+
 ## Exclusão e integridade fiscal
 
 A transação SQLite rejeita contas com notas `enviando`/`pendente` antes de remover dados. O claim fiscal exige nota, versão, perfil e certificado existentes antes da chamada externa. Se exclusão vence preparação anterior ao claim, emissão não transmite; se claim vence, exclusão fica bloqueada. Não apagar notas incertas para liberar o fluxo.

@@ -9,7 +9,7 @@ Este roteiro acompanha as correções da branch de preparação para a Play. Nã
 3. Crie `/etc/notavez/notavez.env` a partir do exemplo com permissão 0600. Gere e armazene a chave mestra em cofre separado; não a inclua em commits, prints ou tickets. Não troque a chave de um banco existente sem migração de cifra/índices.
 4. Configure apenas IPs/CIDRs de proxies controlados em `NOTAVEZ_PROXIES_CONFIAVEIS`; o padrão é não confiar em cabeçalhos encaminhados. Não exponha a porta 8080 diretamente. Adicione proteção de volume no ingress conforme carga real.
 5. Preencha responsável, contato de privacidade, política de retenção e entrega de recuperação antes do teste público. Não há contatos de produção inventados no código.
-6. Preserve `NOTAVEZ_PRODUCAO_LIBERADA=0` até emissão, consulta, XML e DANFSe aprovados em produção restrita para os regimes anunciados.
+6. A produção é o padrão do servidor: as notas emitidas são notas fiscais de verdade. Para um servidor de ensaio, defina `NOTAVEZ_PRODUCAO_LIBERADA=0` (ambiente de testes da Receita, produção restrita). A integração ainda não foi exercitada contra a Receita real: antes da primeira nota, confira o certificado do escritório e as procurações com "Conferir todas na Receita" (só leitura) e acompanhe a primeira emissão, a consulta, o XML e o DANFSe de cada regime anunciado.
 
 Os limites do aplicativo são persistidos em SQLite e sobrevivem ao restart, mas só são compartilhados entre processos que usam o mesmo arquivo. Não execute réplicas com bancos independentes. SQLite exige estratégia operacional compatível; este modelo inicial usa uma instância de serviço.
 

@@ -1,4 +1,4 @@
-import { h, anexar, moeda, data, situacaoSelo, campo, nomeMes, vazio, icone, ICONES, plural, aviso, baixarArquivo } from '../ui.js';
+import { h, anexar, moeda, data, dataHora, situacaoSelo, campo, nomeMes, vazio, icone, ICONES, plural, aviso, baixarCsv, valorCsv } from '../ui.js';
 import { api } from '../api.js';
 import { comCache, rascunhosLocais } from '../store.js';
 import { ir, estado } from '../app.js';
@@ -13,7 +13,7 @@ const empresaEmTestes = () => estado.conta?.empresaAmbiente === 'producao_restri
 export function linhaNota(n, { compacta = false } = {}) {
   // Só nota já enviada tem ambiente; avisa quando ele não é o ambiente atual da empresa.
   const outroAmbiente = n.ambiente && !!n.homologacao !== empresaEmTestes() ? (n.homologacao ? 'testes' : 'produção') : null;
-  return h('a', { class: `linha-nota${compacta ? ' compacta' : ''}`, href: n.situacao === 'rascunho' && !n.erros?.length ? `#/nota/${n.id}` : `#/notas/${n.id}` },
+  return h('a', { class: `linha-nota${compacta ? ' compacta' : ''}${n.situacao === 'cancelada' ? ' cancelada' : ''}`, href: n.situacao === 'rascunho' && !n.erros?.length ? `#/nota/${n.id}` : `#/notas/${n.id}` },
     partesDaLinha({ cliente: n.clienteNome || 'Sem cliente', numero: n.nNfse ? `NFS-e nº ${n.nNfse}` : '',
       competencia: [data(n.competencia), outroAmbiente].filter(Boolean).join(' · '), situacao: situacaoSelo(n), valor: moeda(n.valor) }));
 }
@@ -27,18 +27,25 @@ export const partesDaLinha = ({ cliente, documento, numero, competencia, situaca
       h('span', { class: 'ln-num' }, numero), h('span', { class: 'ln-comp' }, competencia)),
     h('span', { class: 'ln-sit' }, situacao))];
 
+// O que a busca na Receita (ADN) trouxe, numa frase. Serve a Notas e a Notas tomadas: é a mesma busca.
+export function resumoDaBusca(r) {
+  const cancelamentos = (r.canceladas || 0) + (r.emitidasCanceladas || 0);
+  const partes = [
+    r.emitidas ? `${plural(r.emitidas, 'nota emitida fora do app entrou', 'notas emitidas fora do app entraram')} em Notas` : null,
+    r.novas ? plural(r.novas, 'nota tomada nova', 'notas tomadas novas') : null,
+    cancelamentos ? plural(cancelamentos, 'cancelamento', 'cancelamentos') : null,
+  ].filter(Boolean);
+  return partes.length ? `${partes.join(' · ')}.` : 'Nada de novo na Receita desde a última busca.';
+}
+
 // Cabeçalho das colunas (só no computador; cada linha já se lê sozinha, por isso fica fora da leitura de tela).
 export const cabecalhoNotas = () => h('div', { class: 'cab-notas', 'aria-hidden': 'true' },
   h('span', {}, 'Cliente'), h('span', { class: 'ln-num' }, 'Número'), h('span', {}, 'Competência'), h('span', {}, 'Situação'), h('span', {}, 'Valor'));
 
-// Lista em CSV para o contador: ponto e vírgula e vírgula decimal, como as planilhas em português esperam.
+// Lista em CSV para o contador.
 function exportarCsv(lista, nomeArquivo) {
-  // Texto que começa com = + - @ seria lido como fórmula pela planilha: vai com apóstrofo na frente.
-  const celula = (v) => { const s = String(v ?? ''); return `"${(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`; };
-  const linhas = [['Competência', 'Número da NFS-e', 'Cliente', 'Situação', 'Valor (R$)', 'Chave de acesso', 'Ambiente'],
-    ...lista.map((n) => [data(n.competencia), n.nNfse || '', n.clienteNome || '', n.rotulo || n.situacao,
-      n.valor ? Number(n.valor).toFixed(2).replace('.', ',') : '', n.chaveAcesso || '', n.ambiente ? (n.homologacao ? 'Testes' : 'Produção') : ''])];
-  baixarArquivo(nomeArquivo, `﻿${linhas.map((l) => l.map(celula).join(';')).join('\r\n')}\r\n`, 'text/csv;charset=utf-8');
+  baixarCsv(nomeArquivo, ['Competência', 'Número da NFS-e', 'Cliente', 'Situação', 'Valor (R$)', 'Chave de acesso', 'Ambiente'],
+    lista.map((n) => [data(n.competencia), n.nNfse || '', n.clienteNome || '', n.rotulo || n.situacao, valorCsv(n.valor), n.chaveAcesso || '', n.ambiente ? (n.homologacao ? 'Testes' : 'Produção') : '']));
 }
 
 export async function tela(_, query) {
@@ -46,7 +53,7 @@ export async function tela(_, query) {
   const mes = /^\d{4}-\d{2}$/.test(query.mes || '') ? query.mes : '';
   // Competência filtrada no servidor: com centenas de notas, o mês escolhido vem completo.
   const qs = new URLSearchParams({ ...(filtro ? { situacao: filtro } : {}), ...(mes ? { competencia: mes } : {}) }).toString();
-  const { notas, limitado, meses: mesesServidor } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
+  const { notas, limitado, meses: mesesServidor, sincronizacao, temCertificado, canceladas, porProcuracao } = await comCache(`notas:${qs}`, () => api('GET', `/api/notas${qs ? `?${qs}` : ''}`));
   const rota = (situacao, m) => { const p = new URLSearchParams({ ...(situacao ? { situacao } : {}), ...(m ? { mes: m } : {}) }).toString(); return `/notas${p ? `?${p}` : ''}`; };
   // Rascunhos que ainda não chegaram à conta (feitos sem internet): entram em "Todas" e "Rascunhos" e seguem a competência escolhida.
   const soAparelho = !filtro || filtro === 'rascunho'
@@ -114,22 +121,53 @@ export async function tela(_, query) {
     onchange: (e) => ir(rota(filtro, e.target.value), { substituir: true }),
   }) : null;
   seletorMes?.classList.add('campo-mes');
+  // Com certificado (da empresa ou do escritório), as notas emitidas fora do app vêm da Receita.
+  const buscarNaReceita = h('button', { class: 'link', type: 'button', onclick: async () => {
+    buscarNaReceita.disabled = true;
+    buscarNaReceita.textContent = 'Consultando a Receita…';
+    try {
+      aviso(resumoDaBusca(await api('POST', '/api/notas/sincronizar', {})), 6000);
+      window.dispatchEvent(new HashChangeEvent('hashchange')); // recarrega a lista
+    } catch (e) {
+      aviso(e.status === 0 ? 'Sem internet: a busca na Receita precisa de conexão.' : e.message, 7000);
+      buscarNaReceita.disabled = false;
+      buscarNaReceita.textContent = 'Buscar na Receita agora';
+    }
+  } }, 'Buscar na Receita agora');
+  // Recusa da Receita (por procuração: procuração não vigente) fica à vista até uma consulta dar certo.
+  const linhaReceita = temCertificado ? h('p', { class: 'resumo-lista' },
+    sincronizacao?.recusadaEm
+      ? h('span', { class: 'erro-campo', role: 'alert' }, `A Receita recusou a consulta de ${dataHora(sincronizacao.recusadaEm)}${sincronizacao.recusaMotivo ? `: ${sincronizacao.recusaMotivo}` : '.'}${porProcuracao ? ' Confira a procuração desta empresa.' : ''}`)
+      : h('span', {}, sincronizacao?.sincronizadoEm ? `Receita consultada em ${dataHora(sincronizacao.sincronizadoEm)}${porProcuracao ? ', por procuração' : ''}.` : 'A Receita ainda não foi consultada para esta empresa.'),
+    buscarNaReceita) : null;
   const busca = campo({ rotulo: 'Pesquisar notas', rotuloOculto: true,
     atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar cliente, número ou chave' }, oninput: (e) => { termo = e.target.value; mostrar(); } });
   busca.classList.add('busca-icone');
 
+  // "Canceladas" só aparece para quem tem nota cancelada (vinda da Receita).
+  const abas = h('div', { class: 'filtro-abas', role: 'group', 'aria-label': 'Filtrar por situação' },
+    [...FILTROS, ...(canceladas || filtro === 'cancelada' ? [['cancelada', 'Canceladas']] : [])].map(([v, t]) => h('button', {
+      type: 'button', 'aria-pressed': String(v === filtro), onclick: () => ir(rota(v, mes), { substituir: true }),
+    }, t)));
+  // No celular as abas rolam de lado: a escolhida fica à vista.
+  requestAnimationFrame(() => {
+    const ativa = abas.querySelector('[aria-pressed="true"]');
+    if (ativa && abas.scrollWidth > abas.clientWidth) abas.scrollLeft = ativa.offsetLeft - (abas.clientWidth - ativa.offsetWidth) / 2;
+  });
+
   return {
     titulo: 'Notas', aba: 'notas',
     node: h('div', {},
-      h('div', { class: 'filtro-abas', role: 'group', 'aria-label': 'Filtrar por situação' }, FILTROS.map(([v, t]) => h('button', {
-        type: 'button', 'aria-pressed': String(v === filtro), onclick: () => ir(rota(v, mes), { substituir: true }),
-      }, t))),
+      abas,
       h('div', { class: 'barra-lista' }, busca, seletorMes, exportar),
       resumo,
+      linhaReceita,
       blocoLocais,
       corpo,
       // Notas emitidas direto no Emissor Nacional também entram no histórico pelo XML.
-      h('div', { class: 'cartao' }, h('p', { class: 'suave' }, 'Emitiu uma nota direto no Emissor Nacional? Traga o XML para ter o histórico, o PDF e poder clonar.'),
+      h('div', { class: 'cartao' }, h('p', { class: 'suave' }, temCertificado
+        ? 'Notas emitidas fora do app (no Emissor Nacional, por exemplo) entram aqui sozinhas: o app consulta a Receita de tempos em tempos e quando você toca em "Buscar na Receita agora". Se preferir, traga o XML.'
+        : 'Emitiu uma nota direto no Emissor Nacional? Traga o XML para ter o histórico, o PDF e poder clonar. Com o certificado enviado, essas notas passam a entrar sozinhas.'),
         botaoImportarXml({ texto: 'Importar XML', classe: 'btn' }))),
   };
 }

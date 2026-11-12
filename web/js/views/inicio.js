@@ -133,6 +133,7 @@ export async function tela() {
     };
   }
 
+  const p0 = dados.perfil;
   // Uma rejeitada mais recente que a última emitida vira alerta; o botão de clonar diz qual nota ele copia.
   const rejeitadaRecente = dados.ultima && dados.ultima.situacao === 'rejeitada' ? dados.ultima : null;
   const clonavel = dados.ultimaEmitida || (dados.ultima?.situacao === 'emitida' ? dados.ultima : null);
@@ -148,6 +149,15 @@ export async function tela() {
         ? `${qualCertificado} venceu em ${data(dados.certificadoValidoAte)}. Envie o novo para voltar a emitir pelo app.`
         : `${qualCertificado} vence ${diasCertificado === 0 ? 'em menos de 24 horas' : `em ${plural(diasCertificado, 'dia', 'dias')}`} (${data(dados.certificadoValidoAte)}). Sem ele, o app não emite: envie o novo antes.`),
       h('b', { class: 'alerta-acao' }, 'Trocar ›'));
+
+  // A Receita recusou a última consulta das notas: por procuração, é o sinal de que ela não está vigente
+  // (e as notas desta empresa seriam recusadas). Aparece antes de a pessoa tentar emitir.
+  const recusa = dados.receita?.recusadaEm ? dados.receita : null;
+  const alertaReceita = recusa ? h('a', { class: 'alerta-linha', href: '#/perfil', role: 'alert' },
+    h('span', {}, p0.usaProcuracao
+      ? 'A Receita recusou a última consulta por procuração desta empresa. Confira se a procuração eletrônica NFS-e para o escritório está vigente antes de emitir.'
+      : 'A Receita recusou a última consulta das notas desta empresa. Confira o certificado antes de emitir.'),
+    h('b', { class: 'alerta-acao' }, 'Ver ›')) : null;
 
   const atalho = (href, ic, titulo, sub) => h('li', {}, h('a', { class: 'item item-seta', href },
     icone(ic), h('div', { class: 'item-corpo' }, h('div', { class: 'item-titulo' }, titulo), sub ? h('div', { class: 'item-sub' }, sub) : null)));
@@ -167,7 +177,7 @@ export async function tela() {
           // Uma linha no Início; a lista completa fica em Dados da empresa.
           ? h('a', { class: 'alerta-linha', href: '#/perfil' },
             h('span', {}, `Falta pouco para emitir pelo app: ${plural(dados.elegibilidade.pendencias.length, 'item pendente', 'itens pendentes')}. Enquanto isso, prepare a nota e emita pelo Emissor Nacional.`), h('b', { class: 'alerta-acao' }, 'Ver ›'))
-          : alertaCertificado,
+          : alertaReceita || alertaCertificado,
       h('div', { class: 'acoes-inicio' },
         h('a', { class: 'btn btn-primario btn-grande', href: '#/nova' }, icone(ICONES.mais), 'Nova nota'),
         dados.podeClonar

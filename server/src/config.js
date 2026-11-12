@@ -17,6 +17,17 @@ function chaveMestra() {
   return randomBytes(32);
 }
 
+// Ambiente de operação. Num servidor de verdade as notas são reais: a produção é o padrão, e
+// NOTAVEZ_PRODUCAO_LIBERADA=0 prende o servidor ao ambiente de testes da Receita (produção restrita).
+// Em desenvolvimento e nos testes automatizados a produção só abre com NOTAVEZ_PRODUCAO_LIBERADA=1;
+// na demonstração (Receita simulada), nunca: uma simulação não pode se passar por nota real.
+export function producaoLiberadaEm({ variavel, dev: emDev = false, demo = false } = {}) {
+  if (demo) return false;
+  if (variavel === '1') return true;
+  if (variavel === '0') return false;
+  return !emDev;
+}
+
 export const ambientesSefin = JSON.parse(
   readFileSync(new URL('./fiscal/sefin/ambientes.json', import.meta.url), 'utf8'),
 );
@@ -46,9 +57,13 @@ export const config = {
     base: process.env.NOTAVEZ_GOVBR_AMBIENTE === 'staging' ? 'https://sso.staging.acesso.gov.br' : 'https://sso.acesso.gov.br',
   },
   bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './notavez.db'),
-  // 'producao_restrita' (homologação) é o padrão. Produção só com liberação explícita.
-  ambientePadrao: 'producao_restrita',
-  producaoLiberada: process.env.NOTAVEZ_PRODUCAO_LIBERADA === '1',
+  // Produção (notas reais) é o padrão do servidor; ver producaoLiberadaEm. A empresa nova nasce no
+  // ambiente padrão: produção quando liberada, senão o ambiente de testes da Receita (produção restrita).
+  producaoLiberada: producaoLiberadaEm({ variavel: process.env.NOTAVEZ_PRODUCAO_LIBERADA, dev, demo: process.env.NOTAVEZ_DEMO === '1' }),
+  get ambientePadrao() { return this.producaoLiberada ? 'producao' : 'producao_restrita'; },
+  // De quantas em quantas horas o servidor busca na Receita (ADN) as notas tomadas e as emitidas fora
+  // do app, de todas as empresas com certificado válido. 0 desliga (a busca fica só pelos botões).
+  sincronizacaoHoras: (() => { const h = Number(process.env.NOTAVEZ_SINCRONIZACAO_HORAS ?? 6); return Number.isFinite(h) && h > 0 ? Math.max(1, h) : 0; })(),
   servirWeb: process.env.NOTAVEZ_SERVIR_WEB !== '0',
   cookieSeguro: !dev,
   versaoAplicativo: 'NotaSemStress-0.1.0',

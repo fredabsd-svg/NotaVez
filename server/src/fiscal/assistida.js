@@ -145,8 +145,24 @@ function assinaturaNfse(xml, chave) {
   } catch { return { presente: true, valida: false }; }
 }
 
-/** Lê e confere o XML da NFS-e; devolve os dados para o histórico e um rascunho equivalente (para clonar). */
-export async function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
+// Ao trocar o XML trazido pela pessoa pela versão oficial da Receita, o vínculo com o cliente e o
+// serviço salvos só fica se forem o mesmo tomador e o mesmo código da nota oficial.
+export function manterVinculos(repo, prestadorId, anterior, rascunhoOficial) {
+  const cliente = anterior?.clienteId ? repo.cliente(prestadorId, anterior.clienteId) : null;
+  const servico = anterior?.servicoId ? repo.servico(prestadorId, anterior.servicoId) : null;
+  const documento = rascunhoOficial?.tomador?.documento;
+  return { ...rascunhoOficial,
+    clienteId: cliente && documento && String(cliente.documento) === String(documento) ? cliente.id : null,
+    servicoId: servico && servico.cTribNac === rascunhoOficial?.cTribNac ? servico.id : null };
+}
+
+/**
+ * Lê e confere o XML da NFS-e; devolve os dados para o histórico e um rascunho equivalente (para clonar).
+ * `fonteOficial`: o XML veio da própria Receita (ADN, por conexão com certificado), não de um arquivo
+ * trazido pela pessoa. Aí o leiaute e a assinatura não barram a leitura (uma versão nova do leiaute
+ * não pode fazer a nota sumir do histórico); a chave continua tendo de bater com o conteúdo.
+ */
+export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOficial = false } = {}) {
   if (typeof xml !== 'string' || xml.length < 200 || xml.length > 900_000) throw new ErroApp(422, 'Envie o arquivo XML da NFS-e baixado do Emissor Nacional.');
   let doc;
   try { doc = parser.parse(xml.replace(/^﻿/, '')); } catch { doc = null; }
@@ -157,7 +173,7 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
   // Estrutura do leiaute oficial (NFSe = um infNFSe + a assinatura): impede esconder outro
   // infNFSe ao lado do assinado e ler dados de um nó que a assinatura não cobre.
   const comAssinatura = /<(\w+:)?Signature[\s>]/.test(xml.slice(xml.lastIndexOf('infNFSe>')));
-  if (comAssinatura || exigirAssinatura) {
+  if (!fonteOficial && (comAssinatura || exigirAssinatura)) {
     const xsd = await validarXsd(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
     if (!xsd.valido) throw new ErroApp(422, 'Este arquivo não segue o leiaute oficial da NFS-e. Baixe o XML da nota emitida no Emissor Nacional.', { detalhes: xsd.erros.slice(0, 3) });
   }
@@ -170,8 +186,8 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true } = {}) {
     throw new ErroApp(422, 'A chave de acesso deste XML não corresponde ao emitente, ao município ou ao número da nota. Baixe o XML de novo no Emissor Nacional.');
   }
   const assinatura = assinaturaNfse(xml, chave);
-  if (assinatura.presente && !assinatura.valida) throw new ErroApp(422, 'A assinatura deste XML não confere: o arquivo foi alterado depois de emitido. Baixe de novo no Emissor Nacional.');
-  if (!assinatura.presente && exigirAssinatura) throw new ErroApp(422, 'Este XML não tem a assinatura da Receita. Baixe o XML da nota emitida no Emissor Nacional (não o da DPS).');
+  if (!fonteOficial && assinatura.presente && !assinatura.valida) throw new ErroApp(422, 'A assinatura deste XML não confere: o arquivo foi alterado depois de emitido. Baixe de novo no Emissor Nacional.');
+  if (!fonteOficial && !assinatura.presente && exigirAssinatura) throw new ErroApp(422, 'Este XML não tem a assinatura da Receita. Baixe o XML da nota emitida no Emissor Nacional (não o da DPS).');
 
   const toma = dps.toma || {};
   const tomDoc = docDe(toma);

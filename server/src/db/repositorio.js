@@ -104,12 +104,19 @@ export function criarRepositorio(db) {
       const tomadas = new Map(db.all(`SELECT t.prestador_id, count(*) n FROM notas_tomadas t JOIN prestadores p ON p.id = t.prestador_id
         WHERE p.usuario_id = ? AND t.ambiente = p.ambiente GROUP BY t.prestador_id`, usuarioId).map((r) => [r.prestador_id, r.n]));
       const procurador = db.get('SELECT valido_ate FROM certificados_procurador WHERE usuario_id = ? AND removido_em IS NULL ORDER BY criado_em DESC LIMIT 1', usuarioId);
+      // Última consulta ao ADN (notas tomadas e emitidas fora do app), no ambiente atual de cada empresa.
+      const sincronizacoes = new Map(db.all(`SELECT d.prestador_id, max(d.sincronizado_em) em FROM distribuicao_dfe d JOIN prestadores p ON p.id = d.prestador_id
+        WHERE p.usuario_id = ? AND d.ambiente = p.ambiente GROUP BY d.prestador_id`, usuarioId).map((r) => [r.prestador_id, r.em]));
+      // Recusa da Receita ainda em aberto (some quando uma consulta volta a dar certo).
+      const recusas = new Map(db.all(`SELECT d.prestador_id, d.falha_em, d.falha_cifrada FROM distribuicao_dfe d JOIN prestadores p ON p.id = d.prestador_id
+        WHERE p.usuario_id = ? AND d.ambiente = p.ambiente AND d.falha_em IS NOT NULL ORDER BY d.falha_em`, usuarioId).map((r) => [r.prestador_id, r]));
       return db.all('SELECT * FROM prestadores WHERE usuario_id = ? ORDER BY lower(nome), criado_em', usuarioId).map((row) => {
         const n = notas.get(row.id) || {};
         return {
           ...prestadorDe(row), certificadoValidoAte: (row.usa_procuracao ? procurador?.valido_ate : certs.get(row.id)) || null,
           rascunhos: n.rascunhos || 0, pendentes: n.pendentes || 0, emitidasNoMes: n.emitidas_mes || 0, ultimaEmissao: n.ultima_emissao || null,
-          tomadas: tomadas.get(row.id) || 0,
+          tomadas: tomadas.get(row.id) || 0, certificadoProprio: certs.has(row.id), sincronizadoEm: sincronizacoes.get(row.id) || null,
+          consultaRecusadaEm: recusas.get(row.id)?.falha_em || null, consultaRecusadaMotivo: recusas.has(row.id) ? decifrar(recusas.get(row.id).falha_cifrada) : null,
         };
       });
     },
@@ -153,7 +160,8 @@ export function criarRepositorio(db) {
       return db.transacao(() => {
         const p = db.get('SELECT id FROM prestadores WHERE usuario_id = ? AND id = ?', usuarioId, id);
         if (!p) throw new ErroApp(404, 'Empresa não encontrada.');
-        if (db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao <> 'rascunho' LIMIT 1", id)) {
+        // Cópias trazidas da Receita na sincronização não prendem a empresa: continuam lá e podem ser buscadas de novo.
+        if (db.get("SELECT 1 FROM notas WHERE prestador_id = ? AND situacao <> 'rascunho' AND COALESCE(canal, '') <> 'sincronizada' LIMIT 1", id)) {
           throw new ErroApp(409, 'Esta empresa já enviou notas à Receita e não pode ser removida. O histórico fiscal precisa ficar guardado.');
         }
         db.run("UPDATE certificados SET removido_em = ?, pfx_cifrado = '', senha_cifrada = '', titular = NULL WHERE prestador_id = ?", agora(), id);
@@ -199,6 +207,11 @@ export function criarRepositorio(db) {
       if (!atual) return null;
       if (atual.usaProcuracao) return this.certificadoProcurador(atual.usuarioId);
       return this.certificadoAtivo(atual.id);
+    },
+    // Ambiente da Receita em que a empresa emite: 'producao' (notas reais) ou 'producao_restrita' (testes).
+    definirAmbiente(usuarioId, prestadorId, ambiente) {
+      const r = db.run('UPDATE prestadores SET ambiente = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ambiente, agora(), usuarioId, prestadorId);
+      if (r.changes !== 1) throw new ErroApp(404, 'Empresa não encontrada.');
     },
     definirProcuracao(usuarioId, prestadorId, ativa) {
       const r = db.run('UPDATE prestadores SET usa_procuracao = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?', ativa ? 1 : 0, agora(), usuarioId, prestadorId);
@@ -249,7 +262,7 @@ export function criarRepositorio(db) {
       if (situacao) { where.push('situacao = ?'); p.push(situacao); }
       if (competencia) { where.push('substr(competencia, 1, 7) = ?'); p.push(competencia); }
       if (antesDe) { where.push('atualizado_em < ?'); p.push(antesDe); }
-      return db.all(`SELECT * FROM notas WHERE ${where.join(' AND ')} ORDER BY atualizado_em DESC LIMIT ?`, ...p, limite).map(notaDe);
+      return db.all(`SELECT * FROM notas WHERE ${where.join(' AND ')} ORDER BY atualizado_em DESC, competencia DESC, rowid DESC LIMIT ?`, ...p, limite).map(notaDe);
     },
     // Competências (AAAA-MM) com notas, da mais recente para a mais antiga: o filtro de mês da lista.
     mesesDasNotas: (prestadorId, situacao) => db.all(`SELECT DISTINCT substr(competencia, 1, 7) AS mes FROM notas WHERE prestador_id = ? AND competencia IS NOT NULL${situacao ? ' AND situacao = ?' : ''} ORDER BY mes DESC`,
@@ -287,19 +300,22 @@ export function criarRepositorio(db) {
     // Nota emitida pela própria pessoa no Emissor Nacional (XML importado). Com
     // notaId, o rascunho que gerou o roteiro passa a ser a nota emitida.
     notaPorIdDps: (prestadorId, idDps) => notaDe(db.get('SELECT * FROM notas WHERE prestador_id = ? AND id_dps_indice = ?', prestadorId, indiceCego(idDps))),
-    removerImportadaDuplicada: (prestadorId, chave, exceto) => db.run("DELETE FROM notas WHERE prestador_id = ? AND chave_indice = ? AND canal = 'emissor_nacional' AND id <> ?", prestadorId, indiceCego(chave), exceto),
+    // A nota que o app enviou substitui a cópia da mesma NFS-e trazida de fora (XML importado ou sincronização com a Receita).
+    removerImportadaDuplicada: (prestadorId, chave, exceto) => db.run("DELETE FROM notas WHERE prestador_id = ? AND chave_indice = ? AND canal IN ('emissor_nacional','sincronizada') AND id <> ?", prestadorId, indiceCego(chave), exceto),
     // Nota importada "não conferida" que agora foi conferida: guarda a versão oficial.
     // Tudo o que aparece na tela (valor, tomador, descrição, competência) passa a vir do XML oficial.
     reconferirImportada: (prestadorId, id, { xml, nNfse, emitidaEm, rascunho, ambiente }) => db.run(`UPDATE notas SET nfse_xml_cifrado = ?, n_nfse = ?, emitida_em = ?,
       rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?, importada_conferida = 1,
       atualizado_em = ?, versao = versao + 1 WHERE prestador_id = ? AND id = ? AND canal = 'emissor_nacional' AND importada_conferida = 0`,
     cifrar(xml), nNfse, emitidaEm, cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, agora(), prestadorId, id).changes === 1,
-    registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto, conferida = false }) {
+    // canal: 'emissor_nacional' = XML trazido pela pessoa; 'sincronizada' = veio da Receita na sincronização com o ADN.
+    // atualizadaEm: a nota sincronizada entra na lista na data em que foi emitida (e não no topo, como se fosse de agora).
+    registrarImportada(prestadorId, notaId, { rascunho, chaveAcesso, nNfse, emitidaEm, ambiente, xml, contexto, conferida = false, canal = 'emissor_nacional', atualizadaEm = agora() }) {
       // Só dentro da empresa: a mesma NFS-e pode estar também na conta do contador ou do dono.
       const minha = db.get('SELECT id FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chaveAcesso));
       if (minha) throw new ErroApp(409, 'Esta NFS-e já está no histórico.', { notaId: minha.id });
       const campos = [cifrar(rascunho), rascunho.valor || null, rascunho.competencia || null, ambiente, cifrar(contexto),
-        cifrar(chaveAcesso), indiceCego(chaveAcesso), nNfse, cifrar(xml), emitidaEm, agora(), conferida ? 1 : 0];
+        cifrar(chaveAcesso), indiceCego(chaveAcesso), nNfse, cifrar(xml), emitidaEm, atualizadaEm, conferida ? 1 : 0];
       if (notaId) {
         const r = db.run(`UPDATE notas SET situacao = 'emitida', canal = 'emissor_nacional', rascunho_cifrado = ?, valor = ?, competencia = ?, ambiente = ?,
           contexto_emitente_cifrado = ?, chave_cifrada = ?, chave_indice = ?, n_nfse = ?, nfse_xml_cifrado = ?, emitida_em = ?, atualizado_em = ?,
@@ -309,8 +325,8 @@ export function criarRepositorio(db) {
       }
       const id = novoId();
       db.run(`INSERT INTO notas (rascunho_cifrado, valor, competencia, ambiente, contexto_emitente_cifrado, chave_cifrada, chave_indice, n_nfse,
-        nfse_xml_cifrado, emitida_em, atualizado_em, importada_conferida, id, prestador_id, situacao, canal, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'emitida','emissor_nacional',?)`,
-      ...campos, id, prestadorId, agora());
+        nfse_xml_cifrado, emitida_em, atualizado_em, importada_conferida, id, prestador_id, situacao, canal, criado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'emitida',?,?)`,
+      ...campos, id, prestadorId, canal === 'sincronizada' ? 'sincronizada' : 'emissor_nacional', agora());
       return id;
     },
     removerRascunho: (prestadorId, id) => db.run("DELETE FROM notas WHERE prestador_id = ? AND id = ? AND situacao IN ('rascunho','rejeitada')", prestadorId, id).changes === 1,
@@ -367,12 +383,34 @@ export function criarRepositorio(db) {
 
     // ---------- notas tomadas (recebidas pela empresa) ----------
     distribuicao(prestadorId, ambiente, documento) {
-      const r = db.get('SELECT ultimo_nsu, sincronizado_em FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));
-      return { ultimoNsu: r?.ultimo_nsu ?? 0, sincronizadoEm: r?.sincronizado_em ?? null };
+      const r = db.get('SELECT ultimo_nsu, sincronizado_em, leitura, falha_em, falha_cifrada FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));
+      return { ultimoNsu: r?.ultimo_nsu ?? 0, sincronizadoEm: r?.sincronizado_em ?? null, leitura: r?.leitura ?? 2,
+        // A Receita recusou a última consulta (por procuração: sinal de procuração não vigente).
+        recusadaEm: r?.falha_em ?? null, recusaMotivo: r?.falha_em ? decifrar(r.falha_cifrada) : null };
     },
-    gravarDistribuicao: (prestadorId, ambiente, documento, ultimoNsu) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, sincronizado_em) VALUES (?,?,?,?,?)
-      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET ultimo_nsu = max(ultimo_nsu, excluded.ultimo_nsu), sincronizado_em = excluded.sincronizado_em`,
+    gravarDistribuicao: (prestadorId, ambiente, documento, ultimoNsu) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, sincronizado_em, leitura) VALUES (?,?,?,?,?,2)
+      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET ultimo_nsu = max(ultimo_nsu, excluded.ultimo_nsu), sincronizado_em = excluded.sincronizado_em,
+        falha_em = NULL, falha_cifrada = NULL`,
     prestadorId, ambiente, indiceCego(`nsu:${documento}`), ultimoNsu, agora()),
+    // A Receita respondeu recusando a consulta: guarda o motivo (cifrado) até a próxima consulta que der certo.
+    registrarRecusaDistribuicao: (prestadorId, ambiente, documento, motivo) => db.run(`INSERT INTO distribuicao_dfe (prestador_id, ambiente, documento_indice, ultimo_nsu, leitura, falha_em, falha_cifrada) VALUES (?,?,?,0,2,?,?)
+      ON CONFLICT (prestador_id, ambiente, documento_indice) DO UPDATE SET falha_em = excluded.falha_em, falha_cifrada = excluded.falha_cifrada`,
+    prestadorId, ambiente, indiceCego(`nsu:${documento}`), agora(), cifrar(String(motivo || '').slice(0, 500))),
+    // Fila lida por uma versão que só guardava as notas tomadas: volta ao início uma única vez.
+    reiniciarLeitura: (prestadorId, ambiente, documento) => db.run('UPDATE distribuicao_dfe SET ultimo_nsu = 0, leitura = 2 WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ? AND leitura < 2',
+      prestadorId, ambiente, indiceCego(`nsu:${documento}`)).changes === 1,
+    // Nota emitida pela empresa e cancelada no portal: sai dos totais, mas continua no histórico com o XML.
+    // A nota cancelada fica onde estava na lista (a data de alteração não muda): só a situação troca.
+    cancelarEmitida: (prestadorId, chave) => db.run("UPDATE notas SET situacao = 'cancelada', versao = versao + 1 WHERE prestador_id = ? AND chave_indice = ? AND situacao = 'emitida'",
+      prestadorId, indiceCego(chave)).changes === 1,
+    // Empresas com certificado válido para falar com a Receita (o próprio ou o do escritório, por procuração).
+    prestadoresComCertificado(usuarioId = null) {
+      const agoraIso = agora();
+      return db.all(`SELECT p.* FROM prestadores p WHERE ${usuarioId ? 'p.usuario_id = ? AND' : ''} (
+          (p.usa_procuracao = 0 AND EXISTS (SELECT 1 FROM certificados c WHERE c.prestador_id = p.id AND c.removido_em IS NULL AND c.valido_ate > ?))
+          OR (p.usa_procuracao = 1 AND EXISTS (SELECT 1 FROM certificados_procurador c WHERE c.usuario_id = p.usuario_id AND c.removido_em IS NULL AND c.valido_ate > ?)))
+        ORDER BY lower(p.nome), p.criado_em`, ...(usuarioId ? [usuarioId] : []), agoraIso, agoraIso).map(prestadorDe);
+    },
     // Idempotente: a mesma chave baixada de novo não duplica.
     salvarTomada(prestadorId, ambiente, t) {
       return db.run(`INSERT INTO notas_tomadas (id, prestador_id, ambiente, nsu, chave_cifrada, chave_indice, resumo_cifrado, n_nfse, competencia, emitida_em,

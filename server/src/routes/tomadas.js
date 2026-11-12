@@ -1,9 +1,9 @@
 import { gerarDanfse } from '../fiscal/danfse/index.js';
 import { formatarDocumento } from '../util/documentos.js';
 import { naoEncontrado } from '../util/erros.js';
-import { auditar } from '../security/auditoria.js';
 import { config } from '../config.js';
 import { exigirPrestador } from './perfil.js';
+import { sincronizarEmpresa, sincronizacaoPublica } from './notas.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const publica = (t, completo = false) => ({
@@ -16,7 +16,7 @@ const publica = (t, completo = false) => ({
 });
 
 export async function rotasTomadas(app) {
-  const { repo, db, tomadas } = app.ctx;
+  const { repo } = app.ctx;
 
   // ?competencia=AAAA-MM filtra pelo mês; ?q= por fornecedor, CNPJ, número ou chave.
   app.get('/', async (req) => {
@@ -33,18 +33,13 @@ export async function rotasTomadas(app) {
     return {
       tomadas: lista.map((t) => publica(t)),
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
-      sincronizacao: repo.distribuicao(p.id, p.ambiente, p.documento),
+      sincronizacao: sincronizacaoPublica(repo, p),
       temCertificado: !!repo.certificadoEmissao(p),
       porProcuracao: !!p.usaProcuracao,
     };
   });
 
-  app.post('/sincronizar', async (req) => {
-    const p = exigirPrestador(req);
-    const r = await tomadas.sincronizar(p);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'tomadas.sincronizadas', detalhes: { novas: r.novas, canceladas: r.canceladas }, ip: req.ip });
-    return r;
-  });
+  app.post('/sincronizar', async (req) => sincronizarEmpresa(app, req));
 
   app.get('/:id', async (req) => {
     const t = repo.tomada(exigirPrestador(req).id, req.params.id);

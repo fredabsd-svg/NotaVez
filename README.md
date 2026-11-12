@@ -31,7 +31,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Situação atual:** o app funciona de ponta a ponta contra uma Receita **simulada**, com testes automatizados de emissão, contas e sincronização offline. **Falta a primeira emissão no ambiente oficial de homologação**, que depende de um certificado A1 real ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
+> **Situação atual:** o servidor sobe em **produção** (notas fiscais de verdade) e foi feito para o escritório que atende as empresas por **procuração eletrônica**. Os testes automatizados cobrem emissão, contas e sincronização contra uma Receita **simulada**; a integração **ainda não foi exercitada contra a Receita real**. São as primeiras consultas e a primeira nota de cada regime que confirmam endereços, assinatura e formato das respostas: comece por "Conferir todas na Receita" (só leitura, nada é emitido) e acompanhe a primeira emissão. Quem quiser ensaiar antes usa o ambiente de testes da Receita ([roteiro em `docs/05`](docs/05-testes-homologacao.md#52-roteiro-no-ambiente-oficial-de-produção-restrita)).
 
 ## Por que Nota Sem Stress
 
@@ -39,10 +39,12 @@
 |---|---|
 | **Entrar como no Portal da NFS-e** | Usuário CPF/CNPJ (ou e-mail) e senha, "Fazer primeiro acesso", "Esqueci a minha senha" e **Entrar com gov.br** (Login Único, quando configurado). "Manter conectado" deixa o app aberto no aparelho sem pedir login de novo. |
 | **Sem certificado? Emissão assistida** | A Receita só aceita aplicativos com o certificado A1. Sem ele, o app monta o roteiro da nota na ordem das telas do **Emissor Nacional** (com botões de copiar), você emite no site oficial com usuário e senha ou gov.br e traz o XML: a nota entra no histórico com DANFSe e pode ser clonada. |
-| **Procuração eletrônica (escritórios)** | Desde 1º/11/2026 a Receita aceita procuração eletrônica NFS-e também na API: o escritório envia **um único certificado** (e-CNPJ ou e-CPF do contador) e emite e baixa as notas tomadas de todas as empresas que concederam a procuração. |
+| **Procuração eletrônica: o caminho principal** | Desde 1º/11/2026 a Receita aceita procuração eletrônica NFS-e também na API: o escritório envia **um único certificado** (e-CNPJ ou e-CPF do contador) e emite e busca as notas de todas as empresas que concederam a procuração. A empresa nova **já nasce por procuração**, as existentes são marcadas várias de uma vez, e o app mostra, por empresa, se a Receita **aceitou ou recusou** a procuração na última consulta, antes de qualquer nota ser emitida. |
 | **Várias empresas na mesma conta** | Escritórios cadastram quantas empresas quiserem e escolhem numa lista (com busca e filtros como "sem certificado" ou "pendências"). Cada empresa tem seu ambiente: emitir, clonar, notas emitidas, **notas tomadas**, clientes, serviços e dados fiscais. |
+| **Troca rápida de empresa** | Trocar pela barra do topo mantém a área: das notas de uma empresa para as notas da outra. A lista guarda as **abertas há pouco**, e digitar parte do nome ou do CNPJ e apertar Enter abre a primeira encontrada. |
+| **Sincronização com a Receita** | Com certificado (da empresa ou do escritório), o app busca no Ambiente de Dados Nacional as notas que a empresa **emitiu fora do app** (Emissor Nacional, outro sistema) e as guarda em "Notas" com o XML oficial e o DANFSe. Cancelamento feito no portal aparece como **Cancelada** e sai dos totais. A busca roda sozinha de tempos em tempos, por empresa com um toque, ou para **todas as empresas de uma vez**. |
 | **Cadastro pelo CNPJ** | Digitou o CNPJ, o app busca na base pública da Receita a razão social, o endereço, o município e o **enquadramento** (MEI, Simples, Lucro Presumido ou Real) — para a empresa e para os clientes. |
-| **Notas tomadas** | Baixa do Ambiente de Dados Nacional as NFS-e que fornecedores emitiram para a empresa, marca as canceladas e mostra totais do mês, PDF e XML. |
+| **Notas tomadas** | Baixa do Ambiente de Dados Nacional as NFS-e que fornecedores emitiram para a empresa, marca as canceladas e mostra totais do mês, PDF, XML e **exportação em CSV**. |
 | **Emitir em poucos toques** | Cliente e serviço salvos, valor sugerido, revisão em uma tela. **"Clonar a última emitida"** refaz a nota do mês com novos identificadores e pede para conferir competência, valor, descrição e tributação. |
 | **Resumo do mês à vista** | O Início mostra quanto foi emitido no mês e no ano, o gráfico dos últimos 6 meses e, para o MEI, quanto do **limite anual** (R$ 81.000,00 em 2026) as notas emitidas pelo app já ocupam. Avisa também quando o certificado está perto de vencer. |
 | **Histórico que fecha o mês** | Notas agrupadas por competência com o total emitido, busca, filtros por situação e **exportação em CSV** para o contador. No computador, a lista vira tabela. |
@@ -93,15 +95,24 @@ npm run test:web  # fluxo móvel no Chromium, com Receita simulada e CSP ativa
 ```
 
 <details>
-<summary><strong>Colocar em produção (homologação primeiro)</strong></summary>
+<summary><strong>Colocar em produção</strong></summary>
 
 ```bash
 export NOTAVEZ_MASTER_KEY=$(npm run -s gerar-chave)   # guarde num cofre/KMS; protege certificados e dados
 export NOTAVEZ_DB=/dados/notavez.db
-npm start                                             # ambiente padrão: produção restrita (testes da Receita)
-# Só depois de homologar:
-export NOTAVEZ_PRODUCAO_LIBERADA=1
+npm start                                             # produção: as notas emitidas são notas fiscais de verdade
+# Servidor só de ensaio, no ambiente de testes da Receita (produção restrita):
+export NOTAVEZ_PRODUCAO_LIBERADA=0
 ```
+
+Roteiro do escritório, por procuração:
+
+1. **Empresas › Certificado do escritório**: envie o A1 do escritório (e-CNPJ) ou do contador (e-CPF).
+2. **Adicionar empresa**: basta o CNPJ; a empresa já nasce por procuração e em produção.
+3. **Conferir todas na Receita**: consulta só de leitura (notas tomadas e emitidas). A empresa com procuração não vigente aparece como "Procuração recusada pela Receita", com o motivo.
+4. **Nova nota**: a revisão mostra que a assinatura é por procuração; a primeira nota de cada regime merece ser acompanhada de perto.
+
+Empresas cadastradas antes, ainda no ambiente de testes, passam para a produção de uma vez em Empresas › "Passar para produção". As notas de teste continuam marcadas como teste.
 
 Sirva atrás de HTTPS (proxy reverso). Variáveis úteis: `PORT`, `NOTAVEZ_TIMEOUT_SEFIN_MS` (30000), `NOTAVEZ_ESPERA_REENVIO_MS` (60000), `NOTAVEZ_C14N`, `NOTAVEZ_SERVIR_WEB=0` (para servir o PWA por uma CDN separada).
 

@@ -40,6 +40,8 @@ export async function rotasConta(app) {
     const t = auth.titular(req.usuario.id);
     return { usuarioId: req.usuario.id, prestadorId: prestador?.id ?? null, email: t.email, temPerfil: !!prestador, empresas, empresaNome: prestador?.nome ?? null,
       empresaDocumentoFormatado: prestador?.documento ? formatarDocumento(prestador.tipoDocumento, prestador.documento) : null, empresaAmbiente: prestador?.ambiente ?? null,
+      // Empresa atendida por procuração (assina e consulta com o certificado do escritório): a barra da empresa diz isso.
+      empresaPorProcuracao: !!prestador?.usaProcuracao,
       nome: t.nome, documentoFormatado: t.documentoFormatado, documentoVerificado: t.documentoVerificado, govbr: t.govbr, temCodigoRecuperacao: t.temCodigoRecuperacao, govbrDisponivel: app.ctx.govbr.configurado };
   });
   app.delete('/', async (req, reply) => {

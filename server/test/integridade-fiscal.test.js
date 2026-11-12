@@ -95,9 +95,13 @@ test('revisão aprovada é invalidada por edição e por mudança de perfil', as
   await assert.rejects(f.service.emitir(f.repo.prestador(f.p.id), f.notaId, novo), e => e.status === 409);
   assert.equal(f.chamadas.length, 0);
 });
+// A NFS-e oficial traz dentro dela a DPS que a originou, como foi enviada.
+const nfseDe = (dpsXml, chave = '1'.repeat(50)) => `<NFSe><infNFSe Id="NFS${chave}"><nNFSe>7</nNFSe>${String(dpsXml).replace(/^<\?xml[^>]*>/, '')}</infNFSe></NFSe>`;
 test('resultado externo seguido por falha de persistência preserva identidade e permite reconciliação', async (t) => {
-  let consultas = 0;
-  const f = fixture(t, { enviarDps: async () => ({ tipo: 'emitida', chaveAcesso: '1'.repeat(50), nfseXml: '<NFSe><infNFSe/></NFSe>' }), consultarDps: async () => { consultas++; return { tipo: 'encontrada', chaveAcesso: '1'.repeat(50) }; } });
+  let consultas = 0; let enviada;
+  const f = fixture(t, { enviarDps: async (xml) => { enviada = xml; return { tipo: 'emitida', chaveAcesso: '1'.repeat(50), nfseXml: nfseDe(xml) }; },
+    consultarDps: async () => { consultas++; return { tipo: 'encontrada', chaveAcesso: '1'.repeat(50) }; },
+    consultarNfse: async () => ({ tipo: 'ok', nfseXml: nfseDe(enviada) }) });
   const original = f.repo.transicionar;
   f.repo.transicionar = (...args) => { if (args[2] === 'emitida') throw new Error('disco falhou'); return original(...args); };
   await assert.rejects(f.service.emitir(f.p, f.notaId), e => e.status === 503 && e.extra.resultadoIncerto && !!e.extra.operacao.idDps);
@@ -110,6 +114,29 @@ test('resultado externo seguido por falha de persistência preserva identidade e
   assert.equal(emitida.idDps, pendente.idDps);
   assert.equal(consultas, 1);
   assert.equal(f.chamadas.filter(c => c.operacao === 'cliente').length, 1);
+});
+test('DPS encontrada na Receita só conclui a nota se for a DPS enviada pelo app', async (t) => {
+  // Outro sistema da empresa já usou a mesma série e número: a Receita recusa por duplicidade e a
+  // consulta pelo Id devolve a nota DELE (outra data de emissão, outro valor).
+  const deOutroSistema = '<DPS><infDPS Id="DPSX"><dhEmi>2025-03-10T09:00:00-03:00</dhEmi><valores><vServPrest><vServ>999.00</vServ></vServPrest></valores></infDPS></DPS>';
+  let resposta = { tipo: 'incerta' };
+  const f = fixture(t, { enviarDps: async () => ({ tipo: 'duplicada', erros: [{ codigo: 'E0014', descricao: 'DPS já existe' }] }),
+    consultarDps: async () => ({ tipo: 'encontrada', chaveAcesso: '2'.repeat(50) }),
+    consultarNfse: async () => resposta });
+  // Sem o XML da nota encontrada não dá para afirmar de quem ela é: continua pendente, sem chave.
+  let n = await f.service.emitir(f.p, f.notaId);
+  assert.equal(n.situacao, 'pendente');
+  assert.equal(n.chaveAcesso, null);
+  // Com o XML: não é a DPS do app. A nota do app não foi emitida e volta a poder ser enviada, com outro número.
+  resposta = { tipo: 'ok', nfseXml: nfseDe(deOutroSistema, '2'.repeat(50)) };
+  f.db.run('UPDATE notas SET processamento_ate = NULL WHERE id = ?', f.notaId);
+  n = await f.service.verificar(f.p, f.notaId);
+  assert.equal(n.situacao, 'rejeitada');
+  assert.equal(n.chaveAcesso, null, 'a chave da nota do outro sistema não é atribuída à nota do app');
+  assert.equal(n.idDps, null);
+  assert.equal(n.erros[0].codigo, 'DPS_DE_OUTRO_SISTEMA');
+  assert.match(n.erros[0].proximoPasso, /Série da DPS/);
+  assert.equal(f.repo.xmlNfse(f.notaId), null);
 });
 test('worker avança além das primeiras 100 pendências sem certificado', async (t) => {
   const f = fixture(t); f.repo.removerCertificado(f.p.id);

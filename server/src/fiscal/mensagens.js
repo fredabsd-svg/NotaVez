@@ -92,6 +92,22 @@ export function explicar(m) {
   };
 }
 
+// Empresa atendida por procuração: quem assina é o certificado do escritório. A recusa ligada ao
+// certificado aponta, então, para a procuração (e não para o certificado da empresa, que ela não usa).
+export function explicarPorProcuracao(m) {
+  const e = explicar(m);
+  if (m.codigo !== 'E0718') return e;
+  return { ...e, mensagem: 'A Receita não reconheceu a procuração desta empresa para o certificado do escritório. Nenhuma nota foi emitida.',
+    proximoPasso: 'Confira no Portal de Serviços da Receita se a procuração eletrônica (serviço NFS-e) desta empresa para o CPF/CNPJ do procurador está vigente e envie de novo.' };
+}
+
+// A série e o número desta DPS já pertencem a uma nota de outro sistema da empresa: a do app não foi emitida.
+export const DPS_DE_OUTRO_SISTEMA = {
+  codigo: 'DPS_DE_OUTRO_SISTEMA',
+  mensagem: 'A Receita já tem outra nota com esta série e este número de DPS, emitida por outro sistema da empresa. A nota desta tela não foi emitida.',
+  proximoPasso: 'Em Dados da empresa › Opções avançadas, troque a "Série da DPS" por uma que nenhum outro sistema da empresa use e emita de novo.',
+};
+
 export const MOTIVOS_NAO_ENVIADA = {
   conexao: 'Não conseguimos conectar com a Receita. Nada foi enviado.',
   autorizacao: 'A Receita não autorizou a conexão com o seu certificado. Nada foi emitido.',

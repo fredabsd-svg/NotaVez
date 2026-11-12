@@ -15,7 +15,8 @@ import { validarXsd } from './xsd.js';
 import { assinarDps } from './assinatura.js';
 import { lerCertificado, verificarParaEmitente, verificarParaProcurador } from './certificado.js';
 import { avaliarElegibilidade } from './elegibilidade.js';
-import { explicar, MOTIVOS_NAO_ENVIADA } from './mensagens.js';
+import { explicar, explicarPorProcuracao, MOTIVOS_NAO_ENVIADA, DPS_DE_OUTRO_SISTEMA } from './mensagens.js';
+import { mesmaDps } from './conferencia.js';
 import { ErroApp } from '../util/erros.js';
 
 const MAX_REENVIOS = 3;
@@ -176,7 +177,12 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       Object.assign(campos, { chaveAcesso: r.chaveAcesso, nNfse: info?.nNFSe ?? null, nfseXml: r.nfseXml, emitidaEm: info?.dhProc || new Date().toISOString(), alertas: r.alertas?.length ? r.alertas.map(explicar) : null, erros: null });
     } else if (r.tipo === 'rejeitada' || (r.tipo === 'nao_enviada' && nota.situacao === 'enviando')) {
       estado = r.tipo === 'rejeitada' ? 'rejeitada' : 'rascunho';
-      Object.assign(campos, { erros: r.tipo === 'rejeitada' ? r.erros.map(explicar) : [{ codigo: 'NAO_ENVIADA', mensagem: MOTIVOS_NAO_ENVIADA[r.motivo] || 'Nada foi enviado.', proximoPasso: 'Tente novamente em instantes.' }], idDps: null, serie: null, nDps: null, dpsXml: null, contextoEmitente: null });
+      // Por procuração, a recusa ligada ao certificado fala da procuração (é ela que a pessoa precisa conferir).
+      const porProcuracao = !!nota.contextoEmitente?.usaProcuracao;
+      Object.assign(campos, { erros: r.tipo === 'rejeitada' ? r.erros.map(porProcuracao ? explicarPorProcuracao : explicar) : [{ codigo: 'NAO_ENVIADA', mensagem: MOTIVOS_NAO_ENVIADA[r.motivo] || 'Nada foi enviado.',
+        proximoPasso: porProcuracao && r.motivo === 'autorizacao'
+          ? 'Confira se o certificado do escritório está válido e se a procuração eletrônica NFS-e desta empresa está vigente no Portal de Serviços da Receita.'
+          : 'Tente novamente em instantes.' }], idDps: null, serie: null, nDps: null, dpsXml: null, contextoEmitente: null });
     }
     const ok = repo.transicionar(nota.id, nota.situacao, estado, campos, { versao: nota.versao, token: nota.processamentoToken });
     if (!ok) throw incerto(nota);
@@ -269,14 +275,27 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       if (c.tipo === 'encontrada' && c.chaveAcesso) {
         const n = await cli.consultarNfse(c.chaveAcesso);
         repo.registrarChamada(nota.id, 'consulta_nfse', n);
-        const info = n.tipo === 'ok' ? lerNfse(n.nfseXml) : null;
-        // Se a pessoa já trouxe o XML desta mesma NFS-e pelo Emissor Nacional, a nota do app a substitui.
-        repo.removerImportadaDuplicada(nota.prestadorId, c.chaveAcesso, nota.id);
-        repo.transicionar(nota.id, 'pendente', 'emitida', {
-          chaveAcesso: c.chaveAcesso, nNfse: info?.nNFSe ?? null, emitidaEm: info?.dhProc || new Date().toISOString(),
-          ...(n.tipo === 'ok' ? { nfseXml: n.nfseXml } : {}), erros: null,
-          processamentoToken: null, processamentoAte: null,
-        }, { versao: nota.versao, token });
+        // A nota encontrada precisa ser a da DPS que este app enviou: outro sistema da empresa pode ter
+        // usado a mesma série e o mesmo número, e aí a Receita devolve a nota dele.
+        const confere = n.tipo === 'ok' ? mesmaDps(repo.xmlDps(nota.id), n.nfseXml) : null;
+        if (confere === true) {
+          const info = lerNfse(n.nfseXml);
+          // Se a pessoa já trouxe o XML desta mesma NFS-e pelo Emissor Nacional, a nota do app a substitui.
+          repo.removerImportadaDuplicada(nota.prestadorId, c.chaveAcesso, nota.id);
+          repo.transicionar(nota.id, 'pendente', 'emitida', {
+            chaveAcesso: c.chaveAcesso, nNfse: info?.nNFSe ?? null, emitidaEm: info?.dhProc || new Date().toISOString(),
+            nfseXml: n.nfseXml, erros: null, processamentoToken: null, processamentoAte: null,
+          }, { versao: nota.versao, token });
+        } else if (confere === false) {
+          // A numeração é de uma nota de outro sistema: a deste app não foi emitida. Volta a poder ser
+          // enviada, com novo número (e a orientação de trocar a série).
+          repo.transicionar(nota.id, 'pendente', 'rejeitada', {
+            erros: [DPS_DE_OUTRO_SISTEMA], idDps: null, serie: null, nDps: null, dpsXml: null, contextoEmitente: null,
+            processamentoToken: null, processamentoAte: null,
+          }, { versao: nota.versao, token });
+        }
+        // Sem o XML (ou sem conseguir ler a DPS dentro dele) não dá para afirmar de quem é a nota:
+        // continua pendente e a próxima verificação tenta de novo.
       } else if (c.tipo === 'nao_encontrada' && reenviar) {
         const desde = Date.now() - new Date(nota.ultimoEnvioEm).getTime();
         if (Number.isFinite(desde) && desde >= config.esperaAntesDeReenviarMs && nota.tentativas <= MAX_REENVIOS) {

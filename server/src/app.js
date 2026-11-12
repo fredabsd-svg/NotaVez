@@ -21,13 +21,14 @@ import { rotasEmpresas } from './routes/empresas.js';
 import { rotasTomadas } from './routes/tomadas.js';
 import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
 import { criarServicoTomadas } from './fiscal/tomadas.js';
+import { auditar } from './security/auditoria.js';
 import { criarGovBr } from './security/govbr.js';
 import { criarLimites } from './security/limites.js';
 import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr } = {}) {
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs } = {}) {
   const db = abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -37,7 +38,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   const app = Fastify({ logger: logger && { level: 'info', redact: ['req.headers.cookie', 'req.headers.authorization', 'req.body'] }, bodyLimit: 1024 * 1024, trustProxy: proxiesConfiaveis });
   await app.register(cookie);
 
-  const tomadas = criarServicoTomadas({ repo, emissao });
+  const tomadas = criarServicoTomadas({ repo, emissao, registrar: (evento) => auditar(db, evento), ...(pausaEntreEmpresasMs !== undefined ? { pausaEntreEmpresasMs } : {}),
+    ...(intervaloSincronizacaoMs !== undefined ? { intervaloMinimoMs: intervaloSincronizacaoMs } : {}) });
   app.decorate('ctx', { db, repo, auth, emissao, tomadas, limites, consultarCnpj, contaPublica, govbr: criarGovBr(db, govbr) });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador

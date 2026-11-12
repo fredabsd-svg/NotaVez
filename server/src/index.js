@@ -10,3 +10,11 @@ const intervalo = setInterval(() => app.ctx.emissao.verificarPendentes().catch((
 for (const sinal of ['SIGINT', 'SIGTERM']) {
   process.on(sinal, async () => { clearInterval(intervalo); await app.close(); process.exit(0); });
 }
+
+// Sincronização periódica com a Receita (ADN): notas tomadas e notas emitidas fora do app, de todas as
+// empresas com certificado válido, uma por vez. Só leitura. NOTAVEZ_SINCRONIZACAO_HORAS=0 desliga.
+if (config.sincronizacaoHoras > 0) {
+  const sincronizar = () => app.ctx.tomadas.sincronizarTodas().catch((e) => app.log.error(e));
+  setTimeout(sincronizar, 5 * 60_000).unref(); // primeira rodada pouco depois de subir
+  setInterval(sincronizar, config.sincronizacaoHoras * 3600_000).unref();
+}
