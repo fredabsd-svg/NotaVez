@@ -252,6 +252,13 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     baseAdn: `https://127.0.0.1:${porta}`,
     adicionarTomada,
     cancelarTomada,
+    // Nota que o app emitiu por aqui também aparece na fila do ADN da própria empresa.
+    distribuirGerada(idDps) {
+      const g = estado.geradas.get(idDps);
+      const doc = { nsu: estado.distribuicao.length + 1, chave: g.chave, tipo: 'NFSE', xml: g.xml };
+      estado.distribuicao.push(doc);
+      return doc;
+    },
     ca: caPem,
     fechar: () => new Promise((r) => { servidor.closeAllConnections(); servidor.close(r); }),
   };

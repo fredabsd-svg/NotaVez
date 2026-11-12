@@ -215,7 +215,7 @@ export function formularioCertificado({ url, ajuda, textoBotao = 'Enviar certifi
     },
   }, arquivo, senha,
   h('label', { class: 'caixa', for: idConsentimento }, consentimento,
-    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, além de consultar a situação delas. Posso remover a qualquer momento.')),
+    h('span', {}, consentimentoTexto || 'Autorizo o Nota Sem Stress a guardar meu certificado de forma criptografada e a usá-lo somente para assinar e transmitir as notas que eu mandar emitir, consultar a situação delas e buscar na Receita as notas emitidas e recebidas por esta empresa (inclusive de tempos em tempos, de forma automática). Posso remover a qualquer momento.')),
   erroCert, enviar);
 }
 

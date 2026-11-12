@@ -1,9 +1,10 @@
 // Lista de empresas da conta (escritórios cuidam de dezenas) e cadastro de nova empresa.
-import { h, campo, aviso, data, icone, ICONES, plural } from '../ui.js';
+import { h, campo, aviso, data, dataHora, icone, ICONES, plural } from '../ui.js';
 import { api } from '../api.js';
 import { comCache } from '../store.js';
-import { estado, entrarNaEmpresa, sair } from '../app.js';
+import { estado, entrarNaEmpresa, sair, AREAS_DA_EMPRESA, empresasRecentes } from '../app.js';
 import { formularioEmpresa } from './perfil.js';
+import { resumoDaBusca } from './historico.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const FILTROS = [['', 'Todas'], ['atencao', 'Precisam de atenção'], ['mei', 'MEI'], ['simples', 'Simples'], ['lucro', 'Presumido/Real']];
@@ -39,9 +40,13 @@ export async function lista(_, query) {
   const ordenadas = [...empresas].sort((a, b) => (precisaAtencao(b) - precisaAtencao(a)) || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
   const contador = h('p', { class: 'suave', role: 'status' });
   let termo = '';
+  let visiveisAgora = [];
+  // Veio da barra da empresa: depois de escolher, volta para a mesma área (notas tomadas → notas tomadas).
+  const destino = AREAS_DA_EMPRESA.includes(query.voltar) ? query.voltar : '/';
+  const endereco = (f) => { const p = new URLSearchParams({ ...(f ? { filtro: f } : {}), ...(destino !== '/' ? { voltar: destino } : {}) }).toString(); return `#/empresas${p ? `?${p}` : ''}`; };
 
   async function abrir(e) {
-    try { await entrarNaEmpresa(e.id); } catch (err) { aviso(err.message); }
+    try { await entrarNaEmpresa(e.id, destino); } catch (err) { aviso(err.message); }
   }
   const item = (e) => h('li', {}, h('button', { class: 'item empresa-item item-seta', type: 'button', onclick: () => abrir(e), 'aria-current': e.id === estado.conta?.prestadorId ? 'true' : null },
     h('div', { class: 'item-corpo' },
@@ -60,6 +65,7 @@ export async function lista(_, query) {
       return !t || semAcento(e.nome).includes(t) || semAcento(e.municipio?.nome).includes(t)
         || (dig.length >= 3 && semAcento(e.documentoFormatado).replace(/[^0-9a-z]/g, '').includes(dig));
     });
+    visiveisAgora = visiveis;
     contador.textContent = `${visiveis.length} de ${plural(empresas.length, 'empresa', 'empresas')}`;
     ul.replaceChildren(...visiveis.map(item));
     // Sem nenhuma empresa, o cartão "Cadastre sua primeira empresa" já explica o que fazer.
@@ -69,18 +75,73 @@ export async function lista(_, query) {
 
   const atencao = empresas.filter(precisaAtencao).length;
   const busca = empresas.length > 3 ? campo({ rotulo: 'Pesquisar empresa', rotuloOculto: true,
-    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar por nome, CNPJ ou cidade' }, oninput: (e) => { termo = e.target.value; mostrar(); } }) : null;
+    atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar por nome, CNPJ ou cidade', enterkeyhint: 'go' }, oninput: (e) => { termo = e.target.value; mostrar(); } }) : null;
   busca?.classList.add('busca-icone');
+  // Enter abre a primeira empresa encontrada: digitar parte do nome e confirmar basta para trocar.
+  busca?.entrada.addEventListener('keydown', (e) => { if (e.key === 'Enter' && termo.trim() && visiveisAgora.length) { e.preventDefault(); abrir(visiveisAgora[0]); } });
+  // No computador o cursor já fica na busca (no celular isso abriria o teclado sem ninguém pedir).
+  if (busca && matchMedia('(hover: hover) and (pointer: fine)').matches) setTimeout(() => { if (document.body.contains(busca)) busca.entrada.focus({ preventScroll: true }); }, 60);
+
+  // Empresas abertas há pouco neste aparelho: um toque para voltar a elas.
+  const recentes = empresas.length > 4
+    ? empresasRecentes().map((id) => empresas.find((e) => e.id === id)).filter((e) => e && e.id !== estado.conta?.prestadorId).slice(0, 4) : [];
+  const nomeCurto = (n) => (String(n || 'Empresa').length > 26 ? `${String(n).slice(0, 25).trimEnd()}…` : String(n || 'Empresa'));
+
+  // Busca na Receita (ADN) de todas as empresas com certificado válido: roda no servidor, a tela só acompanha.
+  const comCertificado = empresas.filter((e) => e.certificadoValidoAte && !e.certificadoVencido).length;
+  const andamento = h('p', { class: 'suave', role: 'status' });
+  const falhas = h('div', {});
+  const botaoLote = h('button', { class: 'btn btn-pequeno', type: 'button' }, icone(ICONES.atualizar), 'Buscar notas de todas na Receita');
+  function mostrarResultado(s) {
+    if (!s.terminadaEm) return;
+    andamento.textContent = `Última busca em todas as empresas (${dataHora(s.terminadaEm)}): ${resumoDaBusca({ novas: s.tomadas, emitidas: s.emitidas, canceladas: s.canceladas })}`;
+    falhas.replaceChildren(...(s.falhas.length ? [h('div', { class: 'cartao cartao-alerta' },
+      h('strong', {}, `${plural(s.falhas.length, 'empresa não pôde ser consultada', 'empresas não puderam ser consultadas')}:`),
+      h('ul', {}, s.falhas.map((f) => h('li', {}, h('strong', {}, f.empresa), ': ', f.motivo))))] : []));
+  }
+  let acompanhando = false;
+  async function acompanhar(s) {
+    if (acompanhando) return;
+    acompanhando = true;
+    botaoLote.disabled = true;
+    try {
+      while (s.emAndamento && document.body.contains(andamento)) {
+        andamento.textContent = `Consultando a Receita: ${s.feitas} de ${plural(s.total, 'empresa', 'empresas')}…`;
+        await new Promise((r) => { setTimeout(r, 1500); });
+        s = await api('GET', '/api/empresas/sincronizacao');
+      }
+      // Terminou com a tela aberta: recarrega a lista (pendências e contagens podem ter mudado).
+      // Com a pessoa no meio de uma busca por nome, só o resultado aparece: o que ela digitou não se perde.
+      if (!s.emAndamento && document.body.contains(andamento)) {
+        if (termo.trim()) mostrarResultado(s); else window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    } catch (e) { andamento.textContent = e.status === 0 ? 'Sem internet: não foi possível acompanhar a busca.' : e.message; } finally { acompanhando = false; botaoLote.disabled = false; }
+  }
+  botaoLote.addEventListener('click', async () => {
+    botaoLote.disabled = true;
+    try {
+      const s = await api('POST', '/api/empresas/sincronizar', {});
+      if (!s.total) { aviso('Nenhuma empresa com certificado válido para consultar a Receita.'); botaoLote.disabled = false; return; }
+      acompanhar(s);
+    } catch (e) { aviso(e.status === 0 ? 'Sem internet: a busca na Receita precisa de conexão.' : e.message, 7000); botaoLote.disabled = false; }
+  });
+  // Ao abrir a tela: retoma uma busca em andamento ou mostra o resultado da última.
+  if (comCertificado > 1 && navigator.onLine) api('GET', '/api/empresas/sincronizacao').then((s) => (s.emAndamento ? acompanhar(s) : mostrarResultado(s))).catch(() => {});
   const node = h('div', {},
     empresas.length ? null
       : h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Cadastre sua primeira empresa'),
         h('p', {}, 'Digite o CNPJ: buscamos razão social, município e enquadramento (MEI, Simples, Presumido ou Real) na Receita para você.')),
     h('div', { class: 'barra-lista' }, busca, empresas.length ? contador : null,
       h('a', { class: `btn ${empresas.length ? 'btn-pequeno' : 'btn-primario'}`, href: '#/empresas/nova' }, icone(ICONES.mais), 'Adicionar empresa')),
+    recentes.length ? h('div', { class: 'chips chips-recentes', role: 'group', 'aria-label': 'Empresas abertas há pouco' },
+      h('span', { class: 'suave' }, 'Abertas há pouco:'),
+      recentes.map((e) => h('button', { class: 'chip', type: 'button', title: `${e.nome || ''} · ${e.documentoFormatado || ''}`, onclick: () => abrir(e) }, nomeCurto(e.nome)))) : null,
     empresas.length > 1 ? h('div', { class: 'chips', role: 'group', 'aria-label': 'Filtrar empresas' }, FILTROS.map(([v, t]) => h('button', {
       class: 'chip', type: 'button', 'aria-pressed': String(v === filtro),
-      onclick: () => { location.replace(`#/empresas${v ? `?filtro=${v}` : ''}`); },
+      onclick: () => { location.replace(endereco(v)); },
     }, v === 'atencao' ? `${t} (${atencao})` : t))) : null,
+    comCertificado > 1 ? h('div', { class: 'cabecalho-acoes' }, andamento, botaoLote) : null,
+    falhas,
     ul,
     h('h3', {}, 'Certificado do escritório'),
     h('p', { class: 'suave' }, 'Com procuração eletrônica NFS-e, um único certificado (do escritório ou do contador) emite por todas as empresas que autorizaram.'),
@@ -93,12 +154,21 @@ export async function lista(_, query) {
 }
 
 export async function nova() {
-  const { producaoLiberada } = await api('GET', '/api/perfil').catch(() => ({ producaoLiberada: false }));
+  const [{ producaoLiberada }, procurador] = await Promise.all([
+    api('GET', '/api/perfil').catch(() => ({ producaoLiberada: false })),
+    api('GET', '/api/procurador').catch(() => null),
+  ]);
+  // Escritório com certificado: a empresa nova pode já nascer por procuração. Vem marcado quando o
+  // escritório já trabalha assim com outras empresas; senão, é uma escolha a fazer.
+  const porProcuracao = procurador?.certificado ? h('input', { type: 'checkbox', id: 'nova-por-procuracao', checked: procurador.empresasPorProcuracao > 0 }) : null;
   const form = formularioEmpresa({
     producaoLiberada, textoBotao: 'Cadastrar empresa',
     salvarDados: async (corpo) => {
-      const { empresaId } = await api('POST', '/api/empresas', corpo);
-      aviso('Empresa cadastrada. Envie o certificado A1 dela para emitir notas e baixar as tomadas.', 6000);
+      const usaProcuracao = !!porProcuracao?.checked;
+      const { empresaId } = await api('POST', '/api/empresas', { ...corpo, ...(usaProcuracao ? { usaProcuracao: true } : {}) });
+      aviso(usaProcuracao
+        ? 'Empresa cadastrada por procuração: ela usa o certificado do escritório para emitir e buscar notas.'
+        : 'Empresa cadastrada. Envie o certificado A1 dela para emitir notas e baixar as tomadas.', 6000);
       await entrarNaEmpresa(empresaId, '/perfil');
     },
   });
@@ -106,6 +176,9 @@ export async function nova() {
     titulo: 'Nova empresa', aba: 'empresas', voltar: true,
     node: h('div', {},
       h('p', {}, 'Comece pelo CNPJ: o restante é preenchido com os dados públicos da Receita. Confira antes de salvar.'),
+      porProcuracao ? h('label', { class: 'caixa cartao', for: 'nova-por-procuracao' }, porProcuracao,
+        h('span', {}, h('strong', {}, 'Usar o certificado do escritório (procuração eletrônica)'),
+          h('span', { class: 'ajuda' }, 'Para empresas que concederam a procuração NFS-e ao escritório no Portal de Serviços da Receita. Sem marcar, a empresa precisa do próprio certificado A1.'))) : null,
       form),
   };
 }

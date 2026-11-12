@@ -66,9 +66,10 @@ function blocoEmitida(n, detalhe) {
 }
 
 function montar(n, { detalhe = false } = {}) {
-  const icones = { emitida: '✓', rejeitada: '✕', pendente: '…', enviando: '…', rascunho: '!' };
+  const icones = { emitida: '✓', rejeitada: '✕', pendente: '…', enviando: '…', rascunho: '!', cancelada: '✕' };
   const titulos = {
-    emitida: n.canal === 'emissor_nacional' ? 'Emitida no Emissor Nacional' : estado.demo ? 'Emitida (simulação)' : 'Emitida',
+    emitida: n.canal === 'emissor_nacional' ? 'Emitida no Emissor Nacional' : n.canal === 'sincronizada' ? 'Emitida fora do app' : estado.demo ? 'Emitida (simulação)' : 'Emitida',
+    cancelada: 'Cancelada',
     rejeitada: 'Rejeitada',
     pendente: 'Pendente de confirmação',
     enviando: 'Pendente de confirmação',
@@ -76,7 +77,9 @@ function montar(n, { detalhe = false } = {}) {
   };
   const orientacao = {
     // XML trazido pela pessoa: o app não falou com a Receita sobre esta nota.
-    emitida: n.canal === 'emissor_nacional' ? n.aviso : 'A Receita confirmou a sua NFS-e. Compartilhe com o cliente.',
+    // XML trazido pela pessoa ou vindo da Receita na sincronização: o app não emitiu esta nota.
+    emitida: n.canal === 'emissor_nacional' || n.canal === 'sincronizada' ? n.aviso : 'A Receita confirmou a sua NFS-e. Compartilhe com o cliente.',
+    cancelada: 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais. O XML e o DANFSe ficam guardados, com a marca "CANCELADA".',
     rejeitada: 'A Receita recusou. Nenhuma nota fiscal foi emitida. Veja o motivo, corrija e envie de novo.',
     pendente: 'A Receita não confirmou a tempo. A nota pode ter sido emitida ou não. NÃO emita de novo: vamos consultar a Receita antes de qualquer reenvio.',
     enviando: 'Aguardando a resposta da Receita. Não emita de novo.',
@@ -84,6 +87,15 @@ function montar(n, { detalhe = false } = {}) {
   };
   const acoes = [];
   if (n.situacao === 'emitida') acoes.push(...blocoEmitida(n, detalhe));
+  // Cancelada: os documentos continuam à mão para conferência, sem o atalho de enviar ao cliente.
+  if (n.situacao === 'cancelada') {
+    acoes.push(h('div', { class: 'acoes-par' },
+      h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/danfse`), target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe'),
+      h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/xml`), download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML')),
+    h('dl', { class: 'dados cartao' },
+      h('div', {}, h('dt', {}, 'Número da NFS-e'), h('dd', {}, n.nNfse || '—')),
+      h('div', {}, h('dt', {}, 'Chave de acesso'), h('dd', { class: 'chave' }, chaveFormatada(n.chaveAcesso)))));
+  }
   if (n.situacao === 'rejeitada' || n.situacao === 'rascunho') {
     if (n.erros?.length) {
       acoes.push(h('div', { class: 'cartao cartao-erro' }, h('ul', { class: 'lista-simples' }, n.erros.map((e) => h('li', { style: 'margin:8px 0' },

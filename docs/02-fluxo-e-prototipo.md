@@ -59,9 +59,9 @@ flowchart TD
 | 13 | **Nota clonada**: campos a conferir destacados | ![](prototipo/13-nota-clonada.png) |
 | 14 | **Resultado — Rejeitada**: motivo em linguagem comum + código oficial | ![](prototipo/14-resultado-rejeitada.png) |
 | 15 | **Resultado — Pendente de confirmação**: "não emita de novo" | ![](prototipo/15-resultado-pendente.png) |
-| 16 | **Notas**: filtro por situação, busca, competência, blocos por mês com o total emitido e "Exportar CSV" | ![](prototipo/16-notas.png) |
+| 16 | **Notas**: filtro por situação, busca, competência, blocos por mês com o total emitido, "Exportar CSV" e "Buscar na Receita agora" (traz as notas emitidas fora do app e os cancelamentos) | ![](prototipo/16-notas.png) |
 | 17 | Detalhe da nota, registro de comunicação e "Clonar esta nota" | ![](prototipo/17-detalhe.png) |
-| 18 | **Notas tomadas**: NFS-e que fornecedores emitiram para a empresa, com totais | ![](prototipo/18-notas-tomadas.png) |
+| 18 | **Notas tomadas**: NFS-e que fornecedores emitiram para a empresa, com totais e "Exportar CSV" | ![](prototipo/18-notas-tomadas.png) |
 | 19 | Sem internet: prepara o rascunho, com aviso de que não foi emitida | ![](prototipo/19-sem-internet.png) |
 | 20 | **Instalar na tela inicial** (Android e iPhone) | ![](prototipo/20-instalar.png) |
 
@@ -104,7 +104,9 @@ O DANFSe é gerado pelo servidor a partir do XML oficial da NFS-e. Abaixo, o do 
 
 - Celular: abas fixas **Início · Notas · Nova nota · Tomadas · Clientes**; telas de tarefa (nova nota, revisão) escondem as abas e deixam a ação principal fixa no rodapé. Serviços salvos, rascunhos, dados da empresa e conta ficam nos atalhos do Início.
 - Computador (≥ 1024 px): barra lateral com as mesmas áreas mais Serviços, Empresas e Conta; a empresa aberta (nome, CNPJ e ambiente) fica no cabeçalho; listas viram tabelas e o número de colunas acompanha a largura.
-- Filtros e competência ficam no endereço (`#/notas?situacao=emitida&mes=2026-10`); voltar de um detalhe devolve a lista na mesma posição.
+- Filtros e competência ficam no endereço (`#/notas?situacao=emitida&mes=2026-10`); voltar de um detalhe devolve a lista na mesma posição. O filtro "Canceladas" só aparece para quem tem nota cancelada.
+- Troca de empresa: a barra da empresa leva à lista com a área de origem no endereço (`#/empresas?voltar=/notas`); escolhida a empresa, a pessoa continua em Notas, Tomadas, Clientes, Serviços ou Dados da empresa. A lista mostra as empresas abertas há pouco (só neste aparelho), e Enter na busca abre a primeira encontrada.
+- Escritório: em Empresas, "Buscar notas de todas na Receita" consulta todas as empresas com certificado válido em segundo plano e mostra o andamento; em Certificado do escritório, a lista "Empresas atendidas por procuração" liga ou desliga a procuração em várias de uma vez.
 - A escolha de cliente ou serviço a partir da nota abre a lista em "modo seleção" (`#/clientes?para=<nota>`) e volta para a nota com o item aplicado. Dá para cadastrar um novo cliente no meio do caminho sem perder a nota.
 - Atalhos do ícone instalado (manifest): "Nova nota", "Clonar a última emitida", "Clientes".
 

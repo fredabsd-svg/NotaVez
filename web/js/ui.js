@@ -159,6 +159,14 @@ export function vazio({ icone: ic = ICONES.documento, titulo, texto, acoes = [] 
     acoes);
 }
 
+// Planilha em CSV para o contador: ponto e vírgula e vírgula decimal, como as planilhas em português esperam.
+export function baixarCsv(nome, cabecalho, linhas) {
+  // Texto que começa com = + - @ seria lido como fórmula pela planilha: vai com apóstrofo na frente.
+  const celula = (v) => { const s = String(v ?? ''); return `"${(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`; };
+  baixarArquivo(nome, `\uFEFF${[cabecalho, ...linhas].map((l) => l.map(celula).join(';')).join('\r\n')}\r\n`, 'text/csv;charset=utf-8');
+}
+export const valorCsv = (v) => (v === null || v === undefined || v === '' ? '' : Number(v).toFixed(2).replace('.', ','));
+
 // Entrega um arquivo gerado no aparelho (ex.: a lista de notas em CSV).
 export function baixarArquivo(nome, conteudo, tipo) {
   const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }));

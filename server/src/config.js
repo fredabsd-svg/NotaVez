@@ -49,6 +49,9 @@ export const config = {
   // 'producao_restrita' (homologação) é o padrão. Produção só com liberação explícita.
   ambientePadrao: 'producao_restrita',
   producaoLiberada: process.env.NOTAVEZ_PRODUCAO_LIBERADA === '1',
+  // De quantas em quantas horas o servidor busca na Receita (ADN) as notas tomadas e as emitidas fora
+  // do app, de todas as empresas com certificado válido. 0 desliga (a busca fica só pelos botões).
+  sincronizacaoHoras: (() => { const h = Number(process.env.NOTAVEZ_SINCRONIZACAO_HORAS ?? 6); return Number.isFinite(h) && h > 0 ? Math.max(1, h) : 0; })(),
   servirWeb: process.env.NOTAVEZ_SERVIR_WEB !== '0',
   cookieSeguro: !dev,
   versaoAplicativo: 'NotaSemStress-0.1.0',

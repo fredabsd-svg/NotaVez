@@ -7,7 +7,7 @@ import { mascararDocumento, formatarDocumento } from '../util/documentos.js';
 import { ErroApp, naoEncontrado } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
 import { exigirPrestador, perfilPublico } from './perfil.js';
-import { roteiroEmissor, lerNfseImportada } from '../fiscal/assistida.js';
+import { roteiroEmissor, lerNfseImportada, manterVinculos } from '../fiscal/assistida.js';
 
 const ROTULOS = {
   rascunho: { rotulo: 'Rascunho', aviso: 'Ainda não é nota fiscal.' },
@@ -15,7 +15,18 @@ const ROTULOS = {
   pendente: { rotulo: 'Pendente de confirmação', aviso: 'A Receita não confirmou a emissão. Não emita de novo: toque em "Verificar situação".' },
   rejeitada: { rotulo: 'Rejeitada', aviso: 'A Receita recusou. Nenhuma nota foi emitida. Corrija e envie de novo.' },
   emitida: { rotulo: 'Emitida', aviso: 'NFS-e confirmada pela Receita.' },
+  // Cancelamento feito no portal e visto na sincronização com a Receita: não soma em nenhum total.
+  cancelada: { rotulo: 'Cancelada', aviso: 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais.' },
 };
+
+// Uma busca no ADN serve às duas telas (Notas e Notas tomadas): mesma fila, mesma resposta.
+export async function sincronizarEmpresa(app, req) {
+  const p = exigirPrestador(req);
+  const r = await app.ctx.tomadas.sincronizar(p);
+  auditar(app.ctx.db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'tomadas.sincronizadas',
+    detalhes: { novas: r.novas, canceladas: r.canceladas, emitidas: r.emitidas, emitidasCanceladas: r.emitidasCanceladas }, ip: req.ip });
+  return r;
+}
 
 export function resumoNota(repo, prestador, n, completo = false) {
   const r = n.rascunho || {};
@@ -30,6 +41,9 @@ export function resumoNota(repo, prestador, n, completo = false) {
       ? { rotulo: 'Emitida (Emissor Nacional)', aviso: n.importadaConferida
         ? 'Emitida por você no Emissor Nacional; o app buscou a versão oficial na Receita.'
         : 'Emitida por você no Emissor Nacional; o XML enviado não foi conferido com a Receita porque a empresa não tinha certificado no app. Confira na Consulta Pública: o PDF sai com a marca "NÃO CONFERIDA". Depois de enviar o certificado, importe o mesmo XML de novo para conferir.' } : {}),
+    // Emitida fora do app e trazida da própria Receita na sincronização.
+    ...(n.situacao === 'emitida' && n.canal === 'sincronizada'
+      ? { rotulo: 'Emitida (fora do app)', aviso: 'Emitida fora deste app (no Emissor Nacional ou em outro sistema). O app trouxe a versão oficial da Receita na sincronização.' } : {}),
     importadaConferida: n.canal === 'emissor_nacional' ? n.importadaConferida : undefined,
     canal: n.canal,
     clienteNome: r.tomador?.nome || null,
@@ -57,7 +71,7 @@ export function resumoNota(repo, prestador, n, completo = false) {
     localPrestacao: municipio(r.localPrestacaoIbge || n.contextoEmitente?.municipioIbge || prestador.municipioIbge),
     servicoNacional: nac,
     dps: n.idDps ? { id: n.idDps, serie: n.serie, numero: n.nDps, tentativas: n.tentativas, ultimoEnvioEm: n.ultimoEnvioEm } : null,
-    documentos: n.situacao === 'emitida' ? {
+    documentos: ['emitida', 'cancelada'].includes(n.situacao) ? {
       xml: n.temXml,
       // DANFSe gerado aqui, a partir do XML oficial (a API do ADN foi desativada em 03/08/2026; NT 008).
       danfse: true,
@@ -97,8 +111,15 @@ export async function rotasNotas(app) {
     const limitado = notas.length > LIMITE;
     notas = notas.slice(0, LIMITE);
     if (q) notas = notas.filter((n) => (n.rascunho?.tomador?.nome || '').toLowerCase().includes(q) || (n.nNfse || '').includes(q) || (n.chaveAcesso || '').includes(q));
-    return { notas: notas.map((n) => resumoNota(repo, p, n)), limitado, meses: repo.mesesDasNotas(p.id, situacao) };
+    return { notas: notas.map((n) => resumoNota(repo, p, n)), limitado, meses: repo.mesesDasNotas(p.id, situacao),
+      // Para a tela dizer quando foi a última busca na Receita e se dá para buscar (precisa de certificado).
+      sincronizacao: { sincronizadoEm: repo.distribuicao(p.id, p.ambiente, p.documento).sincronizadoEm || null }, temCertificado: !!repo.certificadoEmissao(p), porProcuracao: !!p.usaProcuracao,
+      // O filtro "Canceladas" só aparece para quem tem nota cancelada.
+      canceladas: repo.contarNotasPorSituacao(p.id).cancelada || 0 };
   });
+
+  // Busca na Receita (ADN) as notas emitidas fora do app e as tomadas; os cancelamentos também.
+  app.post('/notas/sincronizar', async (req) => sincronizarEmpresa(app, req));
 
   app.get('/notas/:id', async (req) => {
     const p = exigirPrestador(req);
@@ -251,13 +272,7 @@ export async function rotasNotas(app) {
     const existente = repo.notaPorChave(p.id, dados.chaveAcesso);
     if (existente && conferida && existente.canal === 'emissor_nacional' && !existente.importadaConferida) {
       // Mantém só o vínculo com cliente e serviço salvos; o resto vem da versão oficial.
-      // O vínculo só fica se o cliente salvo é o mesmo tomador da nota oficial (e o serviço, o mesmo código).
-      const cli = existente.rascunho?.clienteId ? repo.cliente(p.id, existente.rascunho.clienteId) : null;
-      const srv = existente.rascunho?.servicoId ? repo.servico?.(p.id, existente.rascunho.servicoId) : null;
-      const docOficial = dados.rascunho?.tomador?.documento;
-      const rascunhoOficial = { ...dados.rascunho,
-        clienteId: cli && docOficial && String(cli.documento) === String(docOficial) ? cli.id : null,
-        servicoId: srv && srv.cTribNac === dados.rascunho?.cTribNac ? srv.id : null };
+      const rascunhoOficial = manterVinculos(repo, p.id, existente.rascunho, dados.rascunho);
       repo.reconferirImportada(p.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm, rascunho: rascunhoOficial, ambiente: dados.ambiente });
       auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.reconferida', entidade: 'nota', entidadeId: existente.id, ip: req.ip });
       return { nota: resumoNota(repo, p, repo.nota(p.id, existente.id), true), conferida: true, reconferida: true };
@@ -278,7 +293,7 @@ export async function rotasNotas(app) {
   app.get('/notas/:id/xml', async (req, reply) => {
     const p = exigirPrestador(req);
     let n = repo.nota(p.id, req.params.id);
-    if (!n || n.situacao !== 'emitida') throw new ErroApp(404, 'XML disponível apenas para notas emitidas.');
+    if (!n || !['emitida', 'cancelada'].includes(n.situacao)) throw new ErroApp(404, 'XML disponível apenas para notas emitidas.');
     if (!n.temXml) n = await emissao.buscarXml(p, n.id);
     const xml = repo.xmlNfse(n.id);
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
@@ -292,14 +307,14 @@ export async function rotasNotas(app) {
   app.get('/notas/:id/danfse', async (req, reply) => {
     const p = exigirPrestador(req);
     let n = repo.nota(p.id, req.params.id);
-    if (!n || n.situacao !== 'emitida') throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
+    if (!n || !['emitida', 'cancelada'].includes(n.situacao)) throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
     if (!n.temXml) n = await emissao.buscarXml(p, n.id);
     const xml = repo.xmlNfse(n.id);
     if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
     // No modo demonstração a Receita é simulada: o PDF leva a marca "SIMULAÇÃO".
     // XML que o app não conseguiu conferir com a Receita não vira DANFSe "limpo".
     const naoConferida = n.canal === 'emissor_nacional' && !n.importadaConferida;
-    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : naoConferida ? 'NÃO CONFERIDA' : null });
+    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : n.situacao === 'cancelada' ? 'CANCELADA' : naoConferida ? 'NÃO CONFERIDA' : null });
     auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${n.chaveAcesso}.pdf"`).send(pdf);

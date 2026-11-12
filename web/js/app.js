@@ -44,6 +44,20 @@ const rotas = [
   ['/tomadas', tomadas.lista],
   ['/tomadas/:id', tomadas.detalhe],
 ];
+// Áreas que existem em qualquer empresa: ao trocar de empresa, a pessoa continua na mesma área
+// (das notas tomadas de uma para as notas tomadas da outra), em vez de voltar ao Início.
+export const AREAS_DA_EMPRESA = ['/', '/notas', '/tomadas', '/clientes', '/servicos', '/perfil'];
+export const areaDe = (caminho) => { const a = `/${String(caminho || '').split('/')[1] || ''}`; return AREAS_DA_EMPRESA.includes(a) ? a : '/'; };
+
+// Empresas abertas há pouco neste aparelho (só os identificadores), para a troca rápida do escritório.
+const chaveRecentes = () => `nss-empresas-recentes:${estado.conta?.usuarioId || ''}`;
+export function empresasRecentes() {
+  try { const v = JSON.parse(localStorage.getItem(chaveRecentes()) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+function lembrarEmpresa(id) {
+  try { localStorage.setItem(chaveRecentes(), JSON.stringify([id, ...empresasRecentes().filter((x) => x !== id)].slice(0, 6))); } catch { /* armazenamento indisponível: segue sem a lista */ }
+}
+
 // Telas que funcionam sem uma empresa escolhida.
 const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/procurador']);
 
@@ -138,6 +152,9 @@ async function renderizar() {
   amb.textContent = ambiente === 'producao' ? 'Produção' : 'Testes';
   amb.className = `selo ctx-ambiente ${ambiente === 'producao' ? 'selo-producao' : 'selo-teste'}`;
   empresa.setAttribute('aria-label', `Empresa aberta: ${estado.conta?.empresaNome || ''}${ambiente ? ` (${amb.textContent})` : ''}. Trocar de empresa`);
+  // A troca devolve a pessoa à mesma área em que ela estava.
+  const area = areaDe(caminho);
+  empresa.setAttribute('href', area === '/' ? '#/empresas' : `#/empresas?voltar=${encodeURIComponent(area)}`);
   for (const a of document.querySelectorAll('.abas a')) {
     // Só destinos com data-aba (a marca da barra lateral não é um): tela sem aba não marca nada.
     if (a.dataset.aba && a.dataset.aba === tela.aba) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
@@ -189,6 +206,7 @@ export async function carregarConta({ permitirOffline = true, substituirTitular 
 export async function entrarNaEmpresa(id, destino = '/') {
   const conta = await carregarConta({ permitirOffline: false, empresa: id });
   if (conta?.prestadorId !== id) throw new ErroApi(409, { erro: 'Esta empresa não está mais disponível na sua conta.' });
+  lembrarEmpresa(id);
   atualizarSelo();
   sincronizarTodos().catch(() => {});
   ir(destino);
@@ -199,6 +217,8 @@ export async function sair() {
   // conta localmente; uma nova entrada confirmará o titular antes de sincronizar.
   try { await api('POST', '/api/conta/sair', {}); } catch { /* sessão local encerra */ }
   try { await definirConta(null); } catch { aviso('Não foi possível limpar a sessão local. Apague o armazenamento do site antes de emprestar este aparelho.'); }
+  // A lista de empresas abertas há pouco não fica no aparelho depois da saída.
+  try { localStorage.removeItem(chaveRecentes()); } catch { /* armazenamento indisponível */ }
   estado.conta = null;
   estado.inicio = null;
   estado.ultimoResultado = null;

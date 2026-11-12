@@ -69,7 +69,8 @@ erDiagram
     text valor_padrao
   }
   notas {
-    text situacao "rascunho|enviando|pendente|rejeitada|emitida"
+    text situacao "rascunho|enviando|pendente|rejeitada|emitida|cancelada"
+    text canal "vazio = app | emissor_nacional = XML trazido | sincronizada = veio do ADN"
     text rascunho_cifrado
     text n_dps
     text id_dps_cifrado
@@ -111,7 +112,10 @@ stateDiagram-v2
   pendente --> emitida: GET /dps/{id} encontrou → GET /nfse/{chave}
   pendente --> pendente: não encontrada e espera < 60 s ou tentativas > 3
   pendente --> enviando: não encontrada → reenvia a MESMA DPS assinada
+  [*] --> emitida: sincronização com o ADN (emitida fora do app, XML oficial)
+  emitida --> cancelada: evento de cancelamento visto no ADN
   emitida --> [*]
+  cancelada --> [*]
 ```
 
 Garantias:
@@ -174,7 +178,9 @@ sequenceDiagram
 | DANFSe | PDF conforme a NT 008 a partir do XML oficial da NFS-e (`GET /api/notas/{id}/danfse`): A4, página única, grade do Anexo I, QR Code da Consulta Pública, descrições dos códigos, supressões do item 2.3 e "SEM VALIDADE JURÍDICA" em homologação | `server/src/fiscal/danfse/` |
 | Várias empresas | Uma conta tem várias empresas (`prestadores`). A empresa ativa vem do cabeçalho `X-NotaVez-Prestador` (ou `?empresa=` em links de download) e é **sempre conferida contra o dono da conta**; empresa de outra conta ou removida → `409 EMPRESA_INDISPONIVEL`. Sem indicação, vale a primeira empresa (compatível com quem tem uma só). `GET /api/conta?empresa=` só devolve `prestadorId` automaticamente quando há uma única empresa. Rascunhos e cópias locais do app ficam separados por `[usuário, empresa]`. Remover empresa só é possível sem notas enviadas | `app.js`, `routes/empresas.js`, `db/repositorio.js` |
 | Consulta de CNPJ | `GET /api/cnpj/{cnpj}`: base pública do CNPJ (BrasilAPI; CNPJ.ws de reserva), cache de 24 h só em memória, 60 consultas/min por conta. Sugere razão social, endereço, município (IBGE), contato e **enquadramento**: MEI → 2, Simples → 3, senão não optante com Lucro Presumido/Real pela última ECF informada. O usuário confere antes de salvar | `cadastro/consulta-cnpj.js` |
-| Notas tomadas | `POST /api/tomadas/sincronizar` lê o ADN (`GET /contribuintes/DFe/{NSU}?lote=true&cnpjConsulta=`) com o A1 da empresa, em lotes de até 50 a partir do último NSU guardado (no máximo 20 lotes e 1 busca por minuto por empresa). Guarda cifrado só o que tem a empresa como **tomadora**; eventos de cancelamento (e101101, e105102, e105104) marcam a nota como cancelada. XML e DANFSe (com marca "CANCELADA") em `/api/tomadas/{id}/xml` e `/danfse`. **Formato da resposta do ADN (`LoteDFe`, `ArquivoXml` GZip+Base64) a confirmar na produção restrita** | `fiscal/tomadas.js`, `sefin/cliente.js` (`distribuirDfe`), `routes/tomadas.js` |
+| Sincronização com o ADN | `POST /api/notas/sincronizar` (ou `/api/tomadas/sincronizar`: é a mesma busca) lê o ADN (`GET /contribuintes/DFe/{NSU}?lote=true&cnpjConsulta=`) com o A1 da empresa ou o do escritório (procuração), em lotes de até 50 a partir do último NSU guardado (no máximo 20 lotes e 1 busca por minuto por empresa). É só leitura: nada é enviado à Receita. **Empresa tomadora** → `notas_tomadas`. **Empresa emitente** → `notas` com `canal = 'sincronizada'`, XML oficial cifrado e rótulo "Emitida (fora do app)"; não duplica a nota que o app emitiu (mesma chave), nem a que ele enviou e ainda está pendente (mesmo Id de DPS: quem conclui é a verificação da própria nota), e confere o XML que a pessoa tinha trazido sem certificado. Eventos de cancelamento (e101101, e105102, e105104) marcam a tomada ou a emitida como **cancelada**: fica no histórico com XML e DANFSe (marca "CANCELADA") e não soma em nenhum total. Bancos de versões anteriores (que só guardavam as tomadas) releem a fila desde o NSU 0 uma única vez (`distribuicao_dfe.leitura`). **Formato da resposta do ADN (`LoteDFe`, `ArquivoXml` GZip+Base64) a confirmar na produção restrita** | `fiscal/tomadas.js`, `sefin/cliente.js` (`distribuirDfe`), `routes/notas.js`, `routes/tomadas.js` |
+| Sincronização em lote e periódica | `POST /api/empresas/sincronizar` consulta em segundo plano todas as empresas da conta com certificado válido, uma por vez, com pausa entre elas; `GET /api/empresas/sincronizacao` devolve o andamento e as falhas (com o motivo dado pela Receita, por exemplo procuração não vigente). O servidor repete a busca de todas as empresas a cada `NOTAVEZ_SINCRONIZACAO_HORAS` (padrão 6; `0` desliga), a primeira vez 5 minutos depois de ligar | `fiscal/tomadas.js`, `routes/empresas.js`, `index.js` |
+| Procuração em lote | `PUT /api/procurador/empresas { empresas: [ids], ativa }` liga ou desliga a procuração em várias empresas da conta (ignora ids de outra conta); `POST /api/empresas` aceita `usaProcuracao: true` para a empresa já nascer usando o certificado do escritório. Cada mudança fica na auditoria | `routes/empresas.js` |
 | Ambientes | URLs em JSON; homologação é o padrão; produção exige `NOTAVEZ_PRODUCAO_LIBERADA=1` | `server/src/fiscal/sefin/ambientes.json` |
 
 ## 3.6 Segurança e privacidade (LGPD)

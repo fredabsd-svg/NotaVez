@@ -1,10 +1,10 @@
 // Notas tomadas: NFS-e que fornecedores emitiram para a empresa ativa,
 // baixadas do Ambiente de Dados Nacional com o certificado da empresa.
-import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico, vazio } from '../ui.js';
+import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico, vazio, baixarCsv, valorCsv } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade } from '../api.js';
 import { comCache } from '../store.js';
 import { ir } from '../app.js';
-import { partesDaLinha } from './historico.js';
+import { partesDaLinha, resumoDaBusca } from './historico.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const mesAtual = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 7);
@@ -35,16 +35,26 @@ export async function lista(_, query) {
     h('span', {}, 'Fornecedor'), h('span', { class: 'ln-doc' }, 'CNPJ/CPF'), h('span', { class: 'ln-num' }, 'Número'), h('span', {}, 'Competência'), h('span', {}, 'Situação'), h('span', {}, 'Valor'));
 
   // Mesma linha das notas emitidas: fornecedor e valor em destaque; número, competência e situação como apoio.
-  const item = (t) => h('li', {}, h('a', { class: 'linha-nota com-doc', href: `#/tomadas/${t.id}` },
+  const item = (t) => h('li', {}, h('a', { class: `linha-nota com-doc${t.situacao === 'cancelada' ? ' cancelada' : ''}`, href: `#/tomadas/${t.id}` },
     partesDaLinha({ cliente: t.emitente?.nome || 'Fornecedor', documento: t.emitente?.documentoFormatado || '', numero: t.nNfse ? `NFS-e nº ${t.nNfse}` : '', competencia: data(t.competencia),
       situacao: h('span', { class: 'marcadores' }, selo(t), t.issRetido ? h('span', { class: 'marcador marcador-alerta' }, 'ISS retido') : null, t.homologacao ? h('span', { class: 'marcador' }, 'Testes') : null),
       valor: moeda(t.valor) })));
 
+  let visiveisAgora = [];
+  // A lista mostrada, em planilha, para o contador conferir retenções e serviços tomados.
+  const exportar = h('button', { class: 'btn btn-pequeno', type: 'button', title: 'Baixa a lista mostrada em planilha (CSV)', onclick: () => {
+    baixarCsv(`notas-tomadas-${mes || 'todas'}.csv`, ['Competência', 'Número da NFS-e', 'Fornecedor', 'CNPJ/CPF', 'Situação', 'ISS retido', 'Valor (R$)', 'Valor líquido (R$)', 'Chave de acesso'],
+      visiveisAgora.map((t) => [data(t.competencia), t.nNfse || '', t.emitente?.nome || '', t.emitente?.documentoFormatado || '', t.situacao === 'cancelada' ? 'Cancelada' : 'Válida',
+        t.issRetido ? 'Sim' : 'Não', valorCsv(t.valor), valorCsv(t.valorLiquido), t.chaveAcesso || '']));
+    aviso(`${plural(visiveisAgora.length, 'nota exportada', 'notas exportadas')}.`);
+  } }, icone(ICONES.baixar), 'Exportar CSV');
   function mostrar(q = '') {
     const s = semAcento(q).trim();
     const dig = s.replace(/[^0-9a-z]/g, '');
     const visiveis = dados.tomadas.filter((t) => !s || semAcento(t.emitente?.nome).includes(s)
       || (dig.length >= 3 && [t.emitente?.documentoFormatado, t.nNfse, t.chaveAcesso].some((x) => semAcento(x).replace(/[^0-9a-z]/g, '').includes(dig))));
+    visiveisAgora = visiveis;
+    exportar.hidden = !visiveis.length;
     contador.textContent = plural(visiveis.length, 'nota', 'notas');
     ul.replaceChildren(...visiveis.map(item));
     cabecalho.hidden = !visiveis.length;
@@ -61,9 +71,8 @@ export async function lista(_, query) {
     buscar.disabled = true;
     try {
       const r = await api('POST', '/api/tomadas/sincronizar', {});
-      aviso(r.novas || r.canceladas
-        ? `${plural(r.novas, 'nota nova', 'notas novas')}${r.canceladas ? ` e ${plural(r.canceladas, 'cancelamento', 'cancelamentos')}` : ''}.`
-        : 'Nenhuma nota nova desde a última busca.');
+      // A mesma busca traz as notas tomadas e as que a empresa emitiu fora do app.
+      aviso(resumoDaBusca(r), 6000);
       window.dispatchEvent(new HashChangeEvent('hashchange')); // recarrega a lista
     } catch (e) {
       aviso(e instanceof ErroApi && e.status === 0 ? 'Sem internet: a busca de notas tomadas precisa de conexão.' : e.message, 7000);
@@ -103,7 +112,7 @@ export async function lista(_, query) {
             h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
       // Sem certificado e sem notas: só o cartão de como começar (sem filtro nem totais zerados).
       ...(dados.tomadas.length || dados.temCertificado || mes ? [
-        h('div', { class: 'barra-lista' }, busca, filtroMes),
+        h('div', { class: 'barra-lista' }, busca, filtroMes, exportar),
         h('section', { 'aria-label': 'Totais' },
           h('div', { class: 'secao-titulo' }, h('h3', { class: 'titulo-mes' }, mes ? nomeMes(mes) : 'Todas as competências'),
             h('span', { class: 'secao-extra' }, plural(dados.totais.quantidade, 'nota válida', 'notas válidas'))),
