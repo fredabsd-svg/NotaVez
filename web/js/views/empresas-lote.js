@@ -10,6 +10,7 @@ const ROTULO = Object.fromEntries(REGIMES);
 const ACEITOS = '.xlsx,.xlsm,.csv,.tsv,.txt,.pdf,.docx';
 const SIMULTANEAS = 3;
 const POR_REVISAO = 10;
+const REVISOES_SIMULTANEAS = 3; // grupos revisados ao mesmo tempo (cada um leva de 20 s a 1 min)
 const LIMITE_ARQUIVO = 3 * 1024 * 1024;
 const VEREDITO = { aprovar: ['IA: aprovada', 'marcador-ok'], revisar: ['IA: conferir', 'marcador-alerta'], bloquear: ['IA: não salvar', 'marcador-erro'] };
 const SITUACAO = {
@@ -68,6 +69,9 @@ export async function tela() {
   // ---------------------------------------------------------- passo 2: conferência e revisão
   let itens = [];
   let semIa = false;
+  let revisando = null;      // { total, feitas } enquanto a IA revisa
+  let ultimaRevisao = null;  // contagem da última revisão, para o resumo perto dos botões
+  let soAtencao = false;     // lista mostra só as empresas que precisam de atenção
   let avisosPadrao = {};
   const resumo = h('p', { class: 'suave', role: 'status', 'aria-live': 'polite' });
   const barra = h('progress', { max: 1, value: 0, hidden: true });
@@ -123,7 +127,10 @@ export async function tela() {
     return li;
   }
   // Troca o cartão no lugar (sem perder a rolagem).
-  function atualizarCartao(it) { const antigo = it.no; const novo = cartao(it); antigo?.replaceWith(novo); }
+  function atualizarCartao(it) { const antigo = it.no; const novo = cartao(it); antigo?.replaceWith(novo); filtrar(it); }
+  const precisaAtencao = (it) => ['revisar', 'bloquear'].includes(it.revisao?.veredito) || ['revisar', 'bloqueada', 'erro'].includes(it.situacao)
+    || (incluivel(it) && it.incluir && !it.regime);
+  function filtrar(it) { if (it.no) it.no.hidden = soAtencao && !precisaAtencao(it); }
 
   function contagem() {
     const c = {};
@@ -144,7 +151,22 @@ export async function tela() {
     const semRegime = itens.filter((it) => incluivel(it) && it.incluir && !it.regime).length;
     const temporarias = itens.filter((it) => it.situacao === 'erro' && it.preparada?.temporario).length;
     const bloqueadasIa = escolhidas().filter((it) => it.revisao?.veredito === 'bloquear').length;
+    // Andamento perto dos botões (a barra fica fixa no rodapé): a lista pode ter centenas de empresas.
+    const andamento = (feitas, total, texto, ajuda) => h('div', { class: 'lote-andamento', role: 'status', 'aria-live': 'polite' },
+      h('progress', { max: total, value: feitas }), h('p', {}, h('strong', {}, texto)), ajuda ? h('p', { class: 'suave' }, ajuda) : null);
+    if (revisando) {
+      acoes.replaceChildren(andamento(revisando.feitas, revisando.total, `A IA está revisando: ${revisando.feitas} de ${plural(revisando.total, 'empresa', 'empresas')}…`,
+        `Ela confere ${POR_REVISAO} empresas por vez, ${REVISOES_SIMULTANEAS} grupos ao mesmo tempo; cada grupo leva de 20 segundos a 1 minuto. Não saia desta tela.`));
+      return;
+    }
+    const atencao = itens.filter(precisaAtencao).length;
     acoes.replaceChildren(...[
+      consultando ? andamento(itens.length - consultando, itens.length, `Consultando a base pública: ${itens.length - consultando} de ${plural(itens.length, 'empresa', 'empresas')}…`) : null,
+      !consultando && ultimaRevisao ? h('p', { class: 'lote-resumo-ia' }, h('strong', {}, 'Revisão da IA: '),
+        `${ultimaRevisao.aprovar} aprovada(s) · ${ultimaRevisao.revisar} para conferir · ${ultimaRevisao.bloquear} para não salvar.`) : null,
+      !consultando && (atencao || soAtencao) ? h('button', { class: 'btn btn-pequeno', type: 'button', 'aria-pressed': String(soAtencao), onclick: () => {
+        soAtencao = !soAtencao; itens.forEach(filtrar); atualizarAcoes(); passo2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } }, soAtencao ? 'Mostrar todas as empresas' : `Mostrar só as que precisam de atenção (${atencao})`) : null,
       consultando ? null : h('div', { class: 'lote-botoes' },
         temporarias ? h('button', { class: 'btn', type: 'button', onclick: () => consultarTodas(itens.filter((it) => it.situacao === 'erro' && it.preparada?.temporario)) }, icone(ICONES.atualizar), `Consultar de novo ${plural(temporarias, 'a que falhou', 'as que falharam')}`) : null,
         ia.configurado && faltam ? h('button', { class: 'btn btn-primario', type: 'button', onclick: revisar }, icone(ICONES.assistente || ICONES.busca), `Revisar ${plural(faltam, 'empresa', 'empresas')} com a IA`) : null,
@@ -190,30 +212,48 @@ export async function tela() {
     atualizarAcoes();
   }
 
-  async function revisar(ev) {
-    const botao = ev?.currentTarget;
-    if (botao) botao.disabled = true;
+  async function revisar() {
+    if (revisando) return;
     const fila = precisamRevisao();
-    try {
-      for (let i = 0; i < fila.length; i += POR_REVISAO) {
-        const grupo = fila.slice(i, i + POR_REVISAO);
-        resumo.textContent = `A IA está revisando: ${Math.min(i + grupo.length, fila.length)} de ${fila.length}…`;
-        const r = await api('POST', '/api/ia/revisar-empresas', { empresas: grupo.map((it) => ({ ...it.preparada, regime: it.regime })) });
-        for (const rev of r.revisoes) {
-          const it = grupo.find((x) => x.preparada.cnpj === rev.cnpj);
-          if (!it) continue;
-          it.revisao = rev;
-          // A IA recomendou não salvar: sai marcada como não incluída (o usuário pode marcar de novo).
-          if (rev.veredito === 'bloquear') it.incluir = false;
-          atualizarCartao(it);
-        }
+    if (!fila.length) return;
+    const grupos = [];
+    for (let i = 0; i < fila.length; i += POR_REVISAO) grupos.push(fila.slice(i, i + POR_REVISAO));
+    revisando = { total: fila.length, feitas: 0 };
+    atualizarAcoes();
+    let erro = null;
+    let proximo = 0;
+    const trabalhar = async () => {
+      while (proximo < grupos.length && !erro) {
+        const grupo = grupos[proximo++];
+        // O regime pode mudar enquanto a IA revisa: só vale a revisão do regime que foi enviado.
+        const enviado = new Map(grupo.map((it) => [it, it.regime]));
+        try {
+          const r = await api('POST', '/api/ia/revisar-empresas', { empresas: grupo.map((it) => ({ ...it.preparada, regime: it.regime })) });
+          for (const rev of r.revisoes) {
+            const it = grupo.find((x) => x.preparada.cnpj === rev.cnpj);
+            if (!it || it.regime !== enviado.get(it)) continue;
+            it.revisao = rev;
+            // A IA recomendou não salvar: sai marcada como não incluída (o usuário pode marcar de novo).
+            if (rev.veredito === 'bloquear') it.incluir = false;
+            atualizarCartao(it);
+          }
+        } catch (e) { erro = e; }
+        revisando.feitas = Math.min(revisando.total, revisando.feitas + grupo.length);
+        atualizarAcoes();
       }
-      const c = { aprovar: 0, revisar: 0, bloquear: 0 };
-      for (const it of fila) if (it.revisao) c[it.revisao.veredito] += 1;
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(REVISOES_SIMULTANEAS, grupos.length) }, trabalhar));
+    } finally { revisando = null; }
+    const c = { aprovar: 0, revisar: 0, bloquear: 0 };
+    for (const it of itens) if (it.revisao) c[it.revisao.veredito] += 1;
+    ultimaRevisao = c;
+    if (erro) {
+      aviso(`${erro.status === 0 ? 'Sem internet: a revisão da IA precisa de conexão.' : erro.message} As que já foram revisadas continuam; toque de novo para revisar o resto.`, 9000);
+    } else {
       aviso(`Revisão da IA: ${c.aprovar} aprovada(s), ${c.revisar} para conferir, ${c.bloquear} para não salvar.`, 7000);
-    } catch (e) {
-      aviso(e.status === 0 ? 'Sem internet: a revisão da IA precisa de conexão.' : e.message, 8000);
-    } finally { atualizarAcoes(); }
+    }
+    atualizarAcoes();
   }
 
   async function salvar(ev) {
@@ -258,6 +298,8 @@ export async function tela() {
       const corpo = { texto, ...(arquivo ? { arquivo: { nome: arquivo.name, base64: await paraBase64(arquivo) } } : {}) };
       const r = await api('POST', '/api/empresas/lote/ler', corpo);
       avisosPadrao = r.avisosPadrao || {};
+      ultimaRevisao = null;
+      soAtencao = false;
       itens = r.linhas.map((l) => ({ entrada: l, preparada: null, situacao: l.jaCadastrada ? 'ja_cadastrada' : 'fila', incluir: false, regime: l.regimeDeclarado || null, revisao: null }));
       lista.replaceChildren(...itens.map(cartao));
       passo2.hidden = false;

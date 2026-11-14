@@ -736,3 +736,20 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
 @media (min-width: 1024px) {
   .lote-acoes-finais { bottom: 0; }
 }
+
+/* Celular: ações da lista dividem a linha por igual; formatos do ZIP um embaixo do outro. */
+@media (max-width: 1023px) {
+  .barra-lista .barra-acoes { flex: 1 1 100%; }
+  .barra-lista .barra-acoes .btn { flex: 1 1 0; justify-content: center; min-width: 0; }
+}
+@media (max-width: 600px) {
+  .lote-formatos > div { flex-direction: column; gap: 0; }
+  .lote-acoes .btn { flex: 1 1 100%; justify-content: center; }
+}
+.lote-andamento { display: flex; flex-direction: column; gap: 4px; }
+.lote-andamento progress { width: 100%; height: 10px; accent-color: var(--azul); margin: 0; }
+.lote-andamento p { margin: 0; font-size: var(--fs-14); }
+.lote-resumo-ia { font-size: var(--fs-14); }
+.lote-acoes-finais > .btn-pequeno { align-self: flex-start; margin: 0; }
+/* Sem a barra de abas (conta ainda sem empresa aberta): a barra de ações encosta no rodapé. */
+body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: env(safe-area-inset-bottom); }
