@@ -18,6 +18,7 @@ import * as tomadas from './views/tomadas.js';
 import * as assistida from './views/assistida.js';
 import * as procurador from './views/procurador.js';
 import * as assistente from './views/assistente.js';
+import * as empresasLote from './views/empresas-lote.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -41,6 +42,7 @@ const rotas = [
   ['/instalar', instalar.tela],
   ['/empresas', empresas.lista],
   ['/empresas/nova', empresas.nova],
+  ['/empresas/lote', empresasLote.tela],
   ['/procurador', procurador.tela],
   ['/tomadas', tomadas.lista],
   ['/tomadas/:id', tomadas.detalhe],
@@ -63,7 +65,7 @@ function lembrarEmpresa(id) {
 }
 
 // Telas que funcionam sem uma empresa escolhida.
-const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/procurador', '/assistente', '/assistente/configurar']);
+const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/empresas/lote', '/procurador', '/assistente', '/assistente/configurar']);
 
 export const estado = { conta: null, inicio: null };
 

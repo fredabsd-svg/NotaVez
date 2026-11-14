@@ -22,6 +22,12 @@ export async function rotasIa(app, { chamarIa, listarModelosIa } = {}) {
     return await ia.testarConfig(req.usuario.id);
   });
 
+  // Revisão, pela IA da conta, das empresas preparadas no cadastro em lote (antes de salvar).
+  app.post('/revisar-empresas', { bodyLimit: 2_000_000 }, async (req) => {
+    await limites.consumir(`ia-lote:${req.usuario.id}`, 60, 3600_000);
+    return await ia.revisarEmpresas(req.usuario.id, req.body?.empresas);
+  });
+
   app.get('/conversas', async (req) => ({ conversas: await ia.listarConversas(req.usuario.id) }));
   app.post('/conversas', async (req) => ({ conversa: await ia.conversa(req.usuario.id, await ia.criarConversa(req.usuario.id, req.prestador?.id)) }));
   app.get('/conversas/:id', async (req) => ({ conversa: await ia.conversa(req.usuario.id, req.params.id) }));

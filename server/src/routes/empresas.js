@@ -1,7 +1,8 @@
 import { lerPerfil, perfilPublico, regimeDescricao, certPublico, lerPfxEnviado } from './perfil.js';
 import { verificarParaProcurador } from '../fiscal/certificado.js';
 import { ErroApp } from '../util/erros.js';
-import { formatarDocumento } from '../util/documentos.js';
+import { formatarDocumento, normalizarCnpj } from '../util/documentos.js';
+import { lerLista, prepararEmpresa, lerCadastro, MAX_LOTE, REGIMES, AVISO_PADRAO } from '../cadastro/lote-empresas.js';
 import { municipio } from '../fiscal/tabelas.js';
 import { auditar } from '../security/auditoria.js';
 import { config } from '../config.js';
@@ -59,6 +60,51 @@ export async function rotasEmpresas(app) {
       await auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'procuracao.ativada', ip: req.ip });
     }
     return { empresa: perfilPublico(await repo.prestador(id)), empresaId: id };
+  });
+
+  // ---------- cadastro em lote (escritórios) ----------
+  // 1) lê a lista colada ou a planilha; 2) a tela consulta um CNPJ por vez (base pública + regras);
+  // 3) a IA revisa (/api/ia/revisar-empresas); 4) salva as escolhidas, com o regime confirmado na tela.
+  const documentosDaConta = async (usuarioId) => new Set((await repo.listarPrestadores(usuarioId)).map((e) => e.documento));
+  app.post('/empresas/lote/ler', { bodyLimit: 4_400_000 }, async (req) => {
+    await limites.consumir(`lote-ler:${req.usuario.id}`, 60, 3600_000);
+    const r = await lerLista({ texto: req.body?.texto, arquivo: req.body?.arquivo });
+    const existentes = await documentosDaConta(req.usuario.id);
+    return { ...r, linhas: r.linhas.map((l) => ({ ...l, jaCadastrada: existentes.has(l.cnpj) })), maximo: MAX_LOTE, avisosPadrao: AVISO_PADRAO };
+  });
+  app.post('/empresas/lote/consultar', async (req) => {
+    // Teto próprio (maior que o da consulta avulsa), para não esgotar a base pública nem a cota da conta.
+    await limites.consumir(`cnpj-lote:${req.usuario.id}`, 120, 60_000);
+    await limites.consumir(`cnpj-lote-dia:${req.usuario.id}`, 2000, 86_400_000);
+    return { empresa: await prepararEmpresa({ consultarCnpj }, req.body || {}, { existentes: await documentosDaConta(req.usuario.id) }) };
+  });
+  app.post('/empresas/lote/salvar', async (req) => {
+    const itens = Array.isArray(req.body?.empresas) ? req.body.empresas.slice(0, MAX_LOTE) : [];
+    if (!itens.length) throw new ErroApp(422, 'Escolha as empresas para salvar.');
+    const porProcuracao = req.body?.usaProcuracao === true;
+    if (porProcuracao && !await repo.certificadoProcurador(req.usuario.id)) throw new ErroApp(409, 'Envie primeiro o certificado do escritório (procurador) em Empresas › Certificado do escritório.', { acao: 'procurador' });
+    const existentes = await documentosDaConta(req.usuario.id);
+    const resultados = [];
+    for (const it of itens) {
+      const cnpj = normalizarCnpj(it?.perfil?.documento);
+      try {
+        if (existentes.has(cnpj)) throw new ErroApp(409, 'Já está cadastrada nesta conta.');
+        if (!REGIMES[it?.regime]) throw new ErroApp(422, 'Escolha o regime da empresa.');
+        const perfil = lerCadastro(it.perfil, it.regime);
+        const id = await repo.salvarPrestador(req.usuario.id, null, perfil);
+        existentes.add(perfil.documento);
+        const revisaoIa = ['aprovar', 'revisar', 'bloquear'].includes(it.veredito) ? it.veredito : 'sem_revisao';
+        await auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'empresa.criada', detalhes: { emLote: true, regime: it.regime, revisaoIa }, ip: req.ip });
+        if (porProcuracao) {
+          await repo.definirProcuracao(req.usuario.id, id, true);
+          await auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'procuracao.ativada', detalhes: { emLote: true }, ip: req.ip });
+        }
+        resultados.push({ cnpj, ok: true, empresaId: id, nome: perfil.nome });
+      } catch (e) {
+        resultados.push({ cnpj, ok: false, erro: e.extra?.campos ? `${e.message} ${Object.values(e.extra.campos).join(' ')}` : e.message });
+      }
+    }
+    return { resultados, criadas: resultados.filter((r) => r.ok).length };
   });
 
   // Busca na Receita (ADN) as notas tomadas e as emitidas fora do app de TODAS as empresas da conta

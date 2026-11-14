@@ -689,3 +689,50 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
   .barra-lista .barra-acoes { margin-left: auto; }
   .periodo-datas .campo { flex: 0 1 220px; }
 }
+
+/* Cadastro de empresas em lote */
+.lote-empresas .lote-titulo { font-size: var(--fs-17); margin: 0 0 var(--esp-2); color: var(--texto); }
+.lote-entrada { margin-bottom: var(--esp-4); }
+.lote-entrada.arrastando { outline: 2px dashed var(--azul); outline-offset: 2px; }
+.lote-entrada textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-15); }
+.lote-arquivo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin: var(--esp-2) 0; }
+.lote-arquivo .btn { margin: 0; }
+.lote-entrada > .btn-primario { margin-top: var(--esp-3); }
+.lote-empresas progress { width: 100%; height: 8px; accent-color: var(--azul); margin-bottom: var(--esp-2); }
+.lote-lista { margin-bottom: var(--esp-3); }
+.lote-empresa { padding: var(--esp-3); border-bottom: 1px solid var(--borda); display: flex; flex-direction: column; gap: var(--esp-2); }
+.lote-empresa:last-child { border-bottom: 0; }
+.lote-topo-empresa { display: flex; align-items: flex-start; gap: var(--esp-3); }
+.lote-topo-empresa > input[type="checkbox"] { width: 22px; height: 22px; margin: 2px 0 0; flex: none; }
+.lote-identificacao { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lote-identificacao strong { overflow-wrap: anywhere; }
+.lote-identificacao .suave { overflow-wrap: anywhere; }
+.lote-topo-empresa .marcadores { flex: none; justify-content: flex-end; }
+.lote-regime-linha { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); padding-left: 34px; }
+.lote-regime-linha select { width: auto; min-width: 220px; max-width: 100%; min-height: 40px; padding-top: 6px; padding-bottom: 6px; }
+.lote-notas { margin: 0; padding: 0 0 0 52px; font-size: var(--fs-14); color: var(--texto-2); }
+.lote-notas li { margin: 2px 0; }
+.lote-notas .lote-problema { color: var(--vermelho); }
+.lote-ia { margin-left: 34px; padding: var(--esp-2) var(--esp-3); border-radius: var(--raio-controle); background: var(--fundo-2); font-size: var(--fs-14); }
+.lote-ia p { margin: 0; }
+.lote-ia ul { margin: var(--esp-1) 0 0; padding-left: var(--esp-4); }
+.lote-ia .btn { margin: var(--esp-2) 0 0; }
+.lote-ia-aprovar { border-left: 3px solid var(--verde); }
+.lote-ia-revisar { border-left: 3px solid var(--ambar); }
+.lote-ia-bloquear { border-left: 3px solid var(--vermelho); }
+.lote-acoes-finais { display: flex; flex-direction: column; gap: var(--esp-2); position: sticky; bottom: calc(var(--abas) + env(safe-area-inset-bottom)); background: var(--fundo); padding: var(--esp-2) 0; z-index: 5; }
+.lote-acoes-finais:empty { display: none; }
+.lote-acoes-finais p { margin: 0; }
+.lote-botoes { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.lote-botoes .btn { margin: 0; }
+@media (max-width: 600px) {
+  .lote-topo-empresa { flex-wrap: wrap; }
+  .lote-topo-empresa .marcadores { width: 100%; justify-content: flex-start; padding-left: 34px; }
+  .lote-notas { padding-left: 34px; }
+  .lote-ia { margin-left: 0; }
+  .lote-regime-linha { padding-left: 0; }
+  .lote-regime-linha select { width: 100%; }
+}
+@media (min-width: 1024px) {
+  .lote-acoes-finais { bottom: 0; }
+}
