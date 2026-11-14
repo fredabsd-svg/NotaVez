@@ -88,7 +88,7 @@ export function resumoNota(repo, prestador, n, completo = false) {
 }
 
 // Mantém os dados do tomador iguais ao cadastro atual do cliente.
-function comTomadorAtual(repo, prestadorId, r) {
+export function comTomadorAtual(repo, prestadorId, r) {
   if (!r.clienteId) return r;
   const c = repo.cliente(prestadorId, r.clienteId);
   if (!c) return { ...r, clienteId: null };
@@ -96,11 +96,33 @@ function comTomadorAtual(repo, prestadorId, r) {
 }
 
 // Serviço salvo → preenche código e (se vazia) a descrição.
-function comServico(repo, prestadorId, r) {
+export function comServico(repo, prestadorId, r) {
   if (!r.servicoId) return r;
   const s = repo.servico(prestadorId, r.servicoId);
   if (!s) return { ...r, servicoId: null };
   return { ...r, cTribNac: s.cTribNac, cTribMun: s.cTribMun, cNBS: s.cNBS, descricao: r.descricao || s.descricao, valor: r.valor || s.valorPadrao || '' };
+}
+
+// Clonar: novo rascunho com cliente, serviço e local; NUNCA copia número,
+// chave, DPS ou situação. Competência, valor, descrição e tributação exigem revisão.
+// Devolve o id do novo rascunho (usado pela tela e pelo assistente de IA).
+export function clonarNota({ repo, db }, { usuarioId, prestador: p, origem, ip = null, via = null }) {
+  if (!origem) throw new ErroApp(404, 'Ainda não há nota emitida para clonar.');
+  const o = origem.rascunho;
+  const r = comTomadorAtual(repo, p.id, {
+    clienteId: o.clienteId, tomador: o.tomador, servicoId: o.servicoId,
+    cTribNac: o.cTribNac, cTribMun: o.cTribMun, cNBS: o.cNBS, descricao: o.descricao,
+    competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
+    // Retenção costuma se repetir com o mesmo cliente; percentuais mudam todo mês → voltam ao valor do perfil.
+    issRetido: !!o.issRetido, pAliq: null, pTotTribSN: null,
+    // IBS/CBS acompanha o serviço; retenções federais: mantém quais são retidas, valores recalculados pelo usuário.
+    cIndOp: o.cIndOp ?? null, cClassTrib: o.cClassTrib ?? null, indFinal: o.indFinal ?? null,
+    retencoesFederais: o.retencoesFederais ? { ...o.retencoesFederais, valorContribuicoes: null, irrf: null, cp: null } : null,
+    revisar: ['competencia', 'valor', 'descricao', 'tributacao'],
+  });
+  const id = repo.criarNota(p.id, r, { origemId: origem.id });
+  auditar(db, { usuarioId, prestadorId: p.id, acao: 'nota.clonada', entidade: 'nota', entidadeId: id, detalhes: { origem: origem.id, ...(via ? { via } : {}) }, ip });
+  return id;
 }
 
 export async function rotasNotas(app) {
@@ -204,26 +226,9 @@ export async function rotasNotas(app) {
     return { nota: resumoNota(repo, p, r, true) };
   });
 
-  // Clonar: novo rascunho com cliente, serviço e local; NUNCA copia número,
-  // chave, DPS ou situação. Competência, valor, descrição e tributação exigem revisão.
   function clonar(req, origem) {
     const p = exigirPrestador(req);
-    if (!origem) throw new ErroApp(404, 'Ainda não há nota emitida para clonar.');
-    const o = origem.rascunho;
-    const r = comTomadorAtual(repo, p.id, {
-      clienteId: o.clienteId, tomador: o.tomador, servicoId: o.servicoId,
-      cTribNac: o.cTribNac, cTribMun: o.cTribMun, cNBS: o.cNBS, descricao: o.descricao,
-      competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
-      // Retenção costuma se repetir com o mesmo cliente; percentuais mudam todo mês → voltam ao valor do perfil.
-      issRetido: !!o.issRetido, pAliq: null, pTotTribSN: null,
-      // IBS/CBS acompanha o serviço; retenções federais: mantém quais são retidas, valores recalculados pelo usuário.
-      cIndOp: o.cIndOp ?? null, cClassTrib: o.cClassTrib ?? null, indFinal: o.indFinal ?? null,
-      retencoesFederais: o.retencoesFederais ? { ...o.retencoesFederais, valorContribuicoes: null, irrf: null, cp: null } : null,
-      revisar: ['competencia', 'valor', 'descricao', 'tributacao'],
-    });
-    const id = repo.criarNota(p.id, r, { origemId: origem.id });
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.clonada', entidade: 'nota', entidadeId: id, detalhes: { origem: origem.id }, ip: req.ip });
-    return { nota: resumoNota(repo, p, repo.nota(p.id, id), true) };
+    return { nota: resumoNota(repo, p, repo.nota(p.id, clonarNota({ repo, db }, { usuarioId: req.usuario.id, prestador: p, origem, ip: req.ip })), true) };
   }
   app.post('/notas/clonar-ultima', async (req) => clonar(req, repo.ultimaEmitida(exigirPrestador(req).id)));
   app.post('/notas/:id/clonar', async (req) => clonar(req, repo.nota(exigirPrestador(req).id, req.params.id)));

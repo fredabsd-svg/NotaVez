@@ -65,6 +65,14 @@ export const config = {
   // do app, de todas as empresas com certificado válido. 0 desliga (a busca fica só pelos botões).
   sincronizacaoHoras: (() => { const h = Number(process.env.NOTAVEZ_SINCRONIZACAO_HORAS ?? 6); return Number.isFinite(h) && h > 0 ? Math.max(1, h) : 0; })(),
   servirWeb: process.env.NOTAVEZ_SERVIR_WEB !== '0',
+  // Assistente de IA: provedor padrão do servidor, usado por contas que não configuraram o próprio.
+  // A chave nunca é mostrada no app. Sem NOTAVEZ_IA_CHAVE, cada conta informa a sua.
+  ia: {
+    provedor: process.env.NOTAVEZ_IA_PROVEDOR || '',
+    modelo: process.env.NOTAVEZ_IA_MODELO || '',
+    chave: process.env.NOTAVEZ_IA_CHAVE || '',
+    baseUrl: process.env.NOTAVEZ_IA_BASE_URL || '',
+  },
   cookieSeguro: !dev,
   versaoAplicativo: 'NotaSemStress-0.1.0',
   // Série da DPS: faixa 00001–49999 é reservada a "aplicativo próprio" (Anexo I, leiaute campo serie).

@@ -52,6 +52,7 @@
 | **Honesto sobre a situação** | "Emitida" só aparece com a chave de acesso oficial. Rascunho, envio pendente e simulação nunca se passam por nota fiscal. |
 | **Pronto para imprimir e enviar** | **DANFSe em PDF no modelo da NT 008**, com QR Code da Consulta Pública, gerado a partir do XML oficial. "Enviar ao cliente" manda o PDF e o XML pelo WhatsApp ou e-mail. |
 | **Funciona sem internet** | Prepara a nota offline como rascunho e avisa que ela **ainda não foi emitida**. |
+| **Assistente fiscal com IA** | Um chat que já conhece os parâmetros do emissor (empresa, regime, alíquotas, certificado, clientes, serviços, faturamento) e tem no System Prompt as regras da NFS-e Nacional, ISS, Simples, MEI, Presumido/Real, retenções e IBS/CBS. Ele **emite a nota sozinho** pelas mesmas regras e máquina de estados das telas: por padrão mostra o resumo com o botão "Emitir agora"; o modo autônomo envia direto. Funciona com Anthropic, OpenAI, xAI (Grok), OpenRouter, DeepSeek, Qwen, Kimi, GLM, MiniMax, Doubao, ERNIE, StepFun e qualquer API compatível com OpenAI. [Detalhes](#assistente-de-ia) |
 | **Dados protegidos** | Não pede nem guarda a senha gov.br. Certificado A1, CPF, CNPJ e dados dos clientes ficam cifrados (AES-256-GCM), e toda operação fica registrada. |
 
 ## Para quem
@@ -61,6 +62,19 @@
 | **MEI** | Emite com a tributação do MEI já resolvida. |
 | **ME/EPP do Simples Nacional** | Confere o convênio do município, retenção do ISS pelo cliente, ISS fora do Simples e `% aproximado` de tributos. |
 | **Lucro Presumido / Real** | PIS/COFINS, retenções federais (NT 007) e o grupo **IBS/CBS** com as opções oficiais para cada serviço (Ato Conjunto RFB/CGIBS nº 4/2026). |
+
+## Assistente de IA
+
+Em **Assistente › Configurar**, cada conta escolhe o provedor, o modelo e informa a **própria chave de API** (guardada cifrada no servidor; nunca volta para o aparelho). As chamadas ao provedor saem do servidor, nunca do navegador.
+
+- **O que ele sabe:** o System Prompt tem duas partes. A fixa (em cache no provedor) traz as regras do produto, o roteiro de emissão e o conhecimento fiscal: NFS-e Padrão Nacional (DPS, Anexo I, códigos de erro, convênio, incidência do ISS pela LC 116), MEI, Simples (regApTribSN, Fator R, anexos, retenção de ISS), Lucro Presumido/Real (PIS/COFINS, IRRF, CSRF, INSS, retenção de órgãos federais) e a Reforma Tributária (IBS/CBS, cClassTrib, cIndOp). A variável é lida do emissor a cada mensagem: data, empresa aberta com todos os parâmetros fiscais, certificado, pendências para emitir, pacote de regras vigente, faturamento, limite do MEI, serviços salvos e as demais empresas da conta.
+- **O que ele faz:** 23 ferramentas sobre o próprio app (consultar empresas, clientes, CNPJ, serviços, código nacional e opções de IBS/CBS, criar e ajustar rascunho, validar, **emitir**, verificar pendente, clonar, faturamento, notas tomadas, sincronizar com a Receita). Toda ferramenta passa pela validação oficial, pela auditoria (`via: ia`) e pelo dono da empresa: a IA nunca alcança empresa de outra conta.
+- **Emissão:** por padrão, *com confirmação*: o assistente prepara e valida a nota e o chat mostra o resumo com **Emitir agora**; se o rascunho mudar depois da revisão, a confirmação é recusada. No modo **autônomo** (ligado pela pessoa, com aviso), o assistente emite sozinho quando o pedido tem dados completos. Nos dois modos valem as regras de sempre: só "emitida" com chave de acesso, pendente é verificada e nunca reenviada.
+- **Provedores:** Anthropic pela SDK oficial (`@anthropic-ai/sdk`, com cache do prompt fixo, raciocínio devolvido intacto e fallback do servidor nos modelos que aceitam); os demais pelo formato Chat Completions da OpenAI. "Outro compatível com OpenAI" aceita um endereço próprio, só `https` e servidor público.
+- **Padrão da instalação (opcional):** `NOTAVEZ_IA_PROVEDOR`, `NOTAVEZ_IA_MODELO`, `NOTAVEZ_IA_CHAVE` e `NOTAVEZ_IA_BASE_URL` servem às contas que não configuraram a própria chave.
+
+> [!NOTE]
+> As mensagens e os dados que o assistente consulta (nomes, CPF/CNPJ, valores) são enviados ao provedor escolhido. As conversas ficam cifradas no banco (AES-256-GCM); a conta guarda as 50 mais recentes.
 
 ## DANFSe local (NT 008)
 
@@ -166,6 +180,7 @@ server/
     sefin/                cliente mTLS + endereços dos ambientes
     emissao.js            máquina de estados: emitida | rejeitada | pendente (consulta antes de reenviar)
     mensagens.js          códigos oficiais → linguagem comum
+  src/ia/                 assistente de IA: provedores, adaptadores (Anthropic SDK / formato OpenAI), ferramentas, System Prompt e conversas
   src/data/               tabelas geradas dos Anexos A, B e I (scripts/atualizar_tabelas.py)
   src/db/                 esquema e repositório (dados sensíveis cifrados)
   test/                   testes + Sefin simulada
