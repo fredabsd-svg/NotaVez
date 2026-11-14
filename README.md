@@ -16,7 +16,8 @@
   <img alt="Testes" src="https://img.shields.io/badge/testes-automatizados-1a7f37">
   <img alt="NFS-e" src="https://img.shields.io/badge/NFS--e-leiaute%20v1.01%20%2B%20IBS%2FCBS-0b5cab">
   <img alt="DANFSe" src="https://img.shields.io/badge/DANFSe-NT%20008-0b5cab">
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22.16%2B-339933">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-339933">
+  <img alt="Vercel + Neon" src="https://img.shields.io/badge/Vercel-%2B%20Neon%20(Postgres)-000000">
   <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-57606a">
 </p>
 
@@ -91,7 +92,7 @@ A API de DANFSe da Receita foi desativada em 03/08/2026, e o documento auxiliar 
 
 ## Como experimentar
 
-Requisitos: **Node.js 22.16+** (usa `node:sqlite`).
+Requisitos: **Node.js 22+**. O banco é PostgreSQL: na Vercel, o Neon; no computador, um Postgres embutido (PGlite) que não precisa instalar nada.
 
 ```bash
 cd server
@@ -108,12 +109,33 @@ npx playwright install chromium
 npm run test:web  # fluxo móvel no Chromium, com Receita simulada e CSP ativa
 ```
 
+## Publicar na Vercel (com banco Neon)
+
+O repositório já vem pronto para a Vercel (`vercel.json`): o PWA (`web/`) sai como site estático, a API roda numa função (`api/index.mjs`, o mesmo servidor do app) e o banco é o **Neon** (Postgres). É o mesmo caminho da Agenda Fiscal.
+
+1. Em [vercel.com](https://vercel.com), entre com o GitHub e crie um projeto importando este repositório. Deixe o *Framework* como **Other**, a pasta raiz como está e os comandos padrão: o `vercel.json` já diz como instalar, montar e publicar.
+2. No projeto, em **Storage › Create Database › Neon**, crie o banco e ligue-o ao projeto. Isso cria a variável `DATABASE_URL`.
+3. Em **Settings › Environment Variables**, para *Production*:
+   - `NOTAVEZ_MASTER_KEY` (**obrigatória**): 32 bytes em base64, gerados uma única vez com `npm run gerar-chave` (na pasta `server`) ou `openssl rand -base64 32`. Ela cifra certificados A1, CPF/CNPJ, clientes, notas e chaves de IA. **Guarde uma cópia num cofre**: sem ela, os dados do banco não podem ser lidos; nunca a troque num banco em uso.
+   - `CRON_SECRET` (recomendada): um texto longo e aleatório. Protege as tarefas agendadas (verificar notas pendentes e buscar notas na Receita).
+   - Opcionais: `NOTAVEZ_PRODUCAO_LIBERADA=0` para um servidor só de ensaio (ambiente de testes da Receita); `NOTAVEZ_IA_PROVEDOR`, `NOTAVEZ_IA_MODELO` e `NOTAVEZ_IA_CHAVE` para um assistente de IA padrão; as do gov.br e da recuperação de senha por e-mail (veja `ops/notavez.env.example`).
+4. Faça um novo deploy (**Deployments › Redeploy**). O build de produção cria e atualiza as tabelas no Neon (`server/scripts/migrar.mjs`). Os deploys de pré-visualização **não** mexem no banco: como eles usam o mesmo `DATABASE_URL` da produção por padrão, ligue a eles um banco separado (variável `DATABASE_URL` só para *Preview*) e, nele, `NOTAVEZ_MIGRAR_PREVIEW=1`.
+5. Abra o endereço do projeto (ex.: `https://nota-sem-stress.vercel.app`), crie a conta e siga o roteiro do escritório abaixo.
+
+> [!WARNING]
+> Na Vercel a produção é o padrão: **as notas emitidas são notas fiscais de verdade**. Comece por "Conferir todas na Receita" (só leitura) e acompanhe a primeira emissão de cada regime.
+
+**O que muda na Vercel em relação a um servidor próprio**
+- **Tarefas agendadas** (`crons` no `vercel.json`): verificar notas pendentes e buscar na Receita as notas de todas as empresas. No plano gratuito (Hobby) a Vercel roda cada uma **uma vez por dia**; no Pro dá para aumentar a frequência no `vercel.json`. Uma nota pendente também se resolve na hora pelo botão "Verificar situação".
+- **"Conferir todas na Receita"** responde quando a busca termina (a função tem até 300 s). Com muitas empresas, o que não couber fica para a tarefa agendada.
+- **Backup:** o Neon guarda o histórico e restaura o banco num ponto do tempo pelo painel. Para uma cópia própria: `DATABASE_URL=... node server/scripts/backup.mjs /pasta/nova` (os dados saem cifrados; a chave mestra fica fora).
+
 <details>
-<summary><strong>Colocar em produção</strong></summary>
+<summary><strong>Colocar em produção num servidor próprio</strong></summary>
 
 ```bash
 export NOTAVEZ_MASTER_KEY=$(npm run -s gerar-chave)   # guarde num cofre/KMS; protege certificados e dados
-export NOTAVEZ_DB=/dados/notavez.db
+export DATABASE_URL=postgres://usuario:senha@servidor/notavez   # ou, sem Postgres: NOTAVEZ_DB=/dados/banco (PGlite numa pasta)
 npm start                                             # produção: as notas emitidas são notas fiscais de verdade
 # Servidor só de ensaio, no ambiente de testes da Receita (produção restrita):
 export NOTAVEZ_PRODUCAO_LIBERADA=0
@@ -163,6 +185,8 @@ A página de apresentação estática fica em [`docs/index.html`](docs/index.htm
 <summary><strong>Estrutura do código</strong></summary>
 
 ```
+api/index.mjs             função da Vercel (encaminha /api/* ao servidor)
+vercel.json               publicação na Vercel: estáticos, função, cabeçalhos e tarefas agendadas
 web/                      PWA (HTML/CSS/JS sem etapa de build)
   js/views/               telas: início, clientes, serviços, nova nota, revisão, resultado, histórico, perfil, instalar
   js/store.js             IndexedDB: rascunhos offline e tabelas oficiais para busca sem internet
@@ -182,7 +206,7 @@ server/
     mensagens.js          códigos oficiais → linguagem comum
   src/ia/                 assistente de IA: provedores, adaptadores (Anthropic SDK / formato OpenAI), ferramentas, System Prompt e conversas
   src/data/               tabelas geradas dos Anexos A, B e I (scripts/atualizar_tabelas.py)
-  src/db/                 esquema e repositório (dados sensíveis cifrados)
+  src/db/                 esquema Postgres, conexão (Neon/pg ou PGlite) e repositório (dados sensíveis cifrados)
   test/                   testes + Sefin simulada
   scripts/                demo, homologação, captura do protótipo, atualização de tabelas
 docs/                     entregas 1 a 6, página de apresentação, imagens e exemplo de DANFSe
@@ -196,7 +220,7 @@ O app se chamava **NotaVez** e passou a se chamar **Nota Sem Stress**. Alguns id
 - variáveis de ambiente `NOTAVEZ_*` (ex.: `NOTAVEZ_MASTER_KEY`);
 - cabeçalho anti-CSRF `X-NotaVez`;
 - contexto da derivação de chaves (HKDF), que protege os dados cifrados;
-- banco padrão `notavez.db`, IndexedDB `notavez` (rascunhos offline) e cache do service worker.
+- IndexedDB `notavez` (rascunhos offline) e cache do service worker.
 
 ## Aviso
 

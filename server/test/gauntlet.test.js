@@ -72,17 +72,17 @@ test('CNPJ não muda depois de notas emitidas (o histórico é do CNPJ antigo)',
 test('lista de empresas conta só as tomadas do ambiente atual (igual à tela de tomadas)', async () => {
   const c = await conta('ambiente@exemplo.test');
   const { db } = app.ctx;
-  db.run(`INSERT INTO notas_tomadas (id, prestador_id, ambiente, nsu, chave_cifrada, chave_indice, resumo_cifrado, xml_cifrado, baixada_em)
+  await db.run(`INSERT INTO notas_tomadas (id, prestador_id, ambiente, nsu, chave_cifrada, chave_indice, resumo_cifrado, xml_cifrado, baixada_em)
     VALUES ('t-amb', ?, 'producao_restrita', 1, 'x', 'idx-amb', 'x', 'x', '2026-10-01')`, c.empresaId);
   assert.equal((await c.api('GET', '/api/empresas')).body.empresas[0].tomadas, 1);
-  db.run("UPDATE prestadores SET ambiente = 'producao' WHERE id = ?", c.empresaId);
+  await db.run("UPDATE prestadores SET ambiente = 'producao' WHERE id = ?", c.empresaId);
   assert.equal((await c.api('GET', '/api/empresas')).body.empresas[0].tomadas, 0);
 });
 
 test('certificado vencido não derruba a revisão nem a emissão assistida; a emissão lista a pendência', async () => {
   const c = await conta('vencido@exemplo.test', { documento: CNPJ, nome: 'ME', municipioIbge: '3304557', opSimpNac: '3', regApTribSN: '1', pTotTribSN: '6', aliqIssSN: '2' });
   assert.equal((await c.api('POST', '/api/certificado', { pfxBase64: cert.pfx.toString('base64'), senha: cert.senha, consentimento: true })).status, 200);
-  app.ctx.db.run("UPDATE certificados SET valido_ate = '2020-01-01T00:00:00.000Z' WHERE prestador_id = ?", c.empresaId);
+  await app.ctx.db.run("UPDATE certificados SET valido_ate = '2020-01-01T00:00:00.000Z' WHERE prestador_id = ?", c.empresaId);
   const nota = (await c.api('POST', '/api/notas', { rascunho: { tomador: { tipo: 'NENHUM' }, cTribNac: '010101', descricao: 'Site', valor: '100' } })).body.nota;
   const v = await c.api('POST', `/api/notas/${nota.id}/validar`, { versao: nota.versao });
   assert.equal(v.status, 200, JSON.stringify(v.body));
@@ -96,9 +96,9 @@ test('nome do titular do certificado é guardado sem o CPF/CNPJ do CN (o documen
   const c = await conta('titular@exemplo.test');
   const r = await c.api('POST', '/api/certificado', { pfxBase64: cert.pfx.toString('base64'), senha: cert.senha, consentimento: true });
   assert.equal(r.body.certificado.titular, 'EMPRESA CLIENTE LTDA');
-  assert.equal(app.ctx.db.get("SELECT count(*) n FROM certificados WHERE titular LIKE '%11222333000181%'").n, 0);
+  assert.equal((await app.ctx.db.get("SELECT count(*) n FROM certificados WHERE titular LIKE '%11222333000181%'")).n, 0);
   await c.api('DELETE', '/api/certificado', {});
-  assert.equal(app.ctx.db.get('SELECT titular FROM certificados WHERE prestador_id = ?', c.empresaId).titular, null);
+  assert.equal((await app.ctx.db.get('SELECT titular FROM certificados WHERE prestador_id = ?', c.empresaId)).titular, null);
 });
 
 test('XML importado: outro infNFSe ao lado do assinado é recusado; sem certificado a nota fica "não conferida"', async () => {
@@ -117,7 +117,7 @@ test('XML importado: outro infNFSe ao lado do assinado é recusado; sem certific
 test('evento malformado no lote do ADN não trava a sincronização das notas tomadas', async () => {
   const { criarServicoTomadas } = await import('../src/fiscal/tomadas.js');
   const c = await conta('evento@exemplo.test');
-  const p = app.ctx.repo.prestador(c.empresaId);
+  const p = await app.ctx.repo.prestador(c.empresaId);
   const lote = [{ nsu: 1, tipoDocumento: 'EVENTO', xml: '<evento><infEvento><pedRegEvento><quebrado' }];
   const servico = criarServicoTomadas({ repo: app.ctx.repo, emissao: { distribuirDfe: async (_p, nsu) => ({ tipo: 'ok', documentos: nsu < 1 ? lote : [] }) } });
   const r = await servico.sincronizar(p);
@@ -129,7 +129,7 @@ test('evento malformado no lote do ADN não trava a sincronização das notas to
 test('nota rejeitada não impede corrigir o CNPJ que a própria rejeição manda corrigir', async () => {
   const c = await conta('rejeitada@exemplo.test', { documento: '11444777000161', nome: 'Errado', municipioIbge: '3550308', opSimpNac: '2' });
   const n = (await c.api('POST', '/api/notas', { rascunho: { valor: '10' } })).body.nota;
-  app.ctx.db.run("UPDATE notas SET situacao = 'rejeitada' WHERE id = ?", n.id);
+  await app.ctx.db.run("UPDATE notas SET situacao = 'rejeitada' WHERE id = ?", n.id);
   assert.equal((await c.api('PUT', '/api/perfil', { documento: '06990590000123', nome: 'Certo', municipioIbge: '3550308', opSimpNac: '2' })).status, 200);
 });
 

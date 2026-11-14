@@ -1,92 +1,137 @@
-import { DatabaseSync } from 'node:sqlite';
+// Banco de dados: PostgreSQL. Na Vercel, o Neon (DATABASE_URL); nos testes, na demonstração e em
+// desenvolvimento, o PGlite (Postgres em WebAssembly, em memória ou numa pasta).
+//
+// O código escreve SQL com "?" (convertido aqui para $1, $2…) e chama sempre com await:
+//   await db.get(sql, ...p)  → primeira linha ou undefined
+//   await db.all(sql, ...p)  → linhas
+//   await db.run(sql, ...p)  → { changes }
+//   await db.transacao(async () => { … })
+// Dentro de db.transacao, toda chamada a db.* (inclusive de outras funções) vai pela mesma
+// conexão, graças ao AsyncLocalStorage. A transação é SERIALIZABLE e repetida em conflito de
+// serialização: o mesmo isolamento que o SQLite dava com BEGIN IMMEDIATE.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 export const agora = () => new Date().toISOString();
 export const novoId = () => randomUUID();
 
-export function abrirBanco(arquivo) {
-  const db = new DatabaseSync(arquivo);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-  db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
-  migrar(db);
+const ESQUEMA = () => readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
+
+// "?" → "$n", sem tocar no que está entre aspas simples.
+export function placeholders(sql) {
+  let n = 0; let dentro = false; let out = '';
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (c === "'") dentro = !dentro;
+    out += !dentro && c === '?' ? `$${++n}` : c;
+  }
+  return out;
+}
+// Booleanos viram 0/1 (as colunas são INTEGER, como no SQLite) e undefined vira NULL.
+const valor = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : v);
+const params = (p) => p.map(valor);
+
+// int8 (contagens, BIGSERIAL, epoch em ms) e numeric (somas) chegam como texto: viram número.
+const PARSERS = { 20: (v) => Number(v), 1700: (v) => Number(v) };
+
+async function abrirPglite(arquivo) {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const pasta = !arquivo || arquivo === ':memory:' ? undefined : arquivo;
+  const pg = await PGlite.create(pasta, { parsers: PARSERS });
+  const exec = (cliente) => async (sql, p) => {
+    const r = await cliente.query(placeholders(sql), params(p));
+    return { rows: r.rows, changes: r.affectedRows ?? 0 };
+  };
+  let fila = Promise.resolve();
   return {
-    raw: db,
-    get: (sql, ...p) => db.prepare(sql).get(...p),
-    all: (sql, ...p) => db.prepare(sql).all(...p),
-    run: (sql, ...p) => db.prepare(sql).run(...p),
-    // Transação síncrona: node:sqlite é síncrono, então não há intercalação.
-    transacao(fn) {
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        const r = fn();
-        db.exec('COMMIT');
-        return r;
-      } catch (e) {
-        db.exec('ROLLBACK');
-        throw e;
-      }
+    tipo: 'pglite',
+    consulta: exec(pg),
+    // O PGlite tem uma conexão só: as transações entram em fila.
+    async transacao(fn) {
+      const anterior = fila;
+      let liberar;
+      fila = new Promise((ok) => { liberar = ok; });
+      await anterior;
+      try { return await pg.transaction(async (tx) => fn(exec(tx))); } finally { liberar(); }
     },
-    fechar: () => db.close(),
+    executarScript: (sql) => pg.exec(sql),
+    fechar: () => pg.close(),
   };
 }
 
-// Migrações aditivas para bancos criados por versões anteriores.
-const COLUNAS_NOVAS = [
-  ['prestadores', 'config_fiscal', 'TEXT'],
-  ['prestadores', 'versao', 'INTEGER NOT NULL DEFAULT 1'],
-  ['notas', 'contexto_emitente_cifrado', 'TEXT'],
-  ['notas', 'processamento_token', 'TEXT'],
-  ['notas', 'processamento_ate', 'TEXT'],
-  ['notas', 'proxima_verificacao_em', 'TEXT'],
-  ['notas', 'verificacoes', 'INTEGER NOT NULL DEFAULT 0'],
-  // Acesso como no Portal da NFS-e: CPF/CNPJ como usuário e vínculo com o gov.br.
-  ['usuarios', 'tipo_documento', 'TEXT'],
-  ['usuarios', 'documento_cifrado', 'TEXT'],
-  ['usuarios', 'documento_indice', 'TEXT'],
-  ['usuarios', 'documento_verificado', 'INTEGER NOT NULL DEFAULT 0'],
-  ['usuarios', 'nome', 'TEXT'],
-  ['usuarios', 'govbr_indice', 'TEXT'],
-  // 'vinculo_govbr' = o CPF-usuário veio de um gov.br vinculado depois (não foi digitado pelo titular).
-  ['usuarios', 'documento_origem', 'TEXT'],
-  // Código de recuperação (só o hash): troca a senha sem depender de e-mail.
-  ['usuarios', 'codigo_recuperacao_hash', 'TEXT'],
-  // "Manter conectado neste aparelho": sessão longa renovada a cada uso.
-  ['sessoes', 'lembrar', 'INTEGER NOT NULL DEFAULT 1'],
-  // Por onde a nota foi emitida: NULL = API pelo app; 'emissor_nacional' = XML importado.
-  ['notas', 'canal', 'TEXT'],
-  // 1 = a empresa assina com o certificado do procurador da conta (procuração eletrônica NFS-e).
-  ['prestadores', 'usa_procuracao', 'INTEGER NOT NULL DEFAULT 0'],
-  // XML importado conferido com a Receita (versão oficial obtida pela API) ou só enviado pela pessoa.
-  ['notas', 'importada_conferida', 'INTEGER NOT NULL DEFAULT 0'],
-  // Leitura do ADN: bancos antigos ficam com 1 (a fila foi lida só para as notas tomadas) e são
-  // relidos uma vez desde o início, para trazer também as notas que a empresa emitiu fora do app.
-  ['distribuicao_dfe', 'leitura', 'INTEGER NOT NULL DEFAULT 1'],
-  // Última recusa da Receita à consulta do ADN (motivo cifrado: pode citar o CNPJ).
-  ['distribuicao_dfe', 'falha_em', 'TEXT'],
-  ['distribuicao_dfe', 'falha_cifrada', 'TEXT'],
-];
-function migrar(db) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    for (const [tabela, coluna, tipo] of COLUNAS_NOVAS) {
-      const existe = db.prepare(`PRAGMA table_info(${tabela})`).all().some((c) => c.name === coluna);
-      if (!existe) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
-    }
-    // Recria também em bancos existentes: o antigo índice ignorava o ambiente.
-    db.exec(`DROP INDEX IF EXISTS ux_notas_id_dps;
-      CREATE UNIQUE INDEX ux_notas_id_dps ON notas(ambiente, id_dps_indice) WHERE id_dps_indice IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS ix_notas_verificacao ON notas(situacao, proxima_verificacao_em);
-      DROP INDEX IF EXISTS ux_notas_chave;
-      CREATE UNIQUE INDEX ux_notas_chave ON notas(prestador_id, chave_indice) WHERE chave_indice IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_documento ON usuarios(documento_indice) WHERE documento_indice IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_govbr ON usuarios(govbr_indice) WHERE govbr_indice IS NOT NULL;`);
-    // Bancos antigos guardavam o CN inteiro ("NOME:CPF") em claro: fica só o nome.
-    for (const tabela of ['certificados', 'certificados_procurador']) {
-      for (const r of db.prepare(`SELECT id, titular FROM ${tabela} WHERE titular LIKE '%:%'`).all()) {
-        db.prepare(`UPDATE ${tabela} SET titular = ? WHERE id = ?`).run(String(r.titular).replace(/:[0-9A-Z]{11,14}$/i, '').trim() || null, r.id);
+async function abrirPostgres(url) {
+  const { default: pg } = await import('pg');
+  for (const [oid, f] of Object.entries(PARSERS)) pg.types.setTypeParser(Number(oid), f);
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: Number(process.env.NOTAVEZ_DB_CONEXOES || 5),
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    ssl: /sslmode=disable/.test(url) || /@(localhost|127\.0\.0\.1)[:/]/.test(url) ? undefined : { rejectUnauthorized: true },
+  });
+  const exec = (cliente) => async (sql, p) => {
+    const r = await cliente.query(placeholders(sql), params(p));
+    return { rows: r.rows, changes: r.rowCount ?? 0 };
+  };
+  return {
+    tipo: 'postgres',
+    consulta: exec(pool),
+    async transacao(fn) {
+      for (let tentativa = 0; ; tentativa++) {
+        const cliente = await pool.connect();
+        try {
+          await cliente.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+          const r = await fn(exec(cliente));
+          await cliente.query('COMMIT');
+          return r;
+        } catch (e) {
+          await cliente.query('ROLLBACK').catch(() => {});
+          // 40001 = conflito de serialização; 40P01 = deadlock: repete a transação inteira.
+          if (['40001', '40P01'].includes(e?.code) && tentativa < 6) { await new Promise((ok) => setTimeout(ok, 15 * 2 ** tentativa)); continue; }
+          throw e;
+        } finally { cliente.release(); }
       }
-    }
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); db.close(); throw e; }
+    },
+    executarScript: (sql) => pool.query(sql),
+    fechar: () => pool.end(),
+  };
+}
+
+// Cria as tabelas e colunas que faltam. O script é idempotente (CREATE … IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+//  - 'sempre': aplica o esquema inteiro ao abrir (servidor contínuo, PGlite, testes);
+//  - 'se-faltar': só num banco vazio (Vercel: quem atualiza o esquema é o build de produção, scripts/migrar.mjs,
+//    para que um deploy de pré-visualização nunca altere o banco da produção).
+export async function aplicarEsquema(motor, modo = 'sempre') {
+  if (modo === 'nunca') return false;
+  if (modo === 'se-faltar') {
+    const r = await motor.consulta("SELECT to_regclass('public.usuarios') AS t", []);
+    if (r.rows[0]?.t) return false;
+  }
+  await motor.executarScript(ESQUEMA());
+  return true;
+}
+
+// Usado no build da Vercel: aplica o esquema no banco de DATABASE_URL e fecha a conexão.
+export async function migrar(url = process.env.DATABASE_URL) {
+  const motor = await abrirPostgres(url);
+  try { return await aplicarEsquema(motor, 'sempre'); } finally { await motor.fechar(); }
+}
+
+export async function abrirBanco(arquivo, { url = process.env.DATABASE_URL, esquema = process.env.VERCEL ? 'se-faltar' : 'sempre' } = {}) {
+  const motor = url ? await abrirPostgres(url) : await abrirPglite(arquivo);
+  await aplicarEsquema(motor, esquema === false ? 'nunca' : esquema === true ? 'sempre' : esquema);
+  const contexto = new AsyncLocalStorage();
+  const consulta = (sql, p) => (contexto.getStore() || motor.consulta)(sql, p);
+  const db = {
+    tipo: motor.tipo,
+    get: async (sql, ...p) => (await consulta(sql, p)).rows[0],
+    all: async (sql, ...p) => (await consulta(sql, p)).rows,
+    run: async (sql, ...p) => ({ changes: (await consulta(sql, p)).changes }),
+    // Transação aninhada reaproveita a de fora (como o SQLite fazia ao chamar dentro do mesmo BEGIN).
+    transacao: (fn) => (contexto.getStore() ? fn() : motor.transacao((cliente) => contexto.run(cliente, fn))),
+    executarScript: (sql) => motor.executarScript(sql),
+    fechar: () => motor.fechar(),
+  };
+  return db;
 }

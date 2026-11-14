@@ -23,7 +23,7 @@ export async function rotasTomadas(app) {
     const p = exigirPrestador(req);
     const competencia = /^\d{4}-\d{2}$/.test(req.query?.competencia || '') ? req.query.competencia : undefined;
     const q = semAcento(req.query?.q).trim();
-    let lista = repo.listarTomadas(p.id, p.ambiente, { competencia });
+    let lista = await repo.listarTomadas(p.id, p.ambiente, { competencia });
     if (q) {
       const dig = q.replace(/[^0-9a-z]/g, '');
       lista = lista.filter((t) => semAcento(t.emitente?.nome).includes(q) || (dig.length >= 3 && ((t.emitente?.documento || '').toLowerCase().includes(dig) || (t.nNfse || '').includes(dig) || (t.chaveAcesso || '').includes(dig))));
@@ -33,33 +33,33 @@ export async function rotasTomadas(app) {
     return {
       tomadas: lista.map((t) => publica(t)),
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
-      sincronizacao: sincronizacaoPublica(repo, p),
-      temCertificado: !!repo.certificadoEmissao(p),
+      sincronizacao: await sincronizacaoPublica(repo, p),
+      temCertificado: !!await repo.certificadoEmissao(p),
       porProcuracao: !!p.usaProcuracao,
     };
   });
 
-  app.post('/sincronizar', async (req) => sincronizarEmpresa(app, req));
+  app.post('/sincronizar', async (req) => await sincronizarEmpresa(app, req));
 
   app.get('/:id', async (req) => {
-    const t = repo.tomada(exigirPrestador(req).id, req.params.id);
+    const t = await repo.tomada(exigirPrestador(req).id, req.params.id);
     if (!t) throw naoEncontrado('Nota tomada');
     return { tomada: publica(t, true) };
   });
 
   app.get('/:id/xml', async (req, reply) => {
     const p = exigirPrestador(req);
-    const t = repo.tomada(p.id, req.params.id);
+    const t = await repo.tomada(p.id, req.params.id);
     if (!t) throw naoEncontrado('Nota tomada');
     return reply.header('Content-Type', 'application/xml; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="NFSe-${t.chaveAcesso}.xml"`).send(repo.xmlTomada(p.id, t.id));
+      .header('Content-Disposition', `attachment; filename="NFSe-${t.chaveAcesso}.xml"`).send(await repo.xmlTomada(p.id, t.id));
   });
 
   app.get('/:id/danfse', async (req, reply) => {
     const p = exigirPrestador(req);
-    const t = repo.tomada(p.id, req.params.id);
+    const t = await repo.tomada(p.id, req.params.id);
     if (!t) throw naoEncontrado('Nota tomada');
-    const pdf = await gerarDanfse(repo.xmlTomada(p.id, t.id), { marcaDagua: config.demo ? 'SIMULAÇÃO' : t.situacao === 'cancelada' ? 'CANCELADA' : null });
+    const pdf = await gerarDanfse(await repo.xmlTomada(p.id, t.id), { marcaDagua: config.demo ? 'SIMULAÇÃO' : t.situacao === 'cancelada' ? 'CANCELADA' : null });
     return reply.header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${t.chaveAcesso}.pdf"`).send(pdf);
   });

@@ -1,0 +1,9 @@
+{
+  "name": "nota-sem-stress",
+  "private": true,
+  "type": "module",
+  "description": "Publicação na Vercel: a função em api/ usa o servidor de server/ e o PWA de web/ é servido como estático.",
+  "engines": {
+    "node": "22.x"
+  }
+}

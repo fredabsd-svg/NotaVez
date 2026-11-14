@@ -32,8 +32,8 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
   const ocupadas = new Set();
 
   // ---------------------------------------------------------- configuração
-  function configBruta(usuarioId) {
-    const r = db.get('SELECT * FROM ia_config WHERE usuario_id = ?', usuarioId);
+  async function configBruta(usuarioId) {
+    const r = await db.get('SELECT * FROM ia_config WHERE usuario_id = ?', usuarioId);
     if (r) return { origem: 'conta', provedor: r.provedor, modelo: r.modelo, chave: decifrar(r.chave_cifrada), baseUrl: r.base_url || '', esforco: r.esforco || '', emissaoAutonoma: !!r.emissao_autonoma };
     if (config.ia.chave && PROVEDORES[config.ia.provedor]) {
       return { origem: 'servidor', provedor: config.ia.provedor, modelo: config.ia.modelo || PROVEDORES[config.ia.provedor].modeloPadrao, chave: config.ia.chave, baseUrl: config.ia.baseUrl, esforco: '', emissaoAutonoma: false };
@@ -41,15 +41,15 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
     return null;
   }
 
-  function configPublica(usuarioId) {
-    const c = configBruta(usuarioId);
+  async function configPublica(usuarioId) {
+    const c = await configBruta(usuarioId);
     if (!c) return { configurado: false };
     return { configurado: !!c.chave, origem: c.origem, provedor: c.provedor, provedorNome: PROVEDORES[c.provedor]?.nome || c.provedor, modelo: c.modelo,
       baseUrl: c.origem === 'conta' ? c.baseUrl : '', esforco: c.esforco || '', emissaoAutonoma: c.emissaoAutonoma,
       chaveFinal: c.origem === 'conta' && c.chave ? `••••${c.chave.slice(-4)}` : null };
   }
 
-  function salvarConfig(usuarioId, b = {}, ip = null) {
+  async function salvarConfig(usuarioId, b = {}, ip = null) {
     const erros = {};
     const provedor = String(b.provedor || '');
     const def = PROVEDORES[provedor];
@@ -62,7 +62,7 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
       if (!baseUrl) erros.baseUrl = 'Endereço inválido: use https:// e um servidor público.';
     } else if (def?.exigeBaseUrl) erros.baseUrl = 'Informe o endereço da API do provedor.';
     const esforco = ESFORCOS.includes(b.esforco) ? b.esforco : '';
-    const atual = db.get('SELECT * FROM ia_config WHERE usuario_id = ?', usuarioId);
+    const atual = await db.get('SELECT * FROM ia_config WHERE usuario_id = ?', usuarioId);
     const chaveNova = String(b.chave || '').trim();
     if (chaveNova && (chaveNova.length < 8 || chaveNova.length > 400 || /\s/.test(chaveNova))) erros.chave = 'Chave de API em formato inválido.';
     // A chave guardada só serve para o mesmo provedor (e o mesmo endereço): trocou, precisa de outra.
@@ -70,67 +70,67 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
     if (!chaveNova && !manterChave) erros.chave = 'Informe a chave de API do provedor.';
     if (Object.keys(erros).length) throw invalido('Confira a configuração do assistente.', erros);
     const chaveCifrada = manterChave ? atual.chave_cifrada : cifrar(chaveNova);
-    db.run(`INSERT INTO ia_config (usuario_id, provedor, modelo, chave_cifrada, base_url, esforco, emissao_autonoma, atualizado_em) VALUES (?,?,?,?,?,?,?,?)
+    await db.run(`INSERT INTO ia_config (usuario_id, provedor, modelo, chave_cifrada, base_url, esforco, emissao_autonoma, atualizado_em) VALUES (?,?,?,?,?,?,?,?)
       ON CONFLICT(usuario_id) DO UPDATE SET provedor = excluded.provedor, modelo = excluded.modelo, chave_cifrada = excluded.chave_cifrada, base_url = excluded.base_url,
       esforco = excluded.esforco, emissao_autonoma = excluded.emissao_autonoma, atualizado_em = excluded.atualizado_em`,
     usuarioId, provedor, modelo, chaveCifrada, baseUrl || null, esforco || null, b.emissaoAutonoma === true ? 1 : 0, agora());
-    auditar(db, { usuarioId, acao: 'ia.configurada', detalhes: { provedor, modelo, emissaoAutonoma: b.emissaoAutonoma === true, chaveNova: !!chaveNova }, ip });
-    return configPublica(usuarioId);
+    await auditar(db, { usuarioId, acao: 'ia.configurada', detalhes: { provedor, modelo, emissaoAutonoma: b.emissaoAutonoma === true, chaveNova: !!chaveNova }, ip });
+    return await configPublica(usuarioId);
   }
 
-  function removerConfig(usuarioId, ip = null) {
-    db.run('DELETE FROM ia_config WHERE usuario_id = ?', usuarioId);
-    auditar(db, { usuarioId, acao: 'ia.config_removida', ip });
+  async function removerConfig(usuarioId, ip = null) {
+    await db.run('DELETE FROM ia_config WHERE usuario_id = ?', usuarioId);
+    await auditar(db, { usuarioId, acao: 'ia.config_removida', ip });
   }
 
-  function exigirConfig(usuarioId) {
-    const c = configBruta(usuarioId);
+  async function exigirConfig(usuarioId) {
+    const c = await configBruta(usuarioId);
     if (!c?.chave) throw new ErroApp(409, 'Configure o assistente de IA: escolha o provedor e informe a chave de API.', { codigo: 'IA_NAO_CONFIGURADA' });
     return c;
   }
 
   async function testarConfig(usuarioId) {
-    const c = exigirConfig(usuarioId);
+    const c = await exigirConfig(usuarioId);
     const r = await chamar({ ...c, sistemaFixo: 'Você testa a conexão de um aplicativo.', sistemaVariavel: 'Responda apenas: ok', historico: [{ papel: 'usuario', texto: 'Teste de conexão. Responda apenas "ok".' }], ferramentas: [], esforco: '' });
     return { ok: true, resposta: r.texto.slice(0, 200), modelo: r.modeloUsado };
   }
 
   // ---------------------------------------------------------- conversas
-  function conversaBruta(usuarioId, id) {
-    const r = db.get('SELECT * FROM ia_conversas WHERE usuario_id = ? AND id = ?', usuarioId, String(id || ''));
+  async function conversaBruta(usuarioId, id) {
+    const r = await db.get('SELECT * FROM ia_conversas WHERE usuario_id = ? AND id = ?', usuarioId, String(id || ''));
     if (!r) return null;
     return { id: r.id, prestadorId: r.prestador_id, titulo: decifrar(r.titulo_cifrado) || 'Nova conversa', historico: decifrarJson(r.mensagens_cifradas) || [],
       pendentes: decifrarJson(r.pendentes_cifrados) || [], versao: r.versao, criadoEm: r.criado_em, atualizadoEm: r.atualizado_em };
   }
 
-  function guardar(usuarioId, c) {
+  async function guardar(usuarioId, c) {
     const historico = c.historico.length > MAX_HISTORICO_GUARDADO ? recortar(c.historico, MAX_HISTORICO_GUARDADO) : c.historico;
-    db.run('UPDATE ia_conversas SET titulo_cifrado = ?, mensagens_cifradas = ?, pendentes_cifrados = ?, prestador_id = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?',
+    await db.run('UPDATE ia_conversas SET titulo_cifrado = ?, mensagens_cifradas = ?, pendentes_cifrados = ?, prestador_id = ?, versao = versao + 1, atualizado_em = ? WHERE usuario_id = ? AND id = ?',
       cifrar(c.titulo), cifrar(historico), cifrar(c.pendentes), c.prestadorId || null, agora(), usuarioId, c.id);
   }
 
-  function criarConversa(usuarioId, prestadorId) {
+  async function criarConversa(usuarioId, prestadorId) {
     const id = novoId();
-    db.run('INSERT INTO ia_conversas (id, usuario_id, prestador_id, titulo_cifrado, mensagens_cifradas, pendentes_cifrados, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?)',
+    await db.run('INSERT INTO ia_conversas (id, usuario_id, prestador_id, titulo_cifrado, mensagens_cifradas, pendentes_cifrados, criado_em, atualizado_em) VALUES (?,?,?,?,?,?,?,?)',
       id, usuarioId, prestadorId || null, cifrar('Nova conversa'), cifrar([]), cifrar([]), agora(), agora());
     // Guarda só as 50 conversas mais recentes da conta.
-    db.run(`DELETE FROM ia_conversas WHERE usuario_id = ? AND id NOT IN (SELECT id FROM ia_conversas WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 50)`, usuarioId, usuarioId);
+    await db.run(`DELETE FROM ia_conversas WHERE usuario_id = ? AND id NOT IN (SELECT id FROM ia_conversas WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 50)`, usuarioId, usuarioId);
     return id;
   }
 
-  const listarConversas = (usuarioId) => db.all('SELECT id, prestador_id, titulo_cifrado, atualizado_em FROM ia_conversas WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 50', usuarioId)
+  const listarConversas = async (usuarioId) => (await db.all('SELECT id, prestador_id, titulo_cifrado, atualizado_em FROM ia_conversas WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 50', usuarioId))
     .map((r) => ({ id: r.id, titulo: decifrar(r.titulo_cifrado) || 'Nova conversa', empresaId: r.prestador_id, atualizadoEm: r.atualizado_em }));
 
-  function removerConversa(usuarioId, id) {
-    return db.run('DELETE FROM ia_conversas WHERE usuario_id = ? AND id = ?', usuarioId, String(id || '')).changes === 1;
+  async function removerConversa(usuarioId, id) {
+    return (await db.run('DELETE FROM ia_conversas WHERE usuario_id = ? AND id = ?', usuarioId, String(id || ''))).changes === 1;
   }
 
   // ---------------------------------------------------------- visão para a tela
-  function notaParaTela(usuarioId, empresaId, notaId) {
-    const p = repo.prestadorDoUsuarioPorId(usuarioId, empresaId);
-    const n = p && repo.nota(p.id, notaId);
+  async function notaParaTela(usuarioId, empresaId, notaId) {
+    const p = await repo.prestadorDoUsuarioPorId(usuarioId, empresaId);
+    const n = p && await repo.nota(p.id, notaId);
     if (!n) return null;
-    const r = resumoNota(repo, p, n, true);
+    const r = await resumoNota(repo, p, n, true);
     return { id: r.id, empresaId: p.id, empresaNome: p.nome, situacao: r.situacao, rotulo: r.rotulo, valor: r.valor, competencia: r.competencia,
       cliente: r.tomadorExibicao ? `${r.tomadorExibicao.nome} (${r.tomadorExibicao.documentoExibicao})` : 'Sem tomador identificado',
       servico: r.servicoNacional ? `${r.servicoNacional.codigo.replace(/^(\d{2})(\d{2})(\d{2})$/, '$1.$2.$3')} — ${r.servicoNacional.descricao}` : null, descricao: r.descricao,
@@ -139,7 +139,7 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
       ambiente: r.ambiente || p.ambiente, homologacao: (r.ambiente || p.ambiente) === 'producao_restrita', nNfse: r.nNfse, chaveAcesso: r.chaveAcesso };
   }
 
-  function visao(usuarioId, c) {
+  async function visao(usuarioId, c) {
     const itens = [];
     let ultimoAssistente = null;
     for (const m of c.historico) {
@@ -165,9 +165,9 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
     for (const it of itens) {
       if (it.tipo !== 'assistente') continue;
       it.acoes = it.acoes.map(({ id, ...resto }) => resto); // eslint-disable-line no-unused-vars
-      it.notas = it.notas.map((x) => notaParaTela(usuarioId, x.empresaId, x.id)).filter(Boolean);
+      it.notas = (await Promise.all(it.notas.map((x) => notaParaTela(usuarioId, x.empresaId, x.id)))).filter(Boolean);
     }
-    const pendentes = c.pendentes.map((x) => notaParaTela(usuarioId, x.empresaId, x.notaId)).filter((n) => n && ['rascunho', 'rejeitada'].includes(n.situacao));
+    const pendentes = (await Promise.all(c.pendentes.map((x) => notaParaTela(usuarioId, x.empresaId, x.notaId)))).filter((n) => n && ['rascunho', 'rejeitada'].includes(n.situacao));
     return { id: c.id, titulo: c.titulo, empresaId: c.prestadorId, atualizadoEm: c.atualizadoEm, itens, pendentes };
   }
 
@@ -176,22 +176,22 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
     const t = String(texto ?? '').trim();
     if (!t) throw invalido('Escreva uma mensagem.');
     if (t.length > 8000) throw invalido('Mensagem longa demais (até 8.000 caracteres).');
-    const cfg = exigirConfig(usuario.id);
-    const c = conversaBruta(usuario.id, conversaId);
+    const cfg = await exigirConfig(usuario.id);
+    const c = await conversaBruta(usuario.id, conversaId);
     if (!c) throw naoEncontrado('Conversa');
     if (ocupadas.has(c.id)) throw new ErroApp(409, 'O assistente ainda está respondendo nesta conversa. Aguarde.');
     ocupadas.add(c.id);
     try {
       if (!c.historico.length) c.titulo = t.replace(/\s+/g, ' ').slice(0, 70);
       if (empresa) c.prestadorId = empresa.id;
-      const empresaAtual = (c.prestadorId && repo.prestadorDoUsuarioPorId(usuario.id, c.prestadorId)) || empresa || null;
+      const empresaAtual = (c.prestadorId && await repo.prestadorDoUsuarioPorId(usuario.id, c.prestadorId)) || empresa || null;
       c.historico.push({ papel: 'usuario', texto: t, em: agora() });
       const ctxFerramentas = { app: { ...appCtx, log }, usuario, empresaPadrao: empresaAtual, ip, emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes };
       const executar = criarFerramentas(ctxFerramentas);
       let erro = null;
       try {
         for (let etapa = 0; etapa < MAX_ETAPAS; etapa++) {
-          const sistemaVariavel = await montarContexto({ ctx: appCtx, usuario, empresa: empresaAtual && repo.prestadorDoUsuarioPorId(usuario.id, empresaAtual.id), emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes });
+          const sistemaVariavel = await montarContexto({ ctx: appCtx, usuario, empresa: empresaAtual && await repo.prestadorDoUsuarioPorId(usuario.id, empresaAtual.id), emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes });
           const r = await chamar({ ...cfg, sistemaFixo: SISTEMA_FIXO, sistemaVariavel, historico: recortar(c.historico, MAX_HISTORICO_ENVIADO), ferramentas: DEFINICOES });
           const entrada = { papel: 'assistente', texto: r.texto, chamadas: r.chamadas.map(({ argsInvalidos, ...x }) => x), nativo: r.nativo || undefined, modelo: r.modeloUsado }; // eslint-disable-line no-unused-vars
           if (r.fim === 'recusa' && !r.texto) entrada.texto = 'O provedor de IA recusou responder a este pedido. Reformule ou tente outro modelo.';
@@ -213,22 +213,22 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
         // Erro do provedor (ou limite): o que já aconteceu nesta mensagem fica guardado e a tela mostra o motivo.
         if (e instanceof ErroApp) erro = e.message; else { log?.error?.(e); erro = 'Falha inesperada ao falar com o provedor de IA.'; }
       }
-      guardar(usuario.id, c);
-      auditar(db, { usuarioId: usuario.id, prestadorId: empresaAtual?.id || null, acao: 'ia.mensagem', entidade: 'ia_conversa', entidadeId: c.id, detalhes: { provedor: cfg.provedor, modelo: cfg.modelo, erro: !!erro }, ip });
-      return { conversa: visao(usuario.id, conversaBruta(usuario.id, c.id)), erro };
+      await guardar(usuario.id, c);
+      await auditar(db, { usuarioId: usuario.id, prestadorId: empresaAtual?.id || null, acao: 'ia.mensagem', entidade: 'ia_conversa', entidadeId: c.id, detalhes: { provedor: cfg.provedor, modelo: cfg.modelo, erro: !!erro }, ip });
+      return { conversa: await visao(usuario.id, await conversaBruta(usuario.id, c.id)), erro };
     } finally { ocupadas.delete(c.id); }
   }
 
   // O usuário tocou em "Emitir agora" (ou em "Não emitir") no cartão de uma nota preparada pelo assistente.
   async function decidirEmissao({ usuario, conversaId, notaId, emitir, ip, limites }) {
-    const c = conversaBruta(usuario.id, conversaId);
+    const c = await conversaBruta(usuario.id, conversaId);
     if (!c) throw naoEncontrado('Conversa');
     const pedido = c.pendentes.find((x) => x.notaId === String(notaId || ''));
     if (!pedido) throw new ErroApp(409, 'Esta nota não está aguardando confirmação nesta conversa.');
     if (ocupadas.has(c.id)) throw new ErroApp(409, 'O assistente ainda está respondendo nesta conversa. Aguarde.');
     ocupadas.add(c.id);
     try {
-      const p = repo.prestadorDoUsuarioPorId(usuario.id, pedido.empresaId);
+      const p = await repo.prestadorDoUsuarioPorId(usuario.id, pedido.empresaId);
       if (!p) throw new ErroApp(409, 'A empresa desta nota não está mais disponível na sua conta.');
       c.pendentes = c.pendentes.filter((x) => x.notaId !== pedido.notaId);
       let resultado = null;
@@ -249,14 +249,14 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, log = null } = {
               : `Você confirmou, mas a nota não foi enviada: ${resultado.mensagem || ''}`;
         c.historico.push({ papel: 'aviso', texto: `O usuário tocou em "Emitir agora" para a nota ${pedido.notaId}. Resultado: ${descricao}`, tela });
       }
-      guardar(usuario.id, c);
-      return { conversa: visao(usuario.id, conversaBruta(usuario.id, c.id)), resultado: resultado && { situacao: resultado.situacao, mensagem: resultado.mensagem || null, notaId: pedido.notaId, empresaId: p.id } };
+      await guardar(usuario.id, c);
+      return { conversa: await visao(usuario.id, await conversaBruta(usuario.id, c.id)), resultado: resultado && { situacao: resultado.situacao, mensagem: resultado.mensagem || null, notaId: pedido.notaId, empresaId: p.id } };
     } finally { ocupadas.delete(c.id); }
   }
 
   return {
     configPublica, salvarConfig, removerConfig, testarConfig, criarConversa, listarConversas, removerConversa, enviarMensagem, decidirEmissao,
-    conversa: (usuarioId, id) => { const c = conversaBruta(usuarioId, id); if (!c) throw naoEncontrado('Conversa'); return visao(usuarioId, c); },
+    conversa: async (usuarioId, id) => { const c = await conversaBruta(usuarioId, id); if (!c) throw naoEncontrado('Conversa'); return await visao(usuarioId, c); },
   };
 }
 

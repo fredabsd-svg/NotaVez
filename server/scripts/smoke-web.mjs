@@ -147,7 +147,7 @@ try {
   await page.getByRole('button', { name: 'Teste', exact: true }).click();
   const idNova = page.url().split('/nota/')[1];
   let rascunhoTela;
-  for (let i = 0; i < 50 && !rascunhoTela?.rascunho?.servicoId; i++) { await page.waitForTimeout(100); rascunhoTela = app.ctx.repo.notaPorId(idNova); }
+  for (let i = 0; i < 50 && !rascunhoTela?.rascunho?.servicoId; i++) { await page.waitForTimeout(100); rascunhoTela = await app.ctx.repo.notaPorId(idNova); }
   assert.equal(rascunhoTela?.rascunho?.clienteId, cliente.id, 'cliente escolhido na tela chega ao servidor');
   assert.equal(rascunhoTela?.rascunho?.servicoId, servico.id, 'serviço escolhido na tela chega ao servidor');
 
@@ -158,9 +158,9 @@ try {
   const idCompet = page.url().split('/nota/')[1];
   await page.getByLabel(/^Competência/).fill('15/08/2026');
   let soCompetencia;
-  for (let i = 0; i < 50 && !soCompetencia; i++) { await page.waitForTimeout(100); soCompetencia = app.ctx.repo.notaPorId(idCompet); }
+  for (let i = 0; i < 50 && !soCompetencia; i++) { await page.waitForTimeout(100); soCompetencia = await app.ctx.repo.notaPorId(idCompet); }
   assert.equal(soCompetencia?.rascunho?.competencia, '2026-08-15', 'rascunho só com a competência chega à conta');
-  assert.ok(!app.ctx.repo.notaPorId(idVazio), 'rascunho em branco abandonado não vai para a conta');
+  assert.ok(!await app.ctx.repo.notaPorId(idVazio), 'rascunho em branco abandonado não vai para a conta');
 
   // Emissão assistida: roteiro para o Emissor Nacional, copiar campo e trazer o XML emitido lá.
   const assistida = (await post('/api/notas', { rascunho: { clienteId: cliente.id, servicoId: servico.id, valor: '275,00' } })).nota;
@@ -174,7 +174,7 @@ try {
   await page.locator('input[type=file][accept*=xml]').setInputFiles({ name: 'nfse.xml', mimeType: 'application/xml', buffer: Buffer.from(xmlEmissor) });
   await page.getByRole('heading', { name: 'Emitida no Emissor Nacional' }).waitFor();
   await page.getByText('Emitida por você no Emissor Nacional', { exact: false }).first().waitFor();
-  assert.equal(app.ctx.db.get('SELECT situacao, canal FROM notas WHERE id = ?', assistida.id).canal, 'emissor_nacional');
+  assert.equal((await app.ctx.db.get('SELECT situacao, canal FROM notas WHERE id = ?', assistida.id)).canal, 'emissor_nacional');
 
   // Segunda empresa (Lucro Presumido): dados do outro CNPJ, ambiente próprio.
   await page.goto(`${base}/#/empresas`);
@@ -201,7 +201,7 @@ try {
   // A barra da empresa diz que ela é atendida por procuração, e a procuração ainda não foi conferida na Receita.
   await page.locator('#empresa-ativa .ctx-proc:visible').waitFor();
   await page.getByText('A procuração desta empresa ainda não foi conferida na Receita.').waitFor();
-  assert.equal(app.ctx.db.get("SELECT usa_procuracao u FROM prestadores WHERE nome = 'CONSULTORIA FICTICIA LTDA'").u, 1);
+  assert.equal((await app.ctx.db.get("SELECT usa_procuracao u FROM prestadores WHERE nome = 'CONSULTORIA FICTICIA LTDA'")).u, 1);
   const draftsSegunda = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsSegunda.length, 0, 'rascunhos ficam no ambiente da empresa');
   await page.goto(`${base}/#/empresas`);
@@ -290,7 +290,7 @@ try {
   const draftsB = await page.evaluate(async () => (await import('/js/store.js')).rascunhosLocais());
   assert.equal(draftsB.length, 0, 'B não pode ver o draft de A');
   // Ao voltar à empresa A o rascunho local foi sincronizado — sempre no ambiente de A.
-  const dono = app.ctx.db.get('SELECT u.email FROM notas n JOIN prestadores p ON p.id = n.prestador_id JOIN usuarios u ON u.id = p.usuario_id WHERE n.id = ?', idLocal);
+  const dono = await app.ctx.db.get('SELECT u.email FROM notas n JOIN prestadores p ON p.id = n.prestador_id JOIN usuarios u ON u.id = p.usuario_id WHERE n.id = ?', idLocal);
   assert.ok(!dono || dono.email === 'smoke-a@example.invalid', 'rascunho de A nunca vai para B');
   await page.goto(`${base}/#/conta`);
   await page.getByLabel('Confirme sua senha para excluir').fill('senha-segura-1');

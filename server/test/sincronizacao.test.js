@@ -100,7 +100,7 @@ test('nota emitida fora do app entra em Notas pela sincronização, com XML ofic
   assert.equal(clone.body.nota.situacao, 'rascunho');
 
   // Auditoria: a entrada automática fica registrada.
-  const registros = app.ctx.db.all("SELECT acao, entidade_id FROM auditoria WHERE prestador_id = ? AND acao = 'nota.sincronizada'", empresaId);
+  const registros = await app.ctx.db.all("SELECT acao, entidade_id FROM auditoria WHERE prestador_id = ? AND acao = 'nota.sincronizada'", empresaId);
   assert.deepEqual(registros.map((r) => r.entidade_id), [n.id]);
 
   // Buscar de novo não traz nada de novo nem duplica.
@@ -196,7 +196,7 @@ test('cancelamento feito no portal: a nota vira "Cancelada", sai dos totais e ma
   assert.equal(inicio.emitidas, 0);
   assert.equal(inicio.podeClonar, false, 'a cancelada não é "a última emitida"');
   assert.equal((await api('GET', `/api/notas/${n.id}/xml`, undefined, h)).status, 200, 'o XML continua disponível');
-  assert.equal(app.ctx.db.all("SELECT 1 FROM auditoria WHERE prestador_id = ? AND acao = 'nota.cancelada_no_portal'", empresaId).length, 1);
+  assert.equal((await app.ctx.db.all("SELECT 1 FROM auditoria WHERE prestador_id = ? AND acao = 'nota.cancelada_no_portal'", empresaId)).length, 1);
   // Repetir o evento não muda nada.
   assert.equal((await api('POST', '/api/notas/sincronizar', {}, h)).body.emitidasCanceladas, 0);
 });
@@ -205,17 +205,17 @@ test('fila já lida por versão anterior (só tomadas) é relida uma única vez 
   const { api, h, empresaId } = await contaComEmpresa('releitura@exemplo.com');
   const fora = sefin.adicionarTomada({ prestador: EMPRESA, tomador: CLIENTE, valor: '120.00', competencia: mesPassado() });
   // Estado deixado pela versão anterior: fila toda lida, só as tomadas guardadas.
-  const p = app.ctx.repo.prestador(empresaId);
-  app.ctx.repo.gravarDistribuicao(p.id, p.ambiente, p.documento, fora.nsu);
-  app.ctx.db.run('UPDATE distribuicao_dfe SET leitura = 1 WHERE prestador_id = ?', p.id);
-  assert.equal(app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento).leitura, 1);
+  const p = await app.ctx.repo.prestador(empresaId);
+  await app.ctx.repo.gravarDistribuicao(p.id, p.ambiente, p.documento, fora.nsu);
+  await app.ctx.db.run('UPDATE distribuicao_dfe SET leitura = 1 WHERE prestador_id = ?', p.id);
+  assert.equal((await app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento)).leitura, 1);
 
   const antes = sefin.estado.consultasDistribuicao.length;
   const s = await api('POST', '/api/notas/sincronizar', {}, h);
   assert.equal(s.body.emitidas, 1, JSON.stringify(s.body));
   assert.equal(sefin.estado.consultasDistribuicao[antes].nsu, 0, 'recomeça do início');
-  assert.equal(app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento).leitura, 2);
-  assert.ok(app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento).ultimoNsu >= fora.nsu);
+  assert.equal((await app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento)).leitura, 2);
+  assert.ok((await app.ctx.repo.distribuicao(p.id, p.ambiente, p.documento)).ultimoNsu >= fora.nsu);
   // Na vez seguinte continua de onde parou.
   const depois = sefin.estado.consultasDistribuicao.length;
   await api('POST', '/api/notas/sincronizar', {}, h);
@@ -224,7 +224,7 @@ test('fila já lida por versão anterior (só tomadas) é relida uma única vez 
 
 test('Receita recusa a consulta: a mensagem dela aparece (com a dica da procuração) e nada é gravado', async () => {
   const { api, h, empresaId } = await contaComEmpresa('recusa@exemplo.com');
-  const p = app.ctx.repo.prestador(empresaId);
+  const p = await app.ctx.repo.prestador(empresaId);
   const servico = app.ctx.tomadas;
   const original = app.ctx.emissao.distribuirDfe;
   app.ctx.emissao.distribuirDfe = async () => ({ tipo: 'falha', http: 403, ms: 1, erros: [{ codigo: 'E403', descricao: 'Procuração eletrônica não localizada para o contribuinte.' }] });
@@ -236,7 +236,7 @@ test('Receita recusa a consulta: a mensagem dela aparece (com a dica da procura�
   // A recusa fica guardada (motivo cifrado) e aparece nas telas até uma consulta dar certo.
   assert.ok(lista.sincronizacao.recusadaEm);
   assert.match(lista.sincronizacao.recusaMotivo, /Procuração eletrônica não localizada/);
-  const linha = app.ctx.db.get('SELECT falha_cifrada f FROM distribuicao_dfe WHERE prestador_id = ?', empresaId);
+  const linha = await app.ctx.db.get('SELECT falha_cifrada f FROM distribuicao_dfe WHERE prestador_id = ?', empresaId);
   assert.ok(linha.f && !/Procura/.test(linha.f), 'o motivo dado pela Receita não fica em claro no banco');
   const naLista = (await api('GET', '/api/empresas')).body.empresas.find((e) => e.id === empresaId);
   assert.ok(naLista.consultaRecusadaEm);
@@ -291,7 +291,7 @@ test('produção é o ambiente padrão quando liberada: empresa nova, troca em l
     assert.equal(lote.status, 200, JSON.stringify(lote.body));
     assert.equal(lote.body.alteradas, 2, 'A e C estavam em testes; B já estava em produção');
     assert.ok(lote.body.empresas.every((e) => e.ambiente === 'producao'));
-    assert.equal(app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id IN (?, ?)", a.empresaId, c.empresaId).length, 2);
+    assert.equal((await app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id IN (?, ?)", a.empresaId, c.empresaId)).length, 2);
 
     // Editar os dados sem dizer o ambiente não tira a empresa de onde ela está.
     const h = { 'x-notavez-prestador': a.empresaId };
@@ -300,7 +300,7 @@ test('produção é o ambiente padrão quando liberada: empresa nova, troca em l
     assert.equal(editada.body.perfil.ambiente, 'producao');
     // Voltar para testes também fica registrado.
     assert.equal((await api('PUT', '/api/perfil', dados(EMPRESA, 'Nome novo', { ambiente: 'producao_restrita' }), h)).body.perfil.ambiente, 'producao_restrita');
-    assert.equal(app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id = ?", a.empresaId).length, 2);
+    assert.equal((await app.ctx.db.all("SELECT 1 FROM auditoria WHERE acao = 'empresa.ambiente_alterado' AND prestador_id = ?", a.empresaId)).length, 2);
   } finally { config.producaoLiberada = false; }
 });
 
@@ -386,7 +386,7 @@ test('escritório: procuração em lote, empresa que já nasce por procuração 
   assert.equal((await api('POST', '/api/empresas/sincronizar', {})).body.total, 1, 'só C continua por procuração');
   // Empresa que só tem cópias vindas da Receita (nada enviado pelo app) pode sair da conta; as notas continuam na Receita.
   assert.equal((await api('DELETE', `/api/empresas/${b}`)).status, 200);
-  assert.equal(app.ctx.db.get('SELECT COUNT(*) n FROM notas WHERE prestador_id = ?', b).n, 0);
+  assert.equal((await app.ctx.db.get('SELECT COUNT(*) n FROM notas WHERE prestador_id = ?', b)).n, 0);
 });
 
 test('tarefa periódica: consulta todas as empresas com certificado válido e não para em falhas', async () => {

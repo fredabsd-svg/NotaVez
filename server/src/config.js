@@ -41,7 +41,12 @@ export const config = {
   porta: Number(process.env.PORT || 8080),
   host: process.env.HOST || '0.0.0.0',
   // Confie somente nos endereços/CIDRs do proxy efetivamente controlado.
-  proxiesConfiaveis: process.env.NOTAVEZ_PROXIES_CONFIAVEIS?.split(',').map((s) => s.trim()).filter(Boolean) || false,
+  // Na Vercel, o único caminho até o servidor é a borda da própria Vercel: o IP do cliente vem no X-Forwarded-For.
+  proxiesConfiaveis: process.env.NOTAVEZ_PROXIES_CONFIAVEIS?.split(',').map((s) => s.trim()).filter(Boolean) || !!process.env.VERCEL,
+  // Funções sem processo contínuo (Vercel): sem tarefas em segundo plano; buscas em lote respondem só ao terminar.
+  serverless: !!process.env.VERCEL,
+  // Segredo das tarefas agendadas (Vercel Cron envia "Authorization: Bearer <CRON_SECRET>").
+  cronSegredo: process.env.CRON_SECRET || '',
   contaPublica: {
     responsavel: process.env.NOTAVEZ_RESPONSAVEL || '',
     contatoPrivacidade: process.env.NOTAVEZ_CONTATO_PRIVACIDADE || '',
@@ -56,7 +61,8 @@ export const config = {
     redirectUri: process.env.NOTAVEZ_GOVBR_REDIRECT_URI || '',
     base: process.env.NOTAVEZ_GOVBR_AMBIENTE === 'staging' ? 'https://sso.staging.acesso.gov.br' : 'https://sso.acesso.gov.br',
   },
-  bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './notavez.db'),
+  // Banco: DATABASE_URL (Postgres/Neon) tem prioridade. Sem ela, Postgres embutido (PGlite) numa pasta.
+  bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './dados-banco'),
   // Produção (notas reais) é o padrão do servidor; ver producaoLiberadaEm. A empresa nova nasce no
   // ambiente padrão: produção quando liberada, senão o ambiente de testes da Receita (produção restrita).
   producaoLiberada: producaoLiberadaEm({ variavel: process.env.NOTAVEZ_PRODUCAO_LIBERADA, dev, demo: process.env.NOTAVEZ_DEMO === '1' }),

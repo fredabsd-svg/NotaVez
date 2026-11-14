@@ -17,10 +17,7 @@ const b64url = (b) => Buffer.from(b).toString('base64url');
 const jsonB64 = (t) => JSON.parse(Buffer.from(t, 'base64url').toString('utf8'));
 
 export function criarGovBr(db, { clientId, clientSecret, redirectUri, base = BASES_GOVBR.producao, buscar = globalThis.fetch, timeoutMs = 10_000 } = {}) {
-  db.raw.exec(`CREATE TABLE IF NOT EXISTS govbr_fluxos (
-    token_hash TEXT PRIMARY KEY, state TEXT NOT NULL, nonce TEXT NOT NULL, verificador TEXT NOT NULL,
-    modo TEXT NOT NULL, usuario_id TEXT REFERENCES usuarios(id) ON DELETE CASCADE, expira_em TEXT NOT NULL
-  );`);
+  // Tabela govbr_fluxos em db/schema.sql.
   const configurado = !!(clientId && clientSecret && redirectUri && base);
   const raiz = String(base || '').replace(/\/+$/, '');
   let jwks = null;
@@ -58,14 +55,14 @@ export function criarGovBr(db, { clientId, clientSecret, redirectUri, base = BAS
   return {
     configurado,
     // Começa o login: guarda state/nonce/PKCE ligados a um cookie deste navegador.
-    iniciar({ modo = 'entrar', usuarioId = null } = {}) {
+    async iniciar({ modo = 'entrar', usuarioId = null } = {}) {
       if (!configurado) throw new ErroApp(503, 'O acesso com gov.br ainda não está disponível neste servidor.');
       const token = randomBytes(32).toString('base64url');
       const state = randomBytes(24).toString('base64url');
       const nonce = randomBytes(24).toString('base64url');
       const verificador = randomBytes(48).toString('base64url');
-      db.run('DELETE FROM govbr_fluxos WHERE expira_em <= ?', agora());
-      db.run('INSERT INTO govbr_fluxos (token_hash, state, nonce, verificador, modo, usuario_id, expira_em) VALUES (?,?,?,?,?,?,?)',
+      await db.run('DELETE FROM govbr_fluxos WHERE expira_em <= ?', agora());
+      await db.run('INSERT INTO govbr_fluxos (token_hash, state, nonce, verificador, modo, usuario_id, expira_em) VALUES (?,?,?,?,?,?,?)',
         hashToken(`govbr:${token}`), state, nonce, verificador, modo, usuarioId, new Date(Date.now() + VALIDADE_FLUXO_MS).toISOString());
       const qs = new URLSearchParams({
         response_type: 'code', client_id: clientId, scope: 'openid email profile', redirect_uri: redirectUri,
@@ -77,8 +74,8 @@ export function criarGovBr(db, { clientId, clientSecret, redirectUri, base = BAS
     // Retorno do gov.br: o fluxo é de uso único e precisa do mesmo navegador (cookie) e state.
     async concluir({ token, state, code }) {
       if (!configurado) throw new ErroApp(503, 'O acesso com gov.br ainda não está disponível neste servidor.');
-      const fluxo = token ? db.get('SELECT * FROM govbr_fluxos WHERE token_hash = ?', hashToken(`govbr:${token}`)) : null;
-      if (fluxo) db.run('DELETE FROM govbr_fluxos WHERE token_hash = ?', fluxo.token_hash);
+      const fluxo = token ? await db.get('SELECT * FROM govbr_fluxos WHERE token_hash = ?', hashToken(`govbr:${token}`)) : null;
+      if (fluxo) await db.run('DELETE FROM govbr_fluxos WHERE token_hash = ?', fluxo.token_hash);
       if (!fluxo || fluxo.state !== state || fluxo.expira_em <= agora() || typeof code !== 'string' || !code) {
         throw new ErroApp(400, 'O acesso com gov.br expirou ou foi aberto em outro navegador. Tente de novo.', { codigo: 'GOVBR_FLUXO' });
       }

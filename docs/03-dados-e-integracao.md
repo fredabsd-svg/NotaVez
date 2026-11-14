@@ -12,7 +12,7 @@ flowchart LR
     REG[Pacotes de regras fiscais<br/>por regime e vigência]
     DPS[Gerador de DPS + XSD oficial<br/>+ assinatura XMLDSig]
     SEF[Cliente Sefin<br/>TLS mútuo com o A1]
-    DB[(Banco: SQLite no MVP<br/>PostgreSQL em produção<br/>dados sensíveis cifrados)]
+    DB[(Banco: PostgreSQL<br/>Neon na Vercel, PGlite local<br/>dados sensíveis cifrados)]
     JOB[Tarefa periódica:<br/>verifica pendentes]
   end
   RFB[Sefin Nacional / ADN<br/>produção restrita · produção]

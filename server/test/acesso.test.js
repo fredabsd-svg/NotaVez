@@ -112,7 +112,7 @@ test('primeiro acesso com CPF/CNPJ: entra por CPF, CNPJ ou e-mail; documento ún
   assert.equal(cnpj.status, 200);
   assert.equal((await navegador().pedir('POST', '/api/conta/entrar', { usuario: '11222333000181', senha: 'senha-segura' })).status, 200);
   // O CPF fica cifrado, com índice cego.
-  assert.equal(app.ctx.db.get("SELECT count(*) n FROM usuarios WHERE documento_cifrado LIKE '%52998224725%' OR documento_indice = '52998224725'").n, 0);
+  assert.equal((await app.ctx.db.get("SELECT count(*) n FROM usuarios WHERE documento_cifrado LIKE '%52998224725%' OR documento_indice = '52998224725'")).n, 0);
 });
 
 test('entrar com gov.br cria a conta pelo CPF confirmado e reconhece o vínculo depois', async () => {
@@ -130,7 +130,7 @@ test('entrar com gov.br cria a conta pelo CPF confirmado e reconhece o vínculo 
   const outro = navegador();
   await outro.entrarGovbr();
   assert.equal((await outro.pedir('GET', '/api/conta')).body.usuarioId, conta.usuarioId);
-  assert.equal(app.ctx.db.get('SELECT count(*) n FROM usuarios WHERE id = ?', conta.usuarioId).n, 1);
+  assert.equal((await app.ctx.db.get('SELECT count(*) n FROM usuarios WHERE id = ?', conta.usuarioId)).n, 1);
 });
 
 test('gov.br nunca junta contas sozinho: CPF ou e-mail já usados pedem login com senha e vínculo', async () => {
@@ -219,23 +219,23 @@ test('manter conectado: sessão longa renovada a cada uso; sem marcar, cookie de
   assert.doesNotMatch(sessao(r), /Max-Age/, 'some ao fechar o navegador');
 
   const { db } = app.ctx;
-  const sessoes = () => db.all("SELECT s.token_hash, s.expira_em, s.lembrar FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = 'lembrar@exemplo.test' ORDER BY s.criado_em");
-  const [, , s3] = sessoes();
+  const sessoes = async () => await db.all("SELECT s.token_hash, s.expira_em, s.lembrar FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id WHERE u.email = 'lembrar@exemplo.test' ORDER BY s.criado_em");
+  const [, , s3] = await sessoes();
   assert.equal(s3.lembrar, 0);
   assert.ok(new Date(s3.expira_em) - Date.now() <= 12 * 3600_000 + 5000);
 
   // Sessão longa perto de vencer: o uso a renova e reenvia o cookie.
-  db.run("UPDATE sessoes SET expira_em = ? WHERE lembrar = 1 AND usuario_id = (SELECT id FROM usuarios WHERE email = 'lembrar@exemplo.test')", new Date(Date.now() + 5 * 86400_000).toISOString());
+  await db.run("UPDATE sessoes SET expira_em = ? WHERE lembrar = 1 AND usuario_id = (SELECT id FROM usuarios WHERE email = 'lembrar@exemplo.test')", new Date(Date.now() + 5 * 86400_000).toISOString());
   const uso = await n.pedir('GET', '/api/conta');
   assert.equal(uso.status, 200);
   assert.match(uso.headers['set-cookie'] || '', /Max-Age=7776000/);
-  assert.ok(new Date(sessoes()[0].expira_em) - Date.now() > 89 * 86400_000);
+  assert.ok(new Date((await sessoes())[0].expira_em) - Date.now() > 89 * 86400_000);
   // Logo depois não regrava (no máximo uma vez por dia).
   assert.equal((await n.pedir('GET', '/api/conta')).headers['set-cookie'], undefined);
   // A curta não é renovada.
-  const antes = sessoes()[2].expira_em;
+  const antes = (await sessoes())[2].expira_em;
   assert.equal((await curta.pedir('GET', '/api/conta')).headers['set-cookie'], undefined);
-  assert.equal(sessoes()[2].expira_em, antes);
+  assert.equal((await sessoes())[2].expira_em, antes);
 });
 
 // ---------- Regressões do Gauntlet Loop (achados confirmados por críticos independentes) ----------
@@ -252,7 +252,7 @@ test('redefinir a senha desfaz o gov.br vinculado por outra pessoa (tomada de co
   const { token } = entregas.at(-1);
   assert.equal((await navegador().pedir('POST', '/api/conta/redefinir', { token, senha: 'senha-da-vitima' })).status, 200);
   // O gov.br do atacante não entra mais nessa conta (no máximo cria uma conta própria, vazia).
-  const vitima = app.ctx.db.get("SELECT id, govbr_indice, documento_indice FROM usuarios WHERE email = 'vitima-gov@exemplo.test'");
+  const vitima = await app.ctx.db.get("SELECT id, govbr_indice, documento_indice FROM usuarios WHERE email = 'vitima-gov@exemplo.test'");
   assert.equal(vitima.govbr_indice, null);
   assert.equal(vitima.documento_indice, null, 'o CPF que veio do gov.br alheio sai junto');
   const atacanteDepois = navegador();
@@ -293,10 +293,10 @@ test('conta criada pelo gov.br sem e-mail pode ser excluída confirmando no gov.
   const r1 = await n.pedir('POST', '/api/conta/govbr/excluir', {});
   govbr.titular = { sub: cpf('111222333'), name: 'Outra pessoa' };
   assert.equal((await n.viaGovbr(r1.body.url)).headers.location, '/#/conta?govbr=outro');
-  assert.ok(app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId));
+  assert.ok(await app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId));
   // O mesmo CPF confirma e a conta some.
   govbr.titular = { sub: dono, name: 'Só gov.br' };
   const r2 = await n.pedir('POST', '/api/conta/govbr/excluir', {});
   assert.equal((await n.viaGovbr(r2.body.url)).headers.location, `/#/entrar?govbr=excluida&u=${conta.usuarioId}`);
-  assert.equal(app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId), undefined);
+  assert.equal(await app.ctx.db.get('SELECT 1 FROM usuarios WHERE id = ?', conta.usuarioId), undefined);
 });

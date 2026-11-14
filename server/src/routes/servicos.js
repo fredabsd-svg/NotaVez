@@ -25,25 +25,25 @@ const publico = (s) => ({ ...s, nacional: servicoNacional(s.cTribNac) });
 
 export async function rotasServicos(app) {
   const { repo } = app.ctx;
-  app.get('/', async (req) => ({ servicos: repo.listarServicos(exigirPrestador(req).id).map(publico) }));
+  app.get('/', async (req) => ({ servicos: (await repo.listarServicos(exigirPrestador(req).id)).map(publico) }));
   app.get('/:id', async (req) => {
-    const s = repo.servico(exigirPrestador(req).id, req.params.id);
+    const s = await repo.servico(exigirPrestador(req).id, req.params.id);
     if (!s) throw naoEncontrado('Serviço');
     return { servico: publico(s) };
   });
   app.post('/', async (req) => {
     const p = exigirPrestador(req);
-    const id = repo.salvarServico(p.id, null, lerServico(req.body));
-    return { servico: publico(repo.servico(p.id, id)) };
+    const id = await repo.salvarServico(p.id, null, lerServico(req.body));
+    return { servico: publico(await repo.servico(p.id, id)) };
   });
   app.put('/:id', async (req) => {
     const p = exigirPrestador(req);
-    if (!repo.servico(p.id, req.params.id)) throw naoEncontrado('Serviço');
-    repo.salvarServico(p.id, req.params.id, lerServico(req.body));
-    return { servico: publico(repo.servico(p.id, req.params.id)) };
+    if (!await repo.servico(p.id, req.params.id)) throw naoEncontrado('Serviço');
+    await repo.salvarServico(p.id, req.params.id, lerServico(req.body));
+    return { servico: publico(await repo.servico(p.id, req.params.id)) };
   });
   app.delete('/:id', async (req) => {
-    repo.removerServico(exigirPrestador(req).id, req.params.id);
+    await repo.removerServico(exigirPrestador(req).id, req.params.id);
     return { ok: true };
   });
 }

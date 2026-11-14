@@ -35,14 +35,14 @@ export async function elegibilidadeDe(emissao, prestador, cert) {
 
 // Painel do Início: o que foi emitido por competência nos últimos 6 meses e no ano, só no ambiente
 // atual da empresa. Para o MEI, vai junto o limite anual de receita do pacote de regras vigente.
-export function painelDe(repo, p, hoje = hojeBrasilia()) {
+export async function painelDe(repo, p, hoje = hojeBrasilia()) {
   const ano = hoje.slice(0, 4);
   const mesNumero = Number(hoje.slice(5, 7));
   const meses = [];
   for (let i = 5; i >= 0; i--) meses.push(new Date(Date.UTC(Number(ano), mesNumero - 1 - i, 1)).toISOString().slice(0, 7));
   const de = `${meses[0] < `${ano}-01` ? meses[0] : `${ano}-01`}-01`;
   const ate = new Date(Date.UTC(Number(ano), mesNumero, 1)).toISOString().slice(0, 10);
-  const porMes = new Map(repo.emitidasPorMes(p.id, p.ambiente, de, ate).map((r) => [r.mes, r]));
+  const porMes = new Map((await repo.emitidasPorMes(p.id, p.ambiente, de, ate)).map((r) => [r.mes, r]));
   const reais = (centavos) => (centavos / 100).toFixed(2);
   let centavosAno = 0;
   let qtdAno = 0;
@@ -135,8 +135,8 @@ export function lerPfxEnviado(b = {}) {
 }
 
 // Como a Receita respondeu à última consulta das notas desta empresa (só leitura).
-export function situacaoReceita(repo, p) {
-  const d = repo.distribuicao(p.id, p.ambiente, p.documento);
+export async function situacaoReceita(repo, p) {
+  const d = await repo.distribuicao(p.id, p.ambiente, p.documento);
   return { consultadaEm: d.sincronizadoEm, recusadaEm: d.recusadaEm, recusaMotivo: d.recusaMotivo };
 }
 
@@ -146,34 +146,34 @@ export async function rotasPerfil(app) {
   app.get('/perfil', async (req) => {
     // ?leve=1: só os dados da empresa, sem consultar a Receita (telas que só precisam do regime).
     if (req.query?.leve === '1') return { perfil: perfilPublico(req.prestador) };
-    const cert = req.prestador ? repo.certificadoEmissao(req.prestador) : null;
+    const cert = req.prestador ? await repo.certificadoEmissao(req.prestador) : null;
     return {
       perfil: perfilPublico(req.prestador),
       certificado: certPublico(cert),
       // O certificado próprio da empresa e o do procurador da conta, para a escolha na tela.
-      certificadoEmpresa: certPublico(req.prestador ? repo.certificadoAtivo(req.prestador.id) : null),
-      procurador: certPublico(repo.certificadoProcurador(req.usuario.id)),
+      certificadoEmpresa: certPublico(req.prestador ? await repo.certificadoAtivo(req.prestador.id) : null),
+      procurador: certPublico(await repo.certificadoProcurador(req.usuario.id)),
       elegibilidade: await elegibilidadeDe(emissao, req.prestador, cert),
       producaoLiberada: config.producaoLiberada,
       ambientePadrao: config.ambientePadrao,
       // Última consulta à Receita (ADN) desta empresa: aceita ou recusada (por procuração, mostra se ela está valendo).
-      receita: req.prestador ? situacaoReceita(repo, req.prestador) : null,
+      receita: req.prestador ? await situacaoReceita(repo, req.prestador) : null,
     };
   });
 
   // Salva a empresa ativa; sem empresa ativa (primeiro acesso), cadastra uma.
   app.put('/perfil', async (req) => {
     const antes = req.prestador?.ambiente || null;
-    const id = repo.salvarPrestador(req.usuario.id, req.prestador?.id || null, lerPerfil(req.body || {}, { ambienteAtual: antes || undefined }));
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
-    const depois = repo.prestador(id).ambiente;
+    const id = await repo.salvarPrestador(req.usuario.id, req.prestador?.id || null, lerPerfil(req.body || {}, { ambienteAtual: antes || undefined }));
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'perfil.salvo', ip: req.ip });
+    const depois = (await repo.prestador(id)).ambiente;
     // Passar de testes para produção (ou voltar) muda o valor jurídico das próximas notas: fica registrado.
     if (antes && antes !== depois) {
       emissao.fecharClientesDoPrestador(id);
-      auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'empresa.ambiente_alterado', detalhes: { de: antes, para: depois }, ip: req.ip });
+      await auditar(db, { usuarioId: req.usuario.id, prestadorId: id, acao: 'empresa.ambiente_alterado', detalhes: { de: antes, para: depois }, ip: req.ip });
     }
-    const p = repo.prestador(id);
-    return { perfil: perfilPublico(p), empresaId: id, elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoEmissao(p)) };
+    const p = await repo.prestador(id);
+    return { perfil: perfilPublico(p), empresaId: id, elegibilidade: await elegibilidadeDe(emissao, p, await repo.certificadoEmissao(p)) };
   });
 
   // Envio do certificado A1: chega por HTTPS, é verificado e guardado cifrado.
@@ -182,61 +182,61 @@ export async function rotasPerfil(app) {
     const { pfx, senha, info } = lerPfxEnviado(req.body);
     const problemas = verificarParaEmitente(info, p.documento);
     if (problemas.length) throw new ErroApp(422, 'Este certificado não pode ser usado para emitir.', { problemas });
-    repo.salvarCertificado(p.id, { pfx, senha, info });
+    await repo.salvarCertificado(p.id, { pfx, senha, info });
     emissao.fecharClientesDoPrestador(p.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
-    return { certificado: certPublico(repo.certificadoAtivo(p.id)), elegibilidade: await elegibilidadeDe(emissao, p, repo.certificadoEmissao(p)) };
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.enviado', detalhes: { validoAte: info.validoAte, emissor: info.emissor }, ip: req.ip });
+    return { certificado: certPublico(await repo.certificadoAtivo(p.id)), elegibilidade: await elegibilidadeDe(emissao, p, await repo.certificadoEmissao(p)) };
   });
 
   // Procuração eletrônica NFS-e: a empresa passa a assinar com o certificado do procurador da conta.
   app.put('/perfil/procuracao', async (req) => {
     const p = exigirPrestador(req);
     const ativa = req.body?.ativa === true;
-    if (ativa && !repo.certificadoProcurador(req.usuario.id)) throw new ErroApp(409, 'Envie primeiro o certificado do escritório (procurador) em Empresas › Certificado do escritório.', { acao: 'procurador' });
-    repo.definirProcuracao(req.usuario.id, p.id, ativa);
+    if (ativa && !await repo.certificadoProcurador(req.usuario.id)) throw new ErroApp(409, 'Envie primeiro o certificado do escritório (procurador) em Empresas › Certificado do escritório.', { acao: 'procurador' });
+    await repo.definirProcuracao(req.usuario.id, p.id, ativa);
     emissao.fecharClientesDoPrestador(p.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: ativa ? 'procuracao.ativada' : 'procuracao.desativada', ip: req.ip });
-    const atual = repo.prestador(p.id);
-    return { perfil: perfilPublico(atual), elegibilidade: await elegibilidadeDe(emissao, atual, repo.certificadoEmissao(atual)) };
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: ativa ? 'procuracao.ativada' : 'procuracao.desativada', ip: req.ip });
+    const atual = await repo.prestador(p.id);
+    return { perfil: perfilPublico(atual), elegibilidade: await elegibilidadeDe(emissao, atual, await repo.certificadoEmissao(atual)) };
   });
 
   app.delete('/certificado', async (req) => {
     const p = exigirPrestador(req);
-    repo.removerCertificado(p.id);
+    await repo.removerCertificado(p.id);
     emissao.fecharClientesDoPrestador(p.id);
-    auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
-    return { elegibilidade: avaliarElegibilidade(p, repo.certificadoEmissao(p)) };
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'certificado.removido', ip: req.ip });
+    return { elegibilidade: avaliarElegibilidade(p, await repo.certificadoEmissao(p)) };
   });
 
   // Tela Início: estado da última emissão, contadores e pendências.
   app.get('/inicio', async (req) => {
     const p = req.prestador;
     if (!p) return { perfil: null, elegibilidade: avaliarElegibilidade(null, null) };
-    const cert = repo.certificadoEmissao(p);
-    const ultima = repo.ultimaEnviada(p.id);
-    const ultimaEmitida = repo.ultimaEmitida(p.id);
+    const cert = await repo.certificadoEmissao(p);
+    const ultima = await repo.ultimaEnviada(p.id);
+    const ultimaEmitida = await repo.ultimaEmitida(p.id);
     // Contagens e totais por consulta agregada: nada de carregar (e decifrar) centenas de notas para contar.
-    const porSituacao = repo.contarNotasPorSituacao(p.id);
+    const porSituacao = await repo.contarNotasPorSituacao(p.id);
     return {
       perfil: perfilPublico(p),
       elegibilidade: await elegibilidadeDe(emissao, p, cert),
-      ultima: ultima && resumoNota(repo, p, ultima),
+      ultima: ultima && await resumoNota(repo, p, ultima),
       podeClonar: !!ultimaEmitida,
       // É esta que "Clonar a última nota" copia (pode não ser a última enviada, se esta foi rejeitada).
-      ultimaEmitida: ultimaEmitida && ultimaEmitida.id !== ultima?.id ? resumoNota(repo, p, ultimaEmitida) : null,
+      ultimaEmitida: ultimaEmitida && ultimaEmitida.id !== ultima?.id ? await resumoNota(repo, p, ultimaEmitida) : null,
       // Para avisar com antecedência que o certificado usado na emissão está perto de vencer.
       certificadoValidoAte: cert?.validoAte || null,
       // Por procuração, quem assina é o certificado do escritório: é ele que precisa ser trocado.
       certificadoDoEscritorio: !!cert?.procurador,
       // A Receita recusou a última consulta (por procuração: sinal de que ela não está vigente).
-      receita: situacaoReceita(repo, p),
+      receita: await situacaoReceita(repo, p),
       rascunhos: porSituacao.rascunho || 0,
       pendentes: (porSituacao.pendente || 0) + (porSituacao.enviando || 0),
       rejeitadas: porSituacao.rejeitada || 0,
       emitidas: porSituacao.emitida || 0,
-      painel: painelDe(repo, p),
+      painel: await painelDe(repo, p),
       // As mais recentes de qualquer situação, para a lista curta do Início.
-      recentes: repo.listarNotas(p.id, { limite: 5 }).map((n) => resumoNota(repo, p, n)),
+      recentes: await Promise.all((await repo.listarNotas(p.id, { limite: 5 })).map((n) => resumoNota(repo, p, n))),
     };
   });
 }
