@@ -110,6 +110,8 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
       const r = await emissao.distribuirDfe(prestador, ultimoNsu);
       await repo.registrarChamada(null, 'distribuicao_dfe', { http: r.http, tipo: r.tipo, ms: r.ms, erros: r.erros?.length ? r.erros : undefined, detalhe: r.detalhe });
       if (r.tipo !== 'ok') {
+        // Diagnóstico nos logs do servidor: código HTTP e começo da resposta da Receita (o CNPJ é mascarado).
+        console.warn(`[receita] distribuição DF-e (${ambiente}): ${r.detalhe || r.tipo} ${String(r.corpo || r.erros?.map((e) => `${e.codigo} ${e.descricao}`).join('; ') || '').replace(/\d{11,14}/g, '***').slice(0, 300)}`.trim());
         if (lote === 0) {
           // Com resposta da Receita, mostra o motivo dela (ex.: procuração não vigente); sem resposta, pede para tentar depois.
           const motivo = r.erros?.find((e) => e.descricao)?.descricao;
@@ -119,7 +121,8 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
           if (motivo || naoAutorizada) await repo.registrarRecusaDistribuicao(prestador.id, ambiente, prestador.documento, motivo || 'A Receita não autorizou a consulta com este certificado.');
           throw new ErroApp(502, motivo ? `A Receita recusou a consulta das notas: ${motivo}${dica}`
             : naoAutorizada ? `A Receita não autorizou a consulta das notas com este certificado.${dica}`
-              : 'A Receita não respondeu à consulta das notas. Tente novamente em alguns minutos.', { erros: r.erros || [] });
+              : r.http ? `A Receita recusou a consulta das notas (código ${r.http}). Tente novamente em alguns minutos; se continuar, envie este código ao suporte.`
+                : `Não foi possível falar com a Receita para consultar as notas (${r.detalhe || 'sem resposta'}). Tente novamente em alguns minutos.`, { erros: r.erros || [], http: r.http ?? null, detalhe: r.detalhe || null });
         }
         break;
       }

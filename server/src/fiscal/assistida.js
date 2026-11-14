@@ -80,7 +80,7 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
   ];
   const aliqCadastro = r.pAliq ?? (reg.opSimpNac === '3' ? prestador.aliqIssSN : prestador.aliqIss);
   if (trib.pAliq) valores.push(campo('Alíquota do ISSQN (%)', numeroBr(trib.pAliq)));
-  else if (ex.aliquota?.modo === 'indefinida') {
+  else if (ex.aliquota?.modo === 'indefinida' || ex.aliquota?.modo === 'opcional') {
     valores.push(campo('Alíquota do ISSQN', 'Deixe o Emissor Nacional preencher', {
       copiar: aliqCadastro ? numeroBr(aliqCadastro) : false,
       ajuda: `O site usa a alíquota cadastrada pelo município.${aliqCadastro ? ` Se ele pedir, informe ${numeroBr(aliqCadastro)}% (do seu cadastro).` : ''}`,

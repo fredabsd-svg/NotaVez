@@ -19,7 +19,8 @@ function textoNaoOptante(p, r, ex, valor) {
   const a = ex?.aliquota;
   const aliq = r.pAliq ?? p.aliqIss;
   const partes = [bloco(`Lucro ${p.apuracao === 'real' ? 'Real' : 'Presumido'}. ISS ${r.issRetido ? 'retido pelo cliente' : 'não retido'}. `,
-    a?.modo === 'obrigatoria' ? (aliq ? `Alíquota na nota: ${pct(aliq)}.` : 'Alíquota: falta informar.') : a?.modo === 'proibida' ? `Alíquota não vai na nota: ${a.motivo}` : '')];
+    a?.modo === 'obrigatoria' ? (aliq ? `Alíquota na nota: ${pct(aliq)}.` : 'Alíquota: falta informar.') : a?.modo === 'proibida' ? `Alíquota não vai na nota: ${a.motivo}`
+      : a?.modo === 'opcional' ? (r.pAliq ? `Alíquota na nota: ${pct(r.pAliq)}.` : `Alíquota não vai na nota. ${a.motivo}`) : '')];
   const pc = ex?.pisCofins;
   if (pc) {
     partes.push(bloco(h('span', { class: 'suave' }, `PIS/COFINS: CST ${pc.cst} (${pc.descricao})`,
@@ -51,6 +52,7 @@ function textoTributacao(p, r, ex, valor) {
   const a = ex?.aliquota;
   if (a?.modo === 'obrigatoria') partes.push(aliq ? `Alíquota do ISS na nota: ${pct(aliq)}` : 'Alíquota do ISS: falta informar', aliq && r.issRetido ? ` (≈ ${moeda(Number(valor) * Number(aliq) / 100)} retidos). ` : '. ');
   else if (a?.modo === 'proibida') partes.push('Alíquota não vai na nota: ', a.motivo, ' ');
+  else if (a?.modo === 'opcional') partes.push(r.pAliq ? `Alíquota do ISS na nota: ${pct(r.pAliq)}. ` : `Alíquota não vai na nota. ${a.motivo} `);
   const tot = r.pTotTribSN ?? p.pTotTribSN;
   partes.push(h('span', { class: 'suave', style: 'display:block' }, `Tributos aproximados (Simples): ${tot ? pct(tot) : 'falta informar'}`));
   return partes;

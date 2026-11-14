@@ -24,15 +24,14 @@ export function avaliarElegibilidade(prestador, certificado, { convenioEmissor =
   if (regime === '1' || regime === '3') {
     if (regime === '3') item('simples', ['1', '2', '3'].includes(String(prestador?.regApTribSN || '')) && !!prestador?.pTotTribSN,
       'Dados do Simples preenchidos', 'Em Dados da empresa, informe como você apura os tributos no Simples e o percentual aproximado de tributos (regra E0166).');
-    // Não-MEI só emite pelo sistema nacional se o município do CNPJ for conveniado (E0037–E0039).
+    // Convênio do município (E0037–E0039): informativo, nunca bloqueia. A LC 214/2025 obriga os municípios a aderir
+    // ao padrão nacional e o Simples emite por ele em todos os municípios desde 01/11/2026 (Res. CGSN 191/2026);
+    // se ainda assim a Receita recusar, nenhuma nota é gerada e a mensagem dela explica o que fazer.
     const c = convenioEmissor;
-    if (c?.situacao === 'inexistente' || (c?.situacao === 'ativo' && c.aderenteEmissorNacional === false)) {
-      item('convenio', false, 'Município no Sistema Nacional da NFS-e',
-        'O município do seu CNPJ não usa o Sistema Nacional para empresas que não são MEI (E0037/E0039). Emita pelo sistema da prefeitura; o Nota Sem Stress guarda seus rascunhos.');
-    } else {
-      item('convenio', true, 'Município no Sistema Nacional da NFS-e', null,
-        c?.situacao === 'ativo' ? null : 'Ainda não confirmado: verificamos com o seu certificado antes de emitir.');
-    }
+    const recusaIndicada = regime === '1' && (c?.situacao === 'inexistente' || (c?.situacao === 'ativo' && c.aderenteEmissorNacional === false));
+    item('convenio', true, 'Município no Sistema Nacional da NFS-e', null,
+      recusaIndicada ? 'A consulta à Receita indicou que o município ainda não liberou o emissor nacional para esta empresa. Você pode tentar emitir: se a Receita recusar (E0037/E0039), nenhuma nota é gerada e o app mostra o motivo.'
+        : null);
   }
 
   const temCert = !!certificado;

@@ -211,7 +211,7 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
         if (cenario === 'timeout_apos_processar') return; // processou, mas a resposta "se perdeu"
         return responder(res, 201, { ...base, chaveAcesso: chave, nfseXmlGZipB64: gzipSync(Buffer.from(nfse)).toString('base64'), alertas: [] });
       }
-      const mConv = url.pathname.match(/^\/parametrizacao\/(\d{7})\/convenio$/);
+      const mConv = url.pathname.match(/^\/SefinNacional\/parametros_municipais\/(\d{7})\/convenio$/);
       if (req.method === 'GET' && mConv) {
         estado.consultasParametros += 1;
         return estado.conveniados.has(mConv[1])

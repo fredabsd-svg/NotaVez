@@ -97,7 +97,8 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
   const VALIDADE_CONVENIO_MS = 12 * 3600_000;
   async function convenio(prestador, certificado, ibge) {
     if (!ibge) return { situacao: 'desconhecido', motivo: 'sem_municipio' };
-    const chave = `convenio:${prestador.ambiente}:${ibge}`;
+    // "convenio2": a primeira versão consultava uma rota que não é a oficial e guardava respostas erradas.
+    const chave = `convenio2:${prestador.ambiente}:${ibge}`;
     const cache = await repo.parametroEmCache(chave, VALIDADE_CONVENIO_MS);
     if (cache) return { ...cache, cache: true };
     if (!certificado) return { situacao: 'desconhecido', motivo: 'sem_certificado' };
@@ -109,7 +110,9 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       throw e;
     }
     const r = await cliente.consultarConvenio(ibge);
-    await repo.registrarChamada(null, 'parametros_convenio', { http: r.http, tipo: r.situacao, ms: r.ms, detalhe: ibge });
+    await repo.registrarChamada(null, 'parametros_convenio', { http: r.http, tipo: r.situacao, ms: r.ms, detalhe: `${ibge} ${r.motivo || ''}`.trim() });
+    // Diagnóstico nos logs do servidor (só município, código HTTP e rota tentada; nada pessoal).
+    if (r.situacao !== 'ativo') console.warn(`[receita] convênio ${ibge} (${prestador.ambiente}): ${r.situacao} ${r.motivo || ''} ${r.mensagem ? String(r.mensagem).slice(0, 160) : ''}`.trim());
     if (r.situacao !== 'desconhecido') await repo.guardarParametro(chave, { situacao: r.situacao, aderenteEmissorNacional: r.aderenteEmissorNacional ?? null });
     return r;
   }
