@@ -87,8 +87,8 @@ export const DEFINICOES = [
 ];
 
 // ------------------------------------------------------------------ apoio
-function notaCurta(repo, p, n) {
-  const r = resumoNota(repo, p, n, true);
+async function notaCurta(repo, p, n) {
+  const r = await resumoNota(repo, p, n, true);
   return {
     id: r.id, situacao: r.situacao, rotulo: r.rotulo, aviso: r.aviso,
     cliente: r.tomadorExibicao ? { nome: r.tomadorExibicao.nome, tipo: r.tomadorExibicao.tipo, documento: r.tomadorExibicao.documentoExibicao } : null,
@@ -130,13 +130,13 @@ const REVISAO_DE = { competencia: 'competencia', valor: 'valor', descricao: 'des
 export function criarFerramentas(ctx) {
   const { app, usuario, empresaPadrao, ip, emissaoAutonoma, pendentes } = ctx;
   const { repo, db, emissao, consultarCnpj, limites, tomadas } = app;
-  const empresa = (args) => {
+  const empresa = async (args) => {
     const id = args?.empresaId;
-    const p = id ? repo.prestadorDoUsuarioPorId(usuario.id, id) : (empresaPadrao && repo.prestadorDoUsuarioPorId(usuario.id, empresaPadrao.id));
+    const p = id ? await repo.prestadorDoUsuarioPorId(usuario.id, id) : (empresaPadrao && await repo.prestadorDoUsuarioPorId(usuario.id, empresaPadrao.id));
     if (!p) throw new ErroApp(409, id ? 'Empresa não encontrada nesta conta. Use listar_empresas.' : 'Nenhuma empresa aberta. Use listar_empresas e informe empresaId.');
     return p;
   };
-  const nota = (p, id) => { const n = repo.nota(p.id, String(id || '')); if (!n) throw naoEncontrado('Nota'); return n; };
+  const nota = async (p, id) => { const n = await repo.nota(p.id, String(id || '')); if (!n) throw naoEncontrado('Nota'); return n; };
   const reg = (p, acao, extra = {}) => auditar(db, { usuarioId: usuario.id, prestadorId: p?.id ?? null, acao, ip, ...extra, detalhes: { via: 'ia', ...(extra.detalhes || {}) } });
 
   async function validarId(p, n) {
@@ -146,7 +146,7 @@ export function criarFerramentas(ctx) {
 
   const exec = {
     async listar_empresas() {
-      const lista = repo.listarPrestadores(usuario.id);
+      const lista = await repo.listarPrestadores(usuario.id);
       return {
         total: lista.length,
         empresas: lista.slice(0, 200).map((e) => ({
@@ -160,8 +160,8 @@ export function criarFerramentas(ctx) {
     },
 
     async contexto_empresa(a) {
-      const p = empresa(a);
-      const cert = repo.certificadoEmissao(p);
+      const p = await empresa(a);
+      const cert = await repo.certificadoEmissao(p);
       const eleg = await elegibilidadeDe(emissao, p, cert);
       const { pacote } = escolherPacote({ opSimpNac: p.opSimpNac, competencia: hojeBrasilia() });
       return {
@@ -170,16 +170,16 @@ export function criarFerramentas(ctx) {
         podeEmitir: eleg.podeEmitir, pendencias: eleg.pendencias.map((x) => ({ titulo: x.titulo, comoResolver: x.comoResolver })),
         avisos: eleg.itens.filter((x) => x.aviso).map((x) => x.aviso),
         regrasVigentes: pacote ? { id: pacote.id, descricao: pacote.descricao, limiteReceitaAnual: pacote.limiteReceitaAnual || undefined } : null,
-        receita: situacaoReceita(repo, p),
-        faturamento: painelDe(repo, p),
+        receita: await situacaoReceita(repo, p),
+        faturamento: await painelDe(repo, p),
       };
     },
 
     async buscar_clientes(a) {
-      const p = empresa(a);
+      const p = await empresa(a);
       const q = semAcento(a.busca).trim();
       const dig = somenteDigitos(q); const alnum = normalizarCnpj(q);
-      let lista = repo.listarClientes(p.id);
+      let lista = await repo.listarClientes(p.id);
       if (q) lista = lista.filter((c) => semAcento(c.nome).includes(q) || (dig.length >= 3 && c.documento.includes(dig)) || (alnum.length >= 3 && c.documento.includes(alnum)));
       return {
         total: lista.length,
@@ -189,32 +189,32 @@ export function criarFerramentas(ctx) {
     },
 
     async ver_cliente(a) {
-      const p = empresa(a);
-      const c = repo.cliente(p.id, String(a.clienteId || ''));
+      const p = await empresa(a);
+      const c = await repo.cliente(p.id, String(a.clienteId || ''));
       if (!c) throw naoEncontrado('Cliente');
       return { id: c.id, tipo: c.tipo, nome: c.nome, documento: formatarDocumento(c.tipo, c.documento), email: c.email, fone: c.fone, inscricaoMunicipal: c.inscricaoMunicipal,
         endereco: c.endereco ? { ...c.endereco, municipio: municipio(c.endereco.municipioIbge) } : null };
     },
 
     async consultar_cnpj(a) {
-      limites.consumir(`cnpj:${usuario.id}`, 60, 60_000);
+      await limites.consumir(`cnpj:${usuario.id}`, 60, 60_000);
       const r = await consultarCnpj(a.cnpj);
       return { ...r, observacao: 'Dados públicos (podem estar defasados, principalmente o enquadramento no Simples/MEI). Confirme com o usuário.' };
     },
 
     async cadastrar_cliente(a) {
-      const p = empresa(a);
+      const p = await empresa(a);
       const dados = lerCliente(a || {});
-      const existente = repo.clientePorDocumento(p.id, dados.documento);
+      const existente = await repo.clientePorDocumento(p.id, dados.documento);
       if (existente) return { jaExistia: true, clienteId: existente.id, nome: existente.nome, mensagem: `Este ${dados.tipo} já está cadastrado como "${existente.nome}". Use este clienteId.` };
-      const id = repo.salvarCliente(p.id, null, dados);
-      reg(p, 'cliente.criado', { entidade: 'cliente', entidadeId: id });
+      const id = await repo.salvarCliente(p.id, null, dados);
+      await reg(p, 'cliente.criado', { entidade: 'cliente', entidadeId: id });
       return { clienteId: id, nome: dados.nome, documento: formatarDocumento(dados.tipo, dados.documento) };
     },
 
     async listar_servicos(a) {
-      const p = empresa(a);
-      return { servicos: repo.listarServicos(p.id).slice(0, 60).map((s) => {
+      const p = await empresa(a);
+      return { servicos: (await repo.listarServicos(p.id)).slice(0, 60).map((s) => {
         const nac = servicoNacional(s.cTribNac);
         return { id: s.id, apelido: s.apelido, cTribNac: s.cTribNac, descricao: s.descricao, valorPadrao: s.valorPadrao, cTribMun: s.cTribMun, cNBS: s.cNBS,
           codigoNacional: nac ? { descricao: nac.descricao, incidencia: nac.incidencia, grupoExigido: nac.grupoExigido } : null };
@@ -222,10 +222,10 @@ export function criarFerramentas(ctx) {
     },
 
     async cadastrar_servico(a) {
-      const p = empresa(a);
-      const id = repo.salvarServico(p.id, null, lerServico(a));
-      reg(p, 'servico.criado', { entidade: 'servico', entidadeId: id });
-      return { servicoId: id, servico: repo.servico(p.id, id) };
+      const p = await empresa(a);
+      const id = await repo.salvarServico(p.id, null, lerServico(a));
+      await reg(p, 'servico.criado', { entidade: 'servico', entidadeId: id });
+      return { servicoId: id, servico: await repo.servico(p.id, id) };
     },
 
     async buscar_codigo_servico(a) {
@@ -244,38 +244,38 @@ export function criarFerramentas(ctx) {
     },
 
     async listar_notas(a) {
-      const p = empresa(a);
+      const p = await empresa(a);
       const competencia = /^\d{4}-\d{2}$/.test(String(a.competencia || '')) ? a.competencia : undefined;
       const limite = Math.min(50, Math.max(1, Number(a.limite) || 20));
-      let notas = repo.listarNotas(p.id, { situacao: a.situacao || undefined, competencia, limite: 200 });
+      let notas = await repo.listarNotas(p.id, { situacao: a.situacao || undefined, competencia, limite: 200 });
       const q = semAcento(a.busca).trim();
       if (q) notas = notas.filter((n) => semAcento(n.rascunho?.tomador?.nome).includes(q) || (n.nNfse || '').includes(q) || (n.chaveAcesso || '').includes(q));
       return {
         total: notas.length,
-        notas: notas.slice(0, limite).map((n) => {
-          const r = resumoNota(repo, p, n);
+        notas: await Promise.all(notas.slice(0, limite).map(async (n) => {
+          const r = await resumoNota(repo, p, n);
           return { id: r.id, situacao: r.situacao, rotulo: r.rotulo, cliente: r.clienteNome, valor: r.valor, competencia: r.competencia, descricao: r.descricao, numeroNfse: r.nNfse || undefined, emitidaEm: r.emitidaEm || undefined };
-        }),
+        })),
       };
     },
 
-    async ver_nota(a) { const p = empresa(a); return notaCurta(repo, p, nota(p, a.notaId)); },
+    async ver_nota(a) { const p = await empresa(a); return await notaCurta(repo, p, await nota(p, a.notaId)); },
 
     async criar_rascunho(a) {
-      const p = empresa(a);
-      const r = comTomadorAtual(repo, p.id, comServico(repo, p.id, lerRascunho(a)));
+      const p = await empresa(a);
+      const r = await comTomadorAtual(repo, p.id, await comServico(repo, p.id, lerRascunho(a)));
       if (r.clienteId === null && a.clienteId) throw new ErroApp(404, 'Cliente não encontrado. Use buscar_clientes.');
       if (r.servicoId === null && a.servicoId) throw new ErroApp(404, 'Serviço salvo não encontrado. Use listar_servicos.');
       if (!r.competencia) r.competencia = hojeBrasilia();
-      const id = repo.criarNota(p.id, r);
-      reg(p, 'rascunho.criado', { entidade: 'nota', entidadeId: id });
-      const n = repo.nota(p.id, id);
-      return { nota: notaCurta(repo, p, n), validacao: await validarId(p, n) };
+      const id = await repo.criarNota(p.id, r);
+      await reg(p, 'rascunho.criado', { entidade: 'nota', entidadeId: id });
+      const n = await repo.nota(p.id, id);
+      return { nota: await notaCurta(repo, p, n), validacao: await validarId(p, n) };
     },
 
     async alterar_rascunho(a) {
-      const p = empresa(a);
-      const atual = nota(p, a.notaId);
+      const p = await empresa(a);
+      const atual = await nota(p, a.notaId);
       if (!['rascunho', 'rejeitada'].includes(atual.situacao)) throw new ErroApp(409, 'Esta nota já foi enviada e não pode mais ser alterada. Para uma nova, use clonar_nota.');
       const mudancas = Object.fromEntries(Object.entries(a).filter(([k]) => k in camposNota));
       let base = { ...atual.rascunho, ...mudancas };
@@ -286,25 +286,25 @@ export function criarFerramentas(ctx) {
       const conferidos = new Set([...Object.keys(mudancas).map((k) => REVISAO_DE[k]).filter(Boolean), ...(Array.isArray(a.confirmarRevisao) ? a.confirmarRevisao : [])]);
       base.revisar = (atual.rascunho.revisar || []).filter((c) => !conferidos.has(c));
       let r = lerRascunho(base);
-      if (r.servicoId && r.servicoId !== atual.rascunho.servicoId) r = comServico(repo, p.id, { ...r, descricao: mudancas.descricao ?? '', valor: mudancas.valor ?? '' });
-      r = comTomadorAtual(repo, p.id, r);
+      if (r.servicoId && r.servicoId !== atual.rascunho.servicoId) r = await comServico(repo, p.id, { ...r, descricao: mudancas.descricao ?? '', valor: mudancas.valor ?? '' });
+      r = await comTomadorAtual(repo, p.id, r);
       if (!r.competencia) r.competencia = atual.rascunho.competencia || hojeBrasilia();
-      if (!repo.atualizarRascunho(p.id, atual.id, r, atual.versao)) throw new ErroApp(409, 'O rascunho foi alterado em outro aparelho agora mesmo. Tente de novo.');
-      const n = repo.nota(p.id, atual.id);
-      return { nota: notaCurta(repo, p, n), validacao: await validarId(p, n) };
+      if (!await repo.atualizarRascunho(p.id, atual.id, r, atual.versao)) throw new ErroApp(409, 'O rascunho foi alterado em outro aparelho agora mesmo. Tente de novo.');
+      const n = await repo.nota(p.id, atual.id);
+      return { nota: await notaCurta(repo, p, n), validacao: await validarId(p, n) };
     },
 
     async validar_nota(a) {
-      const p = empresa(a);
-      const n = nota(p, a.notaId);
+      const p = await empresa(a);
+      const n = await nota(p, a.notaId);
       if (!['rascunho', 'rejeitada'].includes(n.situacao)) return { situacao: n.situacao, mensagem: 'Esta nota já saiu do rascunho; não há o que validar.' };
       return validarId(p, n);
     },
 
     async emitir_nota(a) {
-      const p = empresa(a);
-      const n = nota(p, a.notaId);
-      if (n.situacao === 'emitida') return { situacao: 'emitida', mensagem: 'Esta nota já foi emitida. Não emita de novo.', nota: notaCurta(repo, p, n) };
+      const p = await empresa(a);
+      const n = await nota(p, a.notaId);
+      if (n.situacao === 'emitida') return { situacao: 'emitida', mensagem: 'Esta nota já foi emitida. Não emita de novo.', nota: await notaCurta(repo, p, n) };
       if (['pendente', 'enviando'].includes(n.situacao)) return { situacao: n.situacao, mensagem: 'Nota pendente de confirmação da Receita. NÃO reenvie: use verificar_nota.' };
       const v = await emissao.validarNota(p, n.id);
       if (!v.ok) return { situacao: 'nao_enviada', mensagem: 'A nota não passou na validação. Nada foi enviado. Corrija com alterar_rascunho.', erros: validacaoCurta(v).erros };
@@ -316,45 +316,45 @@ export function criarFerramentas(ctx) {
         return {
           situacao: 'aguardando_confirmacao',
           mensagem: 'O app mostrou ao usuário o resumo desta nota com o botão "Emitir agora". A NFS-e só será enviada quando ele tocar. Não chame emitir_nota de novo para ela; diga ao usuário que confira o resumo e toque no botão.',
-          nota: notaCurta(repo, p, n),
+          nota: await notaCurta(repo, p, n),
         };
       }
-      limites.consumir(`custo:${usuario.id}`, 30, 60_000);
+      await limites.consumir(`custo:${usuario.id}`, 30, 60_000);
       return emitirConfirmada(ctx, p, n.id, { versao: v.versao, revisao: v.revisao, autonoma: true });
     },
 
     async verificar_nota(a) {
-      const p = empresa(a);
-      nota(p, a.notaId);
+      const p = await empresa(a);
+      await nota(p, a.notaId);
       const r = await emissao.verificar(p, String(a.notaId));
-      reg(p, 'emissao.verificada', { entidade: 'nota', entidadeId: a.notaId, detalhes: { situacao: r.situacao } });
-      return notaCurta(repo, p, r);
+      await reg(p, 'emissao.verificada', { entidade: 'nota', entidadeId: a.notaId, detalhes: { situacao: r.situacao } });
+      return await notaCurta(repo, p, r);
     },
 
     async clonar_nota(a) {
-      const p = empresa(a);
-      const origem = a.notaId ? nota(p, a.notaId) : repo.ultimaEmitida(p.id);
-      const id = clonarNota({ repo, db }, { usuarioId: usuario.id, prestador: p, origem, ip, via: 'ia' });
-      const n = repo.nota(p.id, id);
-      return { nota: notaCurta(repo, p, n), validacao: await validarId(p, n), lembrete: 'Confira competência, valor, descrição e tributação com o usuário (ou marque com confirmarRevisao em alterar_rascunho).' };
+      const p = await empresa(a);
+      const origem = a.notaId ? await nota(p, a.notaId) : await repo.ultimaEmitida(p.id);
+      const id = await clonarNota({ repo, db }, { usuarioId: usuario.id, prestador: p, origem, ip, via: 'ia' });
+      const n = await repo.nota(p.id, id);
+      return { nota: await notaCurta(repo, p, n), validacao: await validarId(p, n), lembrete: 'Confira competência, valor, descrição e tributação com o usuário (ou marque com confirmarRevisao em alterar_rascunho).' };
     },
 
     async descartar_rascunho(a) {
-      const p = empresa(a);
-      if (!repo.removerRascunho(p.id, String(a.notaId || ''))) throw new ErroApp(409, 'Só rascunhos e notas rejeitadas podem ser descartados.');
-      reg(p, 'rascunho.descartado', { entidade: 'nota', entidadeId: a.notaId });
+      const p = await empresa(a);
+      if (!await repo.removerRascunho(p.id, String(a.notaId || ''))) throw new ErroApp(409, 'Só rascunhos e notas rejeitadas podem ser descartados.');
+      await reg(p, 'rascunho.descartado', { entidade: 'nota', entidadeId: a.notaId });
       return { ok: true };
     },
 
     async resumo_faturamento(a) {
-      const p = empresa(a);
-      return { faturamento: painelDe(repo, p), notasPorSituacao: repo.contarNotasPorSituacao(p.id), observacao: 'Totais só das notas emitidas por este app ou trazidas da Receita, por competência, no ambiente atual da empresa.' };
+      const p = await empresa(a);
+      return { faturamento: await painelDe(repo, p), notasPorSituacao: await repo.contarNotasPorSituacao(p.id), observacao: 'Totais só das notas emitidas por este app ou trazidas da Receita, por competência, no ambiente atual da empresa.' };
     },
 
     async listar_notas_tomadas(a) {
-      const p = empresa(a);
+      const p = await empresa(a);
       const competencia = /^\d{4}-\d{2}$/.test(String(a.competencia || '')) ? a.competencia : undefined;
-      const lista = repo.listarTomadas(p.id, p.ambiente, { competencia });
+      const lista = await repo.listarTomadas(p.id, p.ambiente, { competencia });
       const validas = lista.filter((t) => t.situacao !== 'cancelada');
       const soma = (k) => validas.reduce((s, t) => s + Number(t[k] || 0), 0).toFixed(2);
       return {
@@ -365,9 +365,9 @@ export function criarFerramentas(ctx) {
     },
 
     async sincronizar_receita(a) {
-      const p = empresa(a);
+      const p = await empresa(a);
       const r = await tomadas.sincronizar(p);
-      reg(p, 'tomadas.sincronizadas', { detalhes: { novas: r.novas, canceladas: r.canceladas, emitidas: r.emitidas } });
+      await reg(p, 'tomadas.sincronizadas', { detalhes: { novas: r.novas, canceladas: r.canceladas, emitidas: r.emitidas } });
       return r;
     },
   };
@@ -389,21 +389,21 @@ export function criarFerramentas(ctx) {
 // Emissão de verdade (modo autônomo ou depois do toque em "Emitir agora"). Mesma máquina de estados da tela.
 export async function emitirConfirmada({ app, usuario, ip }, p, notaId, { versao, revisao, autonoma = false }) {
   const { repo, db, emissao } = app;
-  const n = repo.nota(p.id, notaId);
+  const n = await repo.nota(p.id, notaId);
   if (!n) throw naoEncontrado('Nota');
-  auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: 'emissao.solicitada', entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', autonoma }, ip });
+  await auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: 'emissao.solicitada', entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', autonoma }, ip });
   let resultado;
   try {
     resultado = await emissao.emitir(p, notaId, { versao, revisao });
   } catch (e) {
     if (e instanceof ErroApp) {
-      auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: 'emissao.nao_concluida', entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', status: e.status }, ip });
-      return { situacao: e.extra?.resultadoIncerto ? 'pendente' : 'nao_enviada', mensagem: e.message, ...e.extra, nota: repo.nota(p.id, notaId) ? notaCurta(repo, p, repo.nota(p.id, notaId)) : undefined };
+      await auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: 'emissao.nao_concluida', entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', status: e.status }, ip });
+      return { situacao: e.extra?.resultadoIncerto ? 'pendente' : 'nao_enviada', mensagem: e.message, ...e.extra, nota: await repo.nota(p.id, notaId) ? await notaCurta(repo, p, await repo.nota(p.id, notaId)) : undefined };
     }
     throw e;
   }
-  auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: `emissao.${resultado.situacao}`, entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', autonoma, codigos: resultado.erros?.map((x) => x.codigo) }, ip });
-  if (n.rascunho.clienteId) repo.marcarClienteUsado(p.id, n.rascunho.clienteId);
-  if (n.rascunho.servicoId) repo.marcarServicoUsado(p.id, n.rascunho.servicoId);
-  return { situacao: resultado.situacao, nota: notaCurta(repo, p, resultado) };
+  await auditar(db, { usuarioId: usuario.id, prestadorId: p.id, acao: `emissao.${resultado.situacao}`, entidade: 'nota', entidadeId: notaId, detalhes: { via: 'ia', autonoma, codigos: resultado.erros?.map((x) => x.codigo) }, ip });
+  if (n.rascunho.clienteId) await repo.marcarClienteUsado(p.id, n.rascunho.clienteId);
+  if (n.rascunho.servicoId) await repo.marcarServicoUsado(p.id, n.rascunho.servicoId);
+  return { situacao: resultado.situacao, nota: await notaCurta(repo, p, resultado) };
 }

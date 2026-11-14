@@ -147,9 +147,9 @@ function assinaturaNfse(xml, chave) {
 
 // Ao trocar o XML trazido pela pessoa pela versão oficial da Receita, o vínculo com o cliente e o
 // serviço salvos só fica se forem o mesmo tomador e o mesmo código da nota oficial.
-export function manterVinculos(repo, prestadorId, anterior, rascunhoOficial) {
-  const cliente = anterior?.clienteId ? repo.cliente(prestadorId, anterior.clienteId) : null;
-  const servico = anterior?.servicoId ? repo.servico(prestadorId, anterior.servicoId) : null;
+export async function manterVinculos(repo, prestadorId, anterior, rascunhoOficial) {
+  const cliente = anterior?.clienteId ? await repo.cliente(prestadorId, anterior.clienteId) : null;
+  const servico = anterior?.servicoId ? await repo.servico(prestadorId, anterior.servicoId) : null;
   const documento = rascunhoOficial?.tomador?.documento;
   return { ...rascunhoOficial,
     clienteId: cliente && documento && String(cliente.documento) === String(documento) ? cliente.id : null,

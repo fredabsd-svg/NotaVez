@@ -1,4 +1,4 @@
--- Esquema do Nota Sem Stress (SQLite no MVP; compatível com migração para PostgreSQL).
+-- Esquema do Nota Sem Stress em PostgreSQL (Neon na Vercel; PGlite nos testes e na demonstração).
 -- Campos *_cifrado usam AES-256-GCM (security/cripto.js). *_indice são HMACs
 -- para busca exata sem expor CPF/CNPJ.
 
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS contadores_dps (
 
 -- Cada chamada à API oficial (sem dados pessoais).
 CREATE TABLE IF NOT EXISTS chamadas_api (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id BIGSERIAL PRIMARY KEY,
   nota_id TEXT,
   operacao TEXT NOT NULL,           -- envio | reenvio | consulta_dps | consulta_nfse
   http_status INTEGER,
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS chamadas_api (
 );
 
 CREATE TABLE IF NOT EXISTS auditoria (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id BIGSERIAL PRIMARY KEY,
   usuario_id TEXT,
   prestador_id TEXT,
   acao TEXT NOT NULL,
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS notas_tomadas (
   id TEXT PRIMARY KEY,
   prestador_id TEXT NOT NULL REFERENCES prestadores(id) ON DELETE CASCADE,
   ambiente TEXT NOT NULL,
-  nsu INTEGER NOT NULL,
+  nsu BIGINT NOT NULL,
   chave_cifrada TEXT NOT NULL,
   chave_indice TEXT NOT NULL,
   resumo_cifrado TEXT NOT NULL,     -- {emitente, descricao, servico, municípios}
@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS distribuicao_dfe (
   prestador_id TEXT NOT NULL REFERENCES prestadores(id) ON DELETE CASCADE,
   ambiente TEXT NOT NULL,
   documento_indice TEXT NOT NULL,
-  ultimo_nsu INTEGER NOT NULL DEFAULT 0,
+  ultimo_nsu BIGINT NOT NULL DEFAULT 0,
   sincronizado_em TEXT,
   -- Versão da leitura: 2 = a fila já foi lida guardando também as notas emitidas pela empresa.
   leitura INTEGER NOT NULL DEFAULT 2,
@@ -241,3 +241,52 @@ CREATE TABLE IF NOT EXISTS ia_conversas (
   atualizado_em TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_ia_conversas_usuario ON ia_conversas(usuario_id, atualizado_em);
+
+-- Colunas acrescentadas depois da primeira versão (idempotente: roda em bancos já criados).
+ALTER TABLE notas ADD COLUMN IF NOT EXISTS ordem BIGSERIAL;             -- ordem de criação (desempate das listas)
+ALTER TABLE notas ADD COLUMN IF NOT EXISTS canal TEXT;                  -- NULL = API pelo app; 'emissor_nacional' | 'sincronizada'
+ALTER TABLE notas ADD COLUMN IF NOT EXISTS importada_conferida INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE prestadores ADD COLUMN IF NOT EXISTS usa_procuracao INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS tipo_documento TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS documento_cifrado TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS documento_indice TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS documento_verificado INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nome TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS govbr_indice TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS documento_origem TEXT;   -- 'vinculo_govbr' = CPF veio de um gov.br vinculado depois
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS codigo_recuperacao_hash TEXT;
+ALTER TABLE sessoes ADD COLUMN IF NOT EXISTS lembrar INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS ix_notas_verificacao ON notas(situacao, proxima_verificacao_em);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_documento ON usuarios(documento_indice) WHERE documento_indice IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_govbr ON usuarios(govbr_indice) WHERE govbr_indice IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_sessoes_usuario ON sessoes(usuario_id);
+
+-- Recuperação de senha, limites de tentativa e aparelhos confiáveis (nada em claro: só hashes).
+CREATE TABLE IF NOT EXISTS recuperacoes_senha (
+  token_hash TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  expira_em TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_recuperacoes_usuario ON recuperacoes_senha(usuario_id);
+CREATE TABLE IF NOT EXISTS limites_conta (
+  chave_hash TEXT PRIMARY KEY, quantidade INTEGER NOT NULL, ate_ms BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS aparelhos_confiaveis (
+  token_hash TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criado_em TEXT NOT NULL,
+  ordem BIGSERIAL
+);
+CREATE INDEX IF NOT EXISTS ix_aparelhos_usuario ON aparelhos_confiaveis(usuario_id);
+
+-- Entrar com gov.br: fluxos OAuth em andamento.
+CREATE TABLE IF NOT EXISTS govbr_fluxos (
+  token_hash TEXT PRIMARY KEY, state TEXT NOT NULL, nonce TEXT NOT NULL, verificador TEXT NOT NULL,
+  modo TEXT NOT NULL, usuario_id TEXT REFERENCES usuarios(id) ON DELETE CASCADE, expira_em TEXT NOT NULL
+);
+
+-- Limites de requisições (só hashes das chaves).
+CREATE TABLE IF NOT EXISTS limites_requisicoes (
+  chave TEXT PRIMARY KEY, quantidade INTEGER NOT NULL, expira_em BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_limites_expira ON limites_requisicoes(expira_em);

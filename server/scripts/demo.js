@@ -20,7 +20,8 @@ if (!process.env.NOTAVEZ_MASTER_KEY) {
   if (!existsSync(arquivoChave)) writeFileSync(arquivoChave, randomBytes(32).toString('base64'), { mode: 0o600 });
   process.env.NOTAVEZ_MASTER_KEY = readFileSync(arquivoChave, 'utf8').trim();
 }
-process.env.NOTAVEZ_DB ??= join(pastaDados, 'notavez-demo.db');
+// Banco Postgres embutido (PGlite) numa pasta: continua depois de reiniciar.
+process.env.NOTAVEZ_DB ??= join(pastaDados, 'banco');
 const { gerarCertificadoTeste } = await import('../test/apoio/certificado-teste.js');
 const { iniciarSefinSimulada } = await import('../test/apoio/sefin-simulada.js');
 const { criarApp } = await import('../src/app.js');

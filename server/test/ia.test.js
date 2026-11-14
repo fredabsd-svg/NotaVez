@@ -109,7 +109,7 @@ test('configuração: chave cifrada, nunca devolvida; sem configurar, o chat avi
   assert.equal(lida.body.config.modelo, 'claude-sonnet-5-5');
   assert.equal(lida.body.config.emissaoAutonoma, true);
   assert.ok(!JSON.stringify(lida.body).includes('segredo'));
-  const linha = app.ctx.db.get('SELECT chave_cifrada FROM ia_config');
+  const linha = await app.ctx.db.get('SELECT chave_cifrada FROM ia_config');
   assert.ok(!linha.chave_cifrada.includes('segredo'), 'chave guardada cifrada');
   // Personalizado precisa de endereço público com https.
   assert.equal((await api('PUT', '/api/ia/config', { provedor: 'personalizado', modelo: 'meu-modelo', chave: 'chave-qualquer-123' })).status, 422);
@@ -166,7 +166,7 @@ test('modo com confirmação: a IA prepara, o usuário toca em "Emitir agora" e 
   assert.equal((await api('POST', `/api/ia/conversas/${conv.id}/emissao`, { notaId: pendente.id, emitir: true })).status, 409);
   assert.equal(sefin.estado.recebidas.length, antes + 1);
   // A auditoria registra que a emissão veio do assistente, por confirmação.
-  const aud = app.ctx.db.all("SELECT detalhes FROM auditoria WHERE acao = 'emissao.solicitada' AND entidade_id = ?", pendente.id);
+  const aud = await app.ctx.db.all("SELECT detalhes FROM auditoria WHERE acao = 'emissao.solicitada' AND entidade_id = ?", pendente.id);
   assert.deepEqual(JSON.parse(aud[0].detalhes), { via: 'ia', autonoma: false });
 });
 

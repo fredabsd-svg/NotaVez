@@ -135,11 +135,11 @@ test('várias empresas: lista, seleção por cabeçalho conferida contra o dono,
   assert.equal((await outra('DELETE', `/api/empresas/${a.body.empresaId}`)).status, 404);
 
   // Remoção: só sem notas enviadas; rascunhos vão junto.
-  app.ctx.db.run("UPDATE notas SET situacao = 'emitida' WHERE id = ?", nota.body.nota.id);
+  await app.ctx.db.run("UPDATE notas SET situacao = 'emitida' WHERE id = ?", nota.body.nota.id);
   assert.equal((await api('DELETE', `/api/empresas/${b.body.empresaId}`)).status, 409);
-  app.ctx.db.run("UPDATE notas SET situacao = 'rascunho' WHERE id = ?", nota.body.nota.id);
+  await app.ctx.db.run("UPDATE notas SET situacao = 'rascunho' WHERE id = ?", nota.body.nota.id);
   assert.equal((await api('DELETE', `/api/empresas/${b.body.empresaId}`)).status, 200);
-  assert.equal(app.ctx.db.get('SELECT count(*) n FROM notas WHERE id = ?', nota.body.nota.id).n, 0);
+  assert.equal((await app.ctx.db.get('SELECT count(*) n FROM notas WHERE id = ?', nota.body.nota.id)).n, 0);
   assert.equal((await api('GET', '/api/clientes', undefined, comB)).body.codigo, 'EMPRESA_INDISPONIVEL');
   assert.equal((await api('GET', '/api/empresas')).body.empresas.length, 1);
 });

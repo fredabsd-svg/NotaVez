@@ -72,13 +72,13 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
     let dados;
     try { dados = await lerNfseImportada(xml, { exigirAssinatura: false, fonteOficial: true }); } catch { return 'ilegivel'; }
     if (dados.emitente?.documento !== prestador.documento || dados.ambiente !== prestador.ambiente) return 'ignorada';
-    const existente = repo.notaPorChave(prestador.id, dados.chaveAcesso);
+    const existente = await repo.notaPorChave(prestador.id, dados.chaveAcesso);
     if (existente) {
       // XML que a pessoa trouxe quando a empresa não tinha certificado: agora vale a versão da Receita.
       if (existente.situacao === 'emitida' && existente.canal === 'emissor_nacional' && !existente.importadaConferida) {
-        repo.reconferirImportada(prestador.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm, ambiente: dados.ambiente,
-          rascunho: manterVinculos(repo, prestador.id, existente.rascunho, dados.rascunho) });
-        registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.reconferida', entidade: 'nota', entidadeId: existente.id, detalhes: { origem: 'sincronizacao' } });
+        await repo.reconferirImportada(prestador.id, existente.id, { xml, nNfse: dados.nNfse, emitidaEm: dados.emitidaEm, ambiente: dados.ambiente,
+          rascunho: await manterVinculos(repo, prestador.id, existente.rascunho, dados.rascunho) });
+        await registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.reconferida', entidade: 'nota', entidadeId: existente.id, detalhes: { origem: 'sincronizacao' } });
         return 'conferida';
       }
       return 'existente';
@@ -87,28 +87,28 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
     // verificação dela, que consulta a Receita antes de qualquer reenvio. Aqui não se cria uma segunda.
     // Só vale se for mesmo a DPS do app: outro sistema da empresa pode ter usado a mesma série e o mesmo
     // número, e essa nota (que não é a do app) entra normalmente como emitida fora do app.
-    const doApp = dados.idDps ? repo.notaPorIdDps(prestador.id, dados.idDps) : null;
-    if (doApp && mesmaDps(repo.xmlDps(doApp.id), xml) !== false) return 'do_app';
+    const doApp = dados.idDps ? await repo.notaPorIdDps(prestador.id, dados.idDps) : null;
+    if (doApp && mesmaDps(await repo.xmlDps(doApp.id), xml) !== false) return 'do_app';
     const documento = dados.rascunho.tomador?.documento;
-    const cliente = documento ? repo.clientePorDocumento(prestador.id, documento) : null;
+    const cliente = documento ? await repo.clientePorDocumento(prestador.id, documento) : null;
     // Na lista, a nota entra na data em que a Receita a autorizou, e não como se fosse de agora.
     const instante = new Date(dados.emitidaEm || '');
-    const id = repo.registrarImportada(prestador.id, null, { ...dados, rascunho: { ...dados.rascunho, clienteId: cliente?.id || null }, xml, contexto: prestador, conferida: true, canal: 'sincronizada',
+    const id = await repo.registrarImportada(prestador.id, null, { ...dados, rascunho: { ...dados.rascunho, clienteId: cliente?.id || null }, xml, contexto: prestador, conferida: true, canal: 'sincronizada',
       ...(Number.isNaN(instante.getTime()) || instante > new Date() ? {} : { atualizadaEm: instante.toISOString() }) });
-    registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.sincronizada', entidade: 'nota', entidadeId: id });
+    await registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.sincronizada', entidade: 'nota', entidadeId: id });
     return 'nova';
   }
 
   async function executar(prestador) {
     const ambiente = prestador.ambiente;
-    let { ultimoNsu, leitura } = repo.distribuicao(prestador.id, ambiente, prestador.documento);
+    let { ultimoNsu, leitura } = await repo.distribuicao(prestador.id, ambiente, prestador.documento);
     // Fila lida por uma versão que só guardava as tomadas: relê desde o início, uma única vez, para
     // trazer as notas que a empresa emitiu fora do app (as tomadas já guardadas não se repetem).
-    if (leitura < 2 && repo.reiniciarLeitura(prestador.id, ambiente, prestador.documento)) ultimoNsu = 0;
+    if (leitura < 2 && await repo.reiniciarLeitura(prestador.id, ambiente, prestador.documento)) ultimoNsu = 0;
     const resultado = { novas: 0, canceladas: 0, emitidas: 0, emitidasCanceladas: 0, ilegiveis: 0, lidos: 0 };
     for (let lote = 0; lote < LOTES_POR_SINCRONIZACAO; lote++) {
       const r = await emissao.distribuirDfe(prestador, ultimoNsu);
-      repo.registrarChamada(null, 'distribuicao_dfe', { http: r.http, tipo: r.tipo, ms: r.ms, erros: r.erros?.length ? r.erros : undefined, detalhe: r.detalhe });
+      await repo.registrarChamada(null, 'distribuicao_dfe', { http: r.http, tipo: r.tipo, ms: r.ms, erros: r.erros?.length ? r.erros : undefined, detalhe: r.detalhe });
       if (r.tipo !== 'ok') {
         if (lote === 0) {
           // Com resposta da Receita, mostra o motivo dela (ex.: procuração não vigente); sem resposta, pede para tentar depois.
@@ -116,7 +116,7 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
           const naoAutorizada = r.http === 401 || r.http === 403;
           const dica = prestador.usaProcuracao ? ' Confira se a procuração eletrônica NFS-e desta empresa para o escritório está vigente.' : '';
           // A recusa fica guardada: as telas avisam que a empresa precisa de atenção até uma consulta dar certo.
-          if (motivo || naoAutorizada) repo.registrarRecusaDistribuicao(prestador.id, ambiente, prestador.documento, motivo || 'A Receita não autorizou a consulta com este certificado.');
+          if (motivo || naoAutorizada) await repo.registrarRecusaDistribuicao(prestador.id, ambiente, prestador.documento, motivo || 'A Receita não autorizou a consulta com este certificado.');
           throw new ErroApp(502, motivo ? `A Receita recusou a consulta das notas: ${motivo}${dica}`
             : naoAutorizada ? `A Receita não autorizou a consulta das notas com este certificado.${dica}`
               : 'A Receita não respondeu à consulta das notas. Tente novamente em alguns minutos.', { erros: r.erros || [] });
@@ -133,11 +133,11 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
           let chave = null;
           try { chave = chaveCancelada(d.xml); } catch { chave = null; }
           if (!chave) continue;
-          if (repo.cancelarTomada(prestador.id, ambiente, chave)) resultado.canceladas += 1;
+          if (await repo.cancelarTomada(prestador.id, ambiente, chave)) resultado.canceladas += 1;
           // Nota da própria empresa cancelada no portal: sai dos totais e fica no histórico como cancelada.
-          else if (repo.cancelarEmitida(prestador.id, chave)) {
+          else if (await repo.cancelarEmitida(prestador.id, chave)) {
             resultado.emitidasCanceladas += 1;
-            registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.cancelada_no_portal', entidade: 'nota', entidadeId: repo.notaPorChave(prestador.id, chave)?.id });
+            await registrar({ usuarioId: prestador.usuarioId, prestadorId: prestador.id, acao: 'nota.cancelada_no_portal', entidade: 'nota', entidadeId: (await repo.notaPorChave(prestador.id, chave))?.id });
           }
           continue;
         }
@@ -146,7 +146,7 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
         if (!n?.chaveAcesso) { resultado.ilegiveis += 1; continue; }
         // A empresa é a tomadora: nota recebida de um fornecedor.
         if (n.tomador?.documento === prestador.documento) {
-          if (repo.salvarTomada(prestador.id, ambiente, { ...n, nsu: d.nsu, xml: d.xml })) resultado.novas += 1;
+          if (await repo.salvarTomada(prestador.id, ambiente, { ...n, nsu: d.nsu, xml: d.xml })) resultado.novas += 1;
         } else if (n.resumo.emitente?.documento === prestador.documento) {
           // A empresa é a emitente: nota emitida por ela (pelo app ou fora dele).
           const situacao = await registrarEmitida(prestador, d.xml);
@@ -154,11 +154,11 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
           if (situacao === 'ilegivel') resultado.ilegiveis += 1;
         }
       }
-      repo.gravarDistribuicao(prestador.id, ambiente, prestador.documento, maior);
+      await repo.gravarDistribuicao(prestador.id, ambiente, prestador.documento, maior);
       if (maior <= ultimoNsu || r.documentos.length < 50) break;
       ultimoNsu = maior;
     }
-    return { ...resultado, ...repo.distribuicao(prestador.id, ambiente, prestador.documento) };
+    return { ...resultado, ...(await repo.distribuicao(prestador.id, ambiente, prestador.documento)) };
   }
 
   // Uma sincronização por empresa por vez, e no máximo uma por minuto (o ADN limita o consumo).
@@ -182,13 +182,15 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
   // Roda em segundo plano, uma empresa por vez; a tela acompanha pelo andamento.
   const lotes = new Map();
   const situacaoLote = (usuarioId) => ({ ...(lotes.get(usuarioId) || { emAndamento: false, total: 0, feitas: 0, tomadas: 0, emitidas: 0, canceladas: 0, falhas: [], iniciadaEm: null, terminadaEm: null }) });
-  function iniciarLote(usuarioId) {
+  // `aguardar`: espera a busca terminar antes de responder (servidor sem processo contínuo, como a Vercel:
+  // o andamento em memória não sobrevive entre chamadas, então a resposta já traz o resultado final).
+  async function iniciarLote(usuarioId, { aguardar = false } = {}) {
     if (lotes.get(usuarioId)?.emAndamento) return situacaoLote(usuarioId);
-    const empresas = repo.prestadoresComCertificado(usuarioId);
+    const empresas = await repo.prestadoresComCertificado(usuarioId);
     const agora = new Date().toISOString();
     const lote = { emAndamento: empresas.length > 0, total: empresas.length, feitas: 0, tomadas: 0, emitidas: 0, canceladas: 0, falhas: [], iniciadaEm: agora, terminadaEm: empresas.length ? null : agora };
     lotes.set(usuarioId, lote);
-    (async () => {
+    const execucao = (async () => {
       try {
         for (const [i, p] of empresas.entries()) {
           try {
@@ -207,17 +209,20 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
         lote.terminadaEm = new Date().toISOString();
       }
     })().catch(() => {});
+    if (aguardar) await execucao;
     return situacaoLote(usuarioId);
   }
 
   // Tarefa periódica do servidor: todas as empresas com certificado válido, uma por vez. Falhas não param a fila.
   let rodandoTodas = false;
-  async function sincronizarTodas() {
+  // `ateMs`: horário-limite (ex.: tarefa agendada com tempo máximo de execução); o que sobrar fica para a próxima.
+  async function sincronizarTodas({ ateMs = Infinity } = {}) {
     if (rodandoTodas) return { empresas: 0 };
     rodandoTodas = true;
     let empresas = 0;
     try {
-      for (const p of repo.prestadoresComCertificado()) {
+      for (const p of await repo.prestadoresComCertificado()) {
+        if (Date.now() > ateMs) break;
         try { await sincronizar(p); empresas += 1; } catch { /* a próxima rodada tenta de novo */ }
         if (pausaEntreEmpresasMs) await esperar(pausaEntreEmpresasMs);
       }

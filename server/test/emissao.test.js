@@ -259,11 +259,11 @@ test('segurança: login, CSRF, isolamento entre contas e dados cifrados em repou
   assert.equal((await outro.api('GET', `/api/clientes/${u.clienteId}`)).status, 404);
 
   const { db } = app.ctx;
-  const linhas = JSON.stringify([...db.all('SELECT * FROM clientes'), ...db.all('SELECT * FROM prestadores'), ...db.all('SELECT * FROM notas'), ...db.all('SELECT * FROM auditoria')]);
+  const linhas = JSON.stringify([...await db.all('SELECT * FROM clientes'), ...await db.all('SELECT * FROM prestadores'), ...await db.all('SELECT * FROM notas'), ...await db.all('SELECT * FROM auditoria')]);
   assert.ok(!linhas.includes('52998224725'), 'CPF do cliente não aparece em claro');
   assert.ok(!linhas.includes('Maria da Silva'), 'nome do cliente não aparece em claro');
   assert.ok(!linhas.includes('11222333000181'), 'CNPJ não aparece em claro');
-  const certRow = JSON.stringify(db.all('SELECT * FROM certificados'));
+  const certRow = JSON.stringify(await db.all('SELECT * FROM certificados'));
   assert.ok(!certRow.includes(cert.senha + '"'), 'senha do certificado não aparece em claro');
 
   const tentativas = [];

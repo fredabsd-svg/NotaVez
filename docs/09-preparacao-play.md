@@ -7,7 +7,7 @@ As correções desta entrega preparam o código para homologação e testes Andr
 - Emissão com revisão vinculada à versão dos dados, controle de concorrência persistido, recuperação após interrupção e consulta no ambiente original da nota. Reenvio preserva a DPS assinada e exige certificado ainda ativo e válido.
 - Rascunhos/cache offline separados por usuário e prestador; troca de conta interrompe sincronizações anteriores. Conflitos preservam alterações locais para resolução explícita. Dados legados sem titular ficam em quarentena.
 - Recuperação de senha com token de uso único, revogação de sessões e entrega configurável; exclusão autenticada dentro e fora do app, com bloqueio para emissões ainda incertas. Páginas públicas de privacidade e exclusão.
-- Limites persistidos, proxy confiável explícito, backup SQLite com verificação e modelos de operação HTTPS.
+- Limites persistidos, proxy confiável explícito, backup do banco com verificação e modelos de operação HTTPS.
 - Gerador Android TWA com configuração obrigatória do titular, Digital Asset Links, toolchain fixada e validação do projeto API 36.
 - CI em Node 22 e 24; fluxo de navegador com integração fiscal simulada e CSP ativa.
 

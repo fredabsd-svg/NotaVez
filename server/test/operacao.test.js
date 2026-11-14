@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const { abrirBanco } = await import('../src/db/banco.js');
 const { criarLimites } = await import('../src/security/limites.js');
-const { criarBackup } = await import('../scripts/backup.mjs');
+const { criarBackup, restaurarBackup } = await import('../scripts/backup.mjs');
 const { cifrar, decifrar } = await import('../src/security/cripto.js');
 const { criarApp } = await import('../src/app.js');
 
@@ -14,34 +14,38 @@ test('limites persistem após reabrir banco, expiram e não guardam chave litera
   const pasta = await mkdtemp(join(tmpdir(), 'nv-limites-'));
   let db;
   try {
-    const caminho = join(pasta, 'banco.db');
     let tempo = 100;
-    db = abrirBanco(caminho);
-    criarLimites(db, { agora: () => tempo }).consumir('email@exemplo.com', 1, 1000);
-    assert.notEqual(db.get('SELECT chave FROM limites_requisicoes').chave, 'email@exemplo.com');
-    db.fechar(); db = abrirBanco(caminho);
+    db = await abrirBanco(pasta);
+    await criarLimites(db, { agora: () => tempo }).consumir('email@exemplo.com', 1, 1000);
+    assert.notEqual((await db.get('SELECT chave FROM limites_requisicoes')).chave, 'email@exemplo.com');
+    await db.fechar(); db = await abrirBanco(pasta);
     const limites = criarLimites(db, { agora: () => tempo });
-    assert.throws(() => limites.consumir('email@exemplo.com', 1, 1000), (e) => e.status === 429);
+    await assert.rejects(limites.consumir('email@exemplo.com', 1, 1000), (e) => e.status === 429);
     tempo = 1100;
-    assert.doesNotThrow(() => limites.consumir('email@exemplo.com', 1, 1000));
-  } finally { db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
+    await assert.doesNotReject(limites.consumir('email@exemplo.com', 1, 1000));
+  } finally { await db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
 });
 
-test('backup captura WAL e restaura dados cifrados sem incluir a chave', async () => {
+test('backup lógico restaura dados cifrados num banco novo sem incluir a chave', async () => {
   const pasta = await mkdtemp(join(tmpdir(), 'nv-backup-'));
   let db; let restaurado;
   try {
-    db = abrirBanco(join(pasta, 'origem.db'));
-    db.raw.exec('CREATE TABLE exemplo (segredo TEXT)');
-    db.run('INSERT INTO exemplo VALUES (?)', cifrar({ documento: 'somente-teste' }));
+    db = await abrirBanco(':memory:');
+    await db.run("INSERT INTO usuarios (id, email, senha_hash, criado_em) VALUES ('u1', 'a@exemplo.com', 'h', '2026-01-01')");
+    await db.run("INSERT INTO prestadores (id, usuario_id, documento_cifrado, nome, criado_em, atualizado_em) VALUES ('p1', 'u1', ?, 'Empresa', '2026-01-01', '2026-01-01')", cifrar('11222333000181'));
+    await db.run("INSERT INTO auditoria (acao, criado_em) VALUES ('teste', '2026-01-01')");
     const destino = join(pasta, 'snapshot');
-    const manifesto = await criarBackup(join(pasta, 'origem.db'), destino);
+    const manifesto = await criarBackup(db, destino);
     assert.equal(manifesto.chaveIncluida, false);
-    restaurado = abrirBanco(join(destino, 'notavez.db'));
-    assert.deepEqual(JSON.parse(decifrar(restaurado.get('SELECT segredo FROM exemplo').segredo)), { documento: 'somente-teste' });
     assert.doesNotMatch(await readFile(join(destino, 'manifesto.json'), 'utf8'), /MASTER_KEY/);
-    await assert.rejects(criarBackup(join(pasta, 'origem.db'), destino), { code: 'EEXIST' });
-  } finally { restaurado?.fechar(); db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
+    assert.doesNotMatch(await readFile(join(destino, 'prestadores.json'), 'utf8'), /11222333000181/);
+    await assert.rejects(criarBackup(db, destino), { code: 'EEXIST' });
+    restaurado = await abrirBanco(':memory:');
+    await restaurarBackup(restaurado, destino);
+    assert.equal(decifrar((await restaurado.get("SELECT documento_cifrado d FROM prestadores WHERE id = 'p1'")).d), '11222333000181');
+    await restaurado.run("INSERT INTO auditoria (acao, criado_em) VALUES ('depois', '2026-01-02')");
+    assert.equal((await restaurado.get('SELECT count(*) n FROM auditoria')).n, 2, 'a sequência continua depois do restaurado');
+  } finally { await restaurado?.fechar(); await db?.fechar(); await rm(pasta, { recursive: true, force: true }); }
 });
 
 test('IP encaminhado não contorna limite quando proxy não é confiado', async () => {
@@ -61,16 +65,16 @@ test('identidade esperada recusa mutação após troca de cookie', async () => {
   try {
     const cadastrar = async (email) => app.inject({ method: 'POST', url: '/api/conta/cadastrar', headers: { 'x-notavez': '1' }, payload: { email, senha: 'senha-segura' } });
     await cadastrar('a@example.com');
-    const idA = app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'a@example.com').id;
+    const idA = (await app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'a@example.com')).id;
     const b = await cadastrar('b@example.com');
     const cookie = [b.headers['set-cookie']].flat().find((c) => c.startsWith('nv_sessao=')).split(';')[0];
     const r = await app.inject({ method: 'PUT', url: '/api/perfil', headers: { cookie, 'x-notavez': '1', 'x-notavez-usuario': idA }, payload: {} });
     assert.equal(r.statusCode, 409);
     assert.equal(r.json().codigo, 'CONTA_ALTERADA');
-    assert.equal(app.ctx.db.get('SELECT count(*) n FROM prestadores').n, 0);
+    assert.equal((await app.ctx.db.get('SELECT count(*) n FROM prestadores')).n, 0);
     const del = await app.inject({ method: 'DELETE', url: '/api/conta', headers: { cookie, 'x-notavez': '1', 'x-notavez-usuario': idA }, payload: { senha: 'senha-segura' } });
     assert.equal(del.statusCode, 409, 'DELETE conta também confere identidade, mesmo quando as senhas coincidem');
-    assert.equal(app.ctx.db.get('SELECT count(*) n FROM usuarios').n, 2);
+    assert.equal((await app.ctx.db.get('SELECT count(*) n FROM usuarios')).n, 2);
   } finally { await app.close(); }
 });
 

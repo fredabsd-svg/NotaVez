@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 import { abrirBanco } from './db/banco.js';
 import { criarRepositorio } from './db/repositorio.js';
@@ -30,7 +31,7 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
   assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa } = {}) {
-  const db = abrirBanco(banco);
+  const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
   const emissao = criarServicoEmissao({ repo, fabricaCliente });
@@ -77,8 +78,10 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     // gov.br: só as rotas GET (descoberta, início e retorno) dispensam sessão.
     const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|recuperacao|redefinir|redefinir-codigo|transparencia|sair)$|saude$|tabelas\/)/.test(rota)
       || (req.method === 'GET' && /^\/api\/conta\/govbr(\/(entrar|retorno))?$/.test(rota))
-      || (config.demo && rota.startsWith('/api/demo/'));
-    req.usuario = auth.usuarioDaSessao(req.cookies[COOKIE]);
+      || (config.demo && rota.startsWith('/api/demo/'))
+      // Tarefas agendadas: sem sessão, mas só com o segredo do Cron (conferido na própria rota).
+      || (req.method === 'GET' && rota.startsWith('/api/cron/'));
+    req.usuario = await auth.usuarioDaSessao(req.cookies[COOKIE]);
     if (req.usuario?.renovada) reply.setCookie(COOKIE, req.cookies[COOKIE], opcoesCookie(true, config.cookieSeguro));
     if (!req.usuario && !livre) throw new ErroApp(401, 'Entre na sua conta para continuar.');
     // A sessão pode ter sido trocada em outra aba depois que a tela foi aberta.
@@ -96,13 +99,13 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
       const pedida = req.headers['x-notavez-prestador'] ?? (req.method === 'GET' ? req.query?.empresa : undefined);
       const descoberta = req.method === 'GET' && rota === '/api/conta';
       req.empresaPedida = pedida;
-      if (pedida === undefined) req.prestador = repo.prestadorDoUsuario(req.usuario.id);
+      if (pedida === undefined) req.prestador = await repo.prestadorDoUsuario(req.usuario.id);
       else if (pedida) {
-        req.prestador = repo.prestadorDoUsuarioPorId(req.usuario.id, pedida);
+        req.prestador = await repo.prestadorDoUsuarioPorId(req.usuario.id, pedida);
         if (!req.prestador && !descoberta && !livre) throw new ErroApp(409, 'Esta empresa não está mais disponível na sua conta.', { codigo: 'EMPRESA_INDISPONIVEL' });
       }
     }
-    limites.requisicao(req);
+    await limites.requisicao(req);
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -128,6 +131,24 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     : reply.code(404).send({ erro: 'Associação Android ainda não configurada.' }));
 
   app.get('/api/saude', async () => ({ ok: true, demo: config.demo }));
+
+  // Tarefas agendadas (Vercel Cron): conferir notas pendentes e buscar na Receita as notas de todas as
+  // empresas. Num servidor contínuo (npm start) elas rodam sozinhas em segundo plano (index.js).
+  const cronAutorizado = (req) => {
+    const esperado = Buffer.from(`Bearer ${config.cronSegredo}`);
+    const recebido = Buffer.from(String(req.headers.authorization || ''));
+    return !!config.cronSegredo && esperado.length === recebido.length && timingSafeEqual(esperado, recebido);
+  };
+  app.get('/api/cron/pendentes', async (req) => {
+    if (!cronAutorizado(req)) throw new ErroApp(401, 'Não autorizado.');
+    await emissao.verificarPendentes();
+    return { ok: true };
+  });
+  app.get('/api/cron/sincronizar', async (req) => {
+    if (!cronAutorizado(req)) throw new ErroApp(401, 'Não autorizado.');
+    // Para antes do tempo máximo da função; as empresas que faltarem ficam para a próxima rodada.
+    return { ok: true, ...(await tomadas.sincronizarTodas({ ateMs: Date.now() + Number(process.env.NOTAVEZ_CRON_SEGUNDOS || 240) * 1000 })) };
+  });
   await app.register(rotasConta, { prefix: '/api/conta' });
   await app.register(rotasPerfil, { prefix: '/api' });
   await app.register(rotasClientes, { prefix: '/api/clientes' });
@@ -153,6 +174,6 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
       : reply.sendFile('index.html')));
   }
 
-  app.addHook('onClose', async () => { emissao.fecharClientes(); db.fechar(); });
+  app.addHook('onClose', async () => { emissao.fecharClientes(); await db.fechar(); });
   return app;
 }

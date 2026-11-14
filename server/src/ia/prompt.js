@@ -128,7 +128,7 @@ export async function montarContexto({ ctx, usuario, empresa, emissaoAutonoma, p
     : 'COM CONFIRMAÇÃO — emitir_nota prepara a nota e o app mostra ao usuário o botão "Emitir agora"; a nota só sai quando ele tocar.'}`);
   l.push(`- Regras vigentes no app: ${pacotes.map((x) => x.id).join(', ')}; leiaute DPS v1.01; lista nacional de serviços: ${versoesTabelas?.anexoB || '?'}`);
 
-  const empresas = repo.listarPrestadores(usuario.id);
+  const empresas = await repo.listarPrestadores(usuario.id);
   l.push(`- Empresas na conta: ${empresas.length}${empresas.length > 1 ? ' (escritório: use listar_empresas para ver todas)' : ''}`);
   if (empresas.length > 1 && empresas.length <= 30) {
     for (const e of empresas) l.push(`  • ${e.nome || '(sem nome)'} — ${formatarDocumento(e.tipoDocumento, e.documento)} — ${regimeDescricao(e)} — id ${e.id}${e.id === empresa?.id ? ' (ABERTA)' : ''}`);
@@ -138,7 +138,7 @@ export async function montarContexto({ ctx, usuario, empresa, emissaoAutonoma, p
     l.push('', '## Empresa aberta: nenhuma', 'Peça ao usuário que escolha uma empresa ou use empresaId nas ferramentas.');
   } else {
     l.push('', '## Empresa aberta no app', ...parametrosEmpresa(empresa));
-    const cert = repo.certificadoEmissao(empresa);
+    const cert = await repo.certificadoEmissao(empresa);
     const c = certPublico(cert);
     l.push(`- Certificado para emitir: ${c ? `${c.procurador ? 'do escritório (procurador)' : 'da empresa'}, titular ${c.titular || '?'}, válido até ${String(c.validoAte || '').slice(0, 10)}` : 'NENHUM'}`);
     try {
@@ -147,22 +147,22 @@ export async function montarContexto({ ctx, usuario, empresa, emissaoAutonoma, p
       for (const p of eleg.pendencias) l.push(`  • Falta: ${p.titulo} — ${p.comoResolver}`);
       for (const i of eleg.itens.filter((x) => x.aviso)) l.push(`  • Aviso: ${i.aviso}`);
     } catch { l.push('- Pode emitir: não foi possível conferir agora (use contexto_empresa).'); }
-    const rec = situacaoReceita(repo, empresa);
+    const rec = await situacaoReceita(repo, empresa);
     if (rec.recusadaEm) l.push(`- A Receita recusou a última consulta em ${rec.recusadaEm.slice(0, 10)}: ${rec.recusaMotivo || ''}`);
     const { pacote } = escolherPacote({ opSimpNac: empresa.opSimpNac, competencia: hoje });
     if (pacote) l.push(`- Pacote de regras para hoje: ${pacote.id} — ${pacote.descricao}`);
-    const pn = painelDe(repo, empresa, hoje);
+    const pn = await painelDe(repo, empresa, hoje);
     const reais = (v) => `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     l.push(`- Emitido no mês ${pn.mes}: ${reais(pn.meses.at(-1)?.total || 0)} (${pn.meses.at(-1)?.qtd || 0} notas); no ano ${pn.ano.ano}: ${reais(pn.ano.total)} (${pn.ano.qtd} notas)`);
     if (pn.limiteAnual) l.push(`- Limite anual do MEI ${pn.limiteAnual.ano}: ${reais(pn.limiteAnual.valor)} — usado ${(Number(pn.ano.total) / Number(pn.limiteAnual.valor) * 100).toFixed(1).replace('.', ',')}% (só notas deste app)`);
-    const porSit = repo.contarNotasPorSituacao(empresa.id);
+    const porSit = await repo.contarNotasPorSituacao(empresa.id);
     l.push(`- Notas: ${Object.entries(porSit).map(([k, v]) => `${k} ${v}`).join(', ') || 'nenhuma'}`);
-    const servicos = repo.listarServicos(empresa.id);
+    const servicos = await repo.listarServicos(empresa.id);
     if (servicos.length) {
       l.push(`- Serviços salvos (${servicos.length}${servicos.length > 25 ? ', os 25 mais usados' : ''}):`);
       for (const s of servicos.slice(0, 25)) l.push(`  • "${s.apelido}" — código ${s.cTribNac} — ${String(s.descricao).slice(0, 90)}${s.valorPadrao ? ` — valor de costume R$ ${s.valorPadrao}` : ''} — id ${s.id}`);
     } else l.push('- Serviços salvos: nenhum');
-    l.push(`- Clientes salvos: ${repo.listarClientes(empresa.id).length} (use buscar_clientes)`);
+    l.push(`- Clientes salvos: ${(await repo.listarClientes(empresa.id)).length} (use buscar_clientes)`);
   }
   if (pendentes.length) {
     l.push('', '## Notas aguardando o toque do usuário em "Emitir agora"');

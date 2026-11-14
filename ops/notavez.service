@@ -10,7 +10,7 @@ Group=notavez
 WorkingDirectory=/opt/notavez/server
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
-Environment=NOTAVEZ_DB=/var/lib/notavez/notavez.db
+Environment=NOTAVEZ_DB=/var/lib/notavez/banco
 EnvironmentFile=/etc/notavez/notavez.env
 ExecStart=/usr/bin/node src/index.js
 Restart=on-failure

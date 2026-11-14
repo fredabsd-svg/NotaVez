@@ -122,13 +122,13 @@ test('redefinir a senha mantém o CPF que o próprio titular digitou no cadastro
     const api = cliente(app, '192.0.2.70');
     const CPF = '52998224725';
     await api('POST', '/api/conta/cadastrar', { email: 'cpf@exemplo.test', senha: 'senha-segura', documento: CPF });
-    const uid = app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'cpf@exemplo.test').id;
-    app.ctx.auth.vincularGovbr(uid, { cpf: CPF });
+    const uid = (await app.ctx.db.get('SELECT id FROM usuarios WHERE email = ?', 'cpf@exemplo.test')).id;
+    await app.ctx.auth.vincularGovbr(uid, { cpf: CPF });
     await api('POST', '/api/conta/recuperar', { usuario: 'cpf@exemplo.test' });
     assert.equal((await api('POST', '/api/conta/redefinir', { token: tokenRec, senha: 'nova-senha-123' })).status, 200);
     const r = await app.inject({ method: 'POST', url: '/api/conta/entrar', remoteAddress: '192.0.2.72', headers: { 'x-notavez': '1' }, payload: { usuario: '529.982.247-25', senha: 'nova-senha-123' } });
     assert.equal(r.statusCode, 200, r.body);
-    assert.equal(app.ctx.db.get('SELECT govbr_indice FROM usuarios WHERE id = ?', uid).govbr_indice, null, 'o gov.br continua desvinculado');
+    assert.equal((await app.ctx.db.get('SELECT govbr_indice FROM usuarios WHERE id = ?', uid)).govbr_indice, null, 'o gov.br continua desvinculado');
   } finally { await app.close(); }
 });
 
@@ -151,7 +151,7 @@ test('resposta corrompida da Receita ao buscar XML/DANFSe não vira erro 500', a
     await api('POST', '/api/conta/cadastrar', { email: 'xml@exemplo.test', senha: 'senha-segura' });
     await api('POST', '/api/empresas', { documento: CNPJ, nome: 'Cliente', municipioIbge: '3550308', opSimpNac: '2' });
     const imp = await api('POST', '/api/notas/importar', { xml: assinar(sefin.adicionarTomada({ prestador: CNPJ, tomador: '11444777000161', valor: '50.00' }).xml) });
-    app.ctx.db.run('UPDATE notas SET nfse_xml_cifrado = NULL, canal = NULL WHERE id = ?', imp.body.nota.id);
+    await app.ctx.db.run('UPDATE notas SET nfse_xml_cifrado = NULL, canal = NULL WHERE id = ?', imp.body.nota.id);
     await api('POST', '/api/certificado', { pfxBase64: cert.pfx.toString('base64'), senha: cert.senha, consentimento: true });
     assert.equal((await api('GET', `/api/notas/${imp.body.nota.id}/xml`)).status, 503);
     assert.notEqual((await api('GET', `/api/notas/${imp.body.nota.id}/danfse`)).status, 500);
@@ -164,8 +164,8 @@ test('lista de notas: competência filtrada no servidor, meses disponíveis e av
     const api = cliente(app, '192.0.2.90');
     await api('POST', '/api/conta/cadastrar', { email: 'lista@exemplo.test', senha: 'senha-segura' });
     await api('POST', '/api/empresas', { documento: CNPJ, nome: 'Cliente', municipioIbge: '3550308', opSimpNac: '2' });
-    const pid = app.ctx.db.get('SELECT id FROM prestadores').id;
-    for (let i = 0; i < 205; i++) app.ctx.repo.criarNota(pid, { descricao: `n${i}`, valor: '10.00', competencia: i < 5 ? '2026-08-10' : '2026-10-10' });
+    const pid = (await app.ctx.db.get('SELECT id FROM prestadores')).id;
+    for (let i = 0; i < 205; i++) await app.ctx.repo.criarNota(pid, { descricao: `n${i}`, valor: '10.00', competencia: i < 5 ? '2026-08-10' : '2026-10-10' });
     const todas = (await api('GET', '/api/notas')).body;
     assert.equal(todas.notas.length, 200);
     assert.equal(todas.limitado, true);

@@ -12,7 +12,7 @@ Alterações exigem `X-NotaVez: 1`, mesma origem e cookie HttpOnly. A API tem no
 | POST `/api/conta/redefinir` | público | `{token, senha}`; revoga sessões/tokens; `422` inválido, expirado ou usado |
 | GET `/api/conta/transparencia` | público | `{responsavel, contatoPrivacidade, retencao, configurada}` |
 
-`criarAutenticacao` instala `recuperacoes_senha` e `limites_conta` também nos bancos existentes. Tokens contêm 32 bytes aleatórios e apenas HMAC é persistido, TTL padrão 30 minutos (opção `recuperacaoTtlMs`, até 24 horas). Nova solicitação invalida token anterior. Limites por identidade/IP persistem no SQLite e expiram em 15 minutos. A chave mestra precisa ser estável entre processos/reinícios.
+As tabelas `recuperacoes_senha` e `limites_conta` fazem parte do esquema (`server/src/db/schema.sql`). Tokens contêm 32 bytes aleatórios e apenas HMAC é persistido, TTL padrão 30 minutos (opção `recuperacaoTtlMs`, até 24 horas). Nova solicitação invalida token anterior. Limites por identidade/IP persistem no SQLite e expiram em 15 minutos. A chave mestra precisa ser estável entre processos/reinícios.
 
 ## Acesso: usuário e senha, primeiro acesso e gov.br
 
@@ -53,7 +53,7 @@ No aparelho, a lista "Abertas há pouco" guarda só os identificadores internos 
 
 ## Exclusão e integridade fiscal
 
-A transação SQLite rejeita contas com notas `enviando`/`pendente` antes de remover dados. O claim fiscal exige nota, versão, perfil e certificado existentes antes da chamada externa. Se exclusão vence preparação anterior ao claim, emissão não transmite; se claim vence, exclusão fica bloqueada. Não apagar notas incertas para liberar o fluxo.
+A transação do banco rejeita contas com notas `enviando`/`pendente` antes de remover dados. O claim fiscal exige nota, versão, perfil e certificado existentes antes da chamada externa. Se exclusão vence preparação anterior ao claim, emissão não transmite; se claim vence, exclusão fica bloqueada. Não apagar notas incertas para liberar o fluxo.
 
 São apagados usuário, sessões, tokens, prestadores, A1 (incluindo removidos logicamente), clientes, serviços, notas/rascunhos/XML, chamadas e auditorias associados. Clientes mTLS em memória dos prestadores excluídos são fechados, preservando outras contas. Limites antiabuso não guardam ID/IP em claro e expiram em 15 minutos. Reservas `contadores_dps` são compartilhadas por emitente/ambiente/série, preservadas para impedir reutilização; não contêm XML, PFX ou e-mail. Cache municipal público permanece.
 

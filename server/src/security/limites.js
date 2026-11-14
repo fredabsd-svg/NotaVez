@@ -1,34 +1,32 @@
 import { createHash } from 'node:crypto';
 import { ErroApp } from '../util/erros.js';
 
-// Persistência no mesmo SQLite: limites sobrevivem a restart e são compartilhados
+// Persistência no mesmo banco: limites sobrevivem a restart e são compartilhados
 // por processos que usam este banco. Não substitui proteção de volume no ingress.
 export function criarLimites(db, { agora = Date.now } = {}) {
-  db.raw.exec(`CREATE TABLE IF NOT EXISTS limites_requisicoes (
-    chave TEXT PRIMARY KEY, quantidade INTEGER NOT NULL, expira_em INTEGER NOT NULL
-  ); CREATE INDEX IF NOT EXISTS ix_limites_expira ON limites_requisicoes(expira_em);`);
-  function consumir(chave, maximo, janelaMs) {
+  // Tabela limites_requisicoes em db/schema.sql.
+  async function consumir(chave, maximo, janelaMs) {
     const instante = agora();
     // Nunca guarda e-mail ou IP literal nesta tabela temporária.
     const hash = createHash('sha256').update(chave).digest('hex');
-    const permitido = db.transacao(() => {
-      db.run('DELETE FROM limites_requisicoes WHERE expira_em <= ?', instante);
-      const atual = db.get('SELECT quantidade, expira_em FROM limites_requisicoes WHERE chave = ?', hash);
+    const permitido = await db.transacao(async () => {
+      await db.run('DELETE FROM limites_requisicoes WHERE expira_em <= ?', instante);
+      const atual = await db.get('SELECT quantidade, expira_em FROM limites_requisicoes WHERE chave = ?', hash);
       if (atual && atual.quantidade >= maximo) return false;
-      if (atual) db.run('UPDATE limites_requisicoes SET quantidade = quantidade + 1 WHERE chave = ?', hash);
-      else db.run('INSERT INTO limites_requisicoes VALUES (?,1,?)', hash, instante + janelaMs);
+      if (atual) await db.run('UPDATE limites_requisicoes SET quantidade = quantidade + 1 WHERE chave = ?', hash);
+      else await db.run('INSERT INTO limites_requisicoes VALUES (?,1,?)', hash, instante + janelaMs);
       return true;
     });
     if (!permitido) throw new ErroApp(429, 'Muitas solicitações. Aguarde alguns minutos e tente novamente.');
   }
-  function requisicao(req) {
+  async function requisicao(req) {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return;
     const rota = req.routeOptions?.url || '';
     if (!rota.startsWith('/api/')) return;
     const janela = 15 * 60_000;
     if (/^\/api\/conta\/(entrar|cadastrar|recuperar|redefinir|redefinir-codigo)$/.test(rota)) {
       // Escritórios com muita gente atrás do mesmo IP: o limite fino (só tentativas erradas) fica na autenticação.
-      consumir(`conta:ip:${req.ip}`, 300, janela);
+      await consumir(`conta:ip:${req.ip}`, 300, janela);
       const identificador = req.body?.usuario ?? req.body?.email;
       if (typeof identificador === 'string') {
         // Qualquer grafia do mesmo CPF/CNPJ conta como a mesma identidade.
@@ -36,12 +34,12 @@ export function criarLimites(db, { agora = Date.now } = {}) {
         if (rota.endsWith('/entrar')) {
           // Por identidade E IP: tentativas de outro lugar não trancam o dono. O teto global da
           // conta fica na autenticação, que conta só erros e isenta o aparelho do dono.
-          consumir(`conta:${rota}:${chave}:ip:${req.ip}`, 15, janela);
-        } else consumir(`conta:${rota}:${chave}`, 5, janela);
+          await consumir(`conta:${rota}:${chave}:ip:${req.ip}`, 15, janela);
+        } else await consumir(`conta:${rota}:${chave}`, 5, janela);
       }
     } else if (req.usuario) {
-      consumir(`mutacao:${req.usuario.id}`, 300, 60_000);
-      if (/\/emitir$|\/certificado$/.test(rota)) consumir(`custo:${req.usuario.id}`, 30, 60_000);
+      await consumir(`mutacao:${req.usuario.id}`, 300, 60_000);
+      if (/\/emitir$|\/certificado$/.test(rota)) await consumir(`custo:${req.usuario.id}`, 30, 60_000);
     }
   }
   return { consumir, requisicao };

@@ -168,10 +168,10 @@ test('MEI não pode ter ISS retido (E0583)', () => {
 // ---------------- Painel do Início ----------------
 import { painelDe } from '../src/routes/perfil.js';
 
-test('painel: últimos 6 meses atravessam a virada do ano e o total anual só soma o ano corrente', () => {
+test('painel: últimos 6 meses atravessam a virada do ano e o total anual só soma o ano corrente', async () => {
   const pedidos = [];
   const repo = { emitidasPorMes: (...a) => { pedidos.push(a); return [{ mes: '2025-12', qtd: 2, centavos: 100050 }, { mes: '2026-01', qtd: 1, centavos: 35000 }, { mes: '2026-02', qtd: 3, centavos: 120010 }]; } };
-  const p = painelDe(repo, { id: 'e1', ambiente: 'producao', opSimpNac: '2' }, '2026-02-10');
+  const p = await painelDe(repo, { id: 'e1', ambiente: 'producao', opSimpNac: '2' }, '2026-02-10');
   assert.deepEqual(pedidos[0], ['e1', 'producao', '2025-09-01', '2026-03-01'], 'busca do mês mais antigo do gráfico até o fim do mês atual');
   assert.deepEqual(p.meses.map((m) => m.mes), ['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02']);
   assert.deepEqual(p.meses.at(-3), { mes: '2025-12', total: '1000.50', qtd: 2 });
@@ -181,16 +181,16 @@ test('painel: últimos 6 meses atravessam a virada do ano e o total anual só so
   assert.equal(p.limiteAnual.porMesNoAnoDeAbertura, '6750.00');
 });
 
-test('painel: no fim do ano busca desde janeiro; ME/EPP e Lucro Presumido não têm limite de MEI', () => {
+test('painel: no fim do ano busca desde janeiro; ME/EPP e Lucro Presumido não têm limite de MEI', async () => {
   const pedidos = [];
   const repo = { emitidasPorMes: (...a) => { pedidos.push(a); return []; } };
-  const simples = painelDe(repo, { id: 'e2', ambiente: 'producao_restrita', opSimpNac: '3' }, '2026-11-11');
+  const simples = await painelDe(repo, { id: 'e2', ambiente: 'producao_restrita', opSimpNac: '3' }, '2026-11-11');
   assert.deepEqual(pedidos[0], ['e2', 'producao_restrita', '2026-01-01', '2026-12-01']);
   assert.equal(simples.limiteAnual, null);
   assert.deepEqual(simples.ano, { ano: '2026', total: '0.00', qtd: 0 });
-  assert.equal(painelDe(repo, { id: 'e3', ambiente: 'producao', opSimpNac: '1' }, '2026-11-11').limiteAnual, null);
+  assert.equal((await painelDe(repo, { id: 'e3', ambiente: 'producao', opSimpNac: '1' }, '2026-11-11')).limiteAnual, null);
   // Sem pacote de regras para a data (2027 ainda não publicado no app): o painel segue, sem limite.
-  assert.equal(painelDe(repo, { id: 'e4', ambiente: 'producao', opSimpNac: '2' }, '2027-01-05').limiteAnual, null);
+  assert.equal((await painelDe(repo, { id: 'e4', ambiente: 'producao', opSimpNac: '2' }, '2027-01-05')).limiteAnual, null);
 });
 
 // ---------------- Lucro Presumido / Real ----------------
