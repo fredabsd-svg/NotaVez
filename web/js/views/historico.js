@@ -183,7 +183,7 @@ export async function tela(_, query) {
       corpo,
       // Notas emitidas direto no Emissor Nacional também entram no histórico pelo XML.
       h('div', { class: 'cartao' }, h('p', { class: 'suave' }, temCertificado
-        ? 'Notas emitidas fora do app (no Emissor Nacional, por exemplo) entram aqui sozinhas: o app consulta a Receita de tempos em tempos e quando você toca em "Buscar na Receita agora". Se preferir, traga o XML.'
+        ? 'Notas emitidas fora do app (no Emissor Nacional, por exemplo) entram aqui sozinhas: o app consulta a Receita sozinho, de hora em hora, e também quando você toca em "Buscar na Receita agora". Se preferir, traga o XML.'
         : 'Emitiu uma nota direto no Emissor Nacional? Traga o XML para ter o histórico, o PDF e poder clonar. Com o certificado enviado, essas notas passam a entrar sozinhas.'),
         botaoImportarXml({ texto: 'Importar XML', classe: 'btn' }))),
   };

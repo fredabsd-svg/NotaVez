@@ -113,8 +113,8 @@ export async function lista(_, query) {
       h('p', { class: 'suave' }, 'Notas de serviço que fornecedores emitiram para esta empresa, baixadas do Ambiente de Dados Nacional da NFS-e.'),
       dados.temCertificado
         ? h('div', {}, buscar, s.recusadaEm ? h('p', { class: 'erro-campo', role: 'alert' }, `A Receita recusou a busca de ${dataHora(s.recusadaEm)}${s.recusaMotivo ? `: ${s.recusaMotivo}` : '.'}${dados.porProcuracao ? ' Confira a procuração desta empresa.' : ''}`) : null,
-          h('p', { class: 'suave' }, s.sincronizadoEm ? `Última busca: ${dataHora(s.sincronizadoEm)}${dados.porProcuracao ? ', por procuração' : ''}.`
-          : `Ainda não buscamos as notas desta empresa${dados.porProcuracao ? ' (a busca usa o certificado do escritório, por procuração)' : ''}.`))
+          h('p', { class: 'suave' }, s.sincronizadoEm ? `Última busca: ${dataHora(s.sincronizadoEm)}${dados.porProcuracao ? ', por procuração' : ''}. O app busca sozinho de hora em hora.`
+          : `Ainda não buscamos as notas desta empresa${dados.porProcuracao ? ' (a busca usa o certificado do escritório, por procuração)' : ''}. A busca automática acontece de hora em hora, ou toque no botão acima.`))
         : dados.porProcuracao
           // Empresa por procuração: quem falta é o certificado do escritório, não o da empresa.
           ? h('section', { class: 'cartao cartao-alerta' }, h('strong', {}, 'Envie o certificado do escritório'),

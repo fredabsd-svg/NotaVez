@@ -12,9 +12,9 @@ for (const sinal of ['SIGINT', 'SIGTERM']) {
 }
 
 // Sincronização periódica com a Receita (ADN): notas tomadas e notas emitidas fora do app, de todas as
-// empresas com certificado válido, uma por vez. Só leitura. NOTAVEZ_SINCRONIZACAO_HORAS=0 desliga.
+// empresas com certificado válido, uma por vez, de hora em hora (NOTAVEZ_SINCRONIZACAO_HORAS muda; 0 desliga). Só leitura.
 if (config.sincronizacaoHoras > 0) {
-  const sincronizar = () => app.ctx.tomadas.sincronizarTodas().catch((e) => app.log.error(e));
+  const sincronizar = () => app.ctx.tomadas.sincronizarTodas({ recenteMs: 30 * 60_000 }).catch((e) => app.log.error(e));
   setTimeout(sincronizar, 5 * 60_000).unref(); // primeira rodada pouco depois de subir
   setInterval(sincronizar, config.sincronizacaoHoras * 3600_000).unref();
 }

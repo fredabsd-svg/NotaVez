@@ -397,3 +397,50 @@ test('tarefa periódica: consulta todas as empresas com certificado válido e n�
   sefin.estado.falharDistribuicao = true;
   try { assert.equal((await app.ctx.tomadas.sincronizarTodas()).empresas, 0, 'falhas não derrubam a rodada'); } finally { sefin.estado.falharDistribuicao = false; }
 });
+
+test('de hora em hora: rodízio pela consulta mais antiga, pula quem está em dia e respeita o tempo-limite', async () => {
+  const { tomadas, repo, db } = app.ctx;
+  await tomadas.sincronizarTodas(); // todas em dia
+  const empresas = await repo.prestadoresComCertificado();
+  const total = empresas.length;
+  assert.ok(total >= 2, `empresas com certificado: ${total}`);
+
+  // Rodada logo em seguida: ninguém é consultado de novo.
+  const antes = sefin.estado.consultasDistribuicao.length;
+  const emDia = await tomadas.sincronizarTodas({ recenteMs: 30 * 60_000 });
+  assert.equal(emDia.empresas, 0);
+  assert.equal(emDia.emDia, total);
+  assert.equal(sefin.estado.consultasDistribuicao.length, antes, 'nenhuma consulta à Receita');
+
+  // Duas ficaram para trás: só elas são consultadas, e a mais antiga vai primeiro na fila.
+  const [maisAntiga, antiga] = [empresas.at(-1), empresas[0]];
+  await db.run("UPDATE distribuicao_dfe SET sincronizado_em = '2020-01-01T00:00:00.000Z' WHERE prestador_id = ?", maisAntiga.id);
+  await db.run("UPDATE distribuicao_dfe SET sincronizado_em = '2021-06-01T00:00:00.000Z' WHERE prestador_id = ?", antiga.id);
+  const ordem = [];
+  const original = repo.distribuicao;
+  repo.distribuicao = async (...args) => { ordem.push(args[0]); return original(...args); };
+  try {
+    const r = await tomadas.sincronizarTodas({ recenteMs: 30 * 60_000 });
+    assert.equal(r.empresas, 2);
+    assert.equal(r.emDia, total - 2);
+  } finally { repo.distribuicao = original; }
+  assert.deepEqual([...new Set(ordem)].slice(0, 2), [maisAntiga.id, antiga.id]);
+
+  // Tempo esgotado: nada é consultado, tudo fica para a próxima rodada.
+  const semTempo = await tomadas.sincronizarTodas({ ateMs: Date.now() - 1 });
+  assert.equal(semTempo.empresas, 0);
+  assert.equal(semTempo.faltaram, total);
+});
+
+test('vercel.json: busca na Receita de hora em hora, com agendamentos diários (aceitos no plano Hobby)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { crons } = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  const horas = crons.filter((c) => c.path === '/api/cron/sincronizar').map((c) => {
+    const [minuto, hora, ...resto] = c.schedule.split(' ');
+    assert.deepEqual(resto, ['*', '*', '*'], `uma vez por dia: ${c.schedule}`);
+    assert.match(minuto, /^\d+$/);
+    return Number(hora);
+  });
+  assert.deepEqual(horas.sort((a, b) => a - b), Array.from({ length: 24 }, (_, i) => i), 'uma rodada em cada hora do dia');
+  assert.ok(crons.length <= 100, 'limite de 100 agendamentos por projeto');
+});

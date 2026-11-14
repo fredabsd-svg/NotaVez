@@ -384,6 +384,14 @@ export function criarRepositorio(db) {
     },
     notaPorChave: async (prestadorId, chave) => notaDe(await db.get('SELECT * FROM notas WHERE prestador_id = ? AND chave_indice = ?', prestadorId, indiceCego(chave))),
 
+    // Última consulta ao ADN de cada empresa (deu certo ou foi recusada), no ambiente atual dela: a fila da
+    // sincronização automática começa por quem está há mais tempo sem consulta.
+    async ultimasConsultasAdn() {
+      const linhas = await db.all(`SELECT d.prestador_id, max(d.sincronizado_em) sinc, max(d.falha_em) falha FROM distribuicao_dfe d
+        JOIN prestadores p ON p.id = d.prestador_id AND d.ambiente = p.ambiente GROUP BY d.prestador_id`);
+      return new Map(linhas.map((r) => [r.prestador_id, [r.sinc, r.falha].filter(Boolean).sort().at(-1) || null]));
+    },
+
     // ---------- notas tomadas (recebidas pela empresa) ----------
     async distribuicao(prestadorId, ambiente, documento) {
       const r = await db.get('SELECT ultimo_nsu, sincronizado_em, leitura, falha_em, falha_cifrada FROM distribuicao_dfe WHERE prestador_id = ? AND ambiente = ? AND documento_indice = ?', prestadorId, ambiente, indiceCego(`nsu:${documento}`));

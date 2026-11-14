@@ -216,21 +216,42 @@ export function criarServicoTomadas({ repo, emissao, registrar = () => {}, pausa
     return situacaoLote(usuarioId);
   }
 
-  // Tarefa periódica do servidor: todas as empresas com certificado válido, uma por vez. Falhas não param a fila.
+  // Tarefa periódica do servidor (de hora em hora): todas as empresas com certificado válido, uma por vez.
+  // Falhas não param a fila. Rodízio: começa por quem está há mais tempo sem consulta (ou nunca foi consultada),
+  // então, com tempo-limite, nenhuma empresa fica sempre no fim da fila.
+  // `ateMs`: horário-limite (tarefa agendada com tempo máximo de execução); o que sobrar fica para a próxima.
+  // `recenteMs`: pula a empresa consultada há menos que isso (busca manual há pouco, ou duas rodadas seguidas).
   let rodandoTodas = false;
-  // `ateMs`: horário-limite (ex.: tarefa agendada com tempo máximo de execução); o que sobrar fica para a próxima.
-  async function sincronizarTodas({ ateMs = Infinity } = {}) {
-    if (rodandoTodas) return { empresas: 0 };
+  async function sincronizarTodas({ ateMs = Infinity, recenteMs = 0 } = {}) {
+    const r = { total: 0, empresas: 0, emDia: 0, falhas: 0, faltaram: 0, tomadas: 0, emitidas: 0, canceladas: 0 };
+    if (rodandoTodas) return { ...r, emAndamento: true };
     rodandoTodas = true;
-    let empresas = 0;
     try {
-      for (const p of await repo.prestadoresComCertificado()) {
-        if (Date.now() > ateMs) break;
-        try { await sincronizar(p); empresas += 1; } catch { /* a próxima rodada tenta de novo */ }
-        if (pausaEntreEmpresasMs) await esperar(pausaEntreEmpresasMs);
+      const lista = await repo.prestadoresComCertificado();
+      const ultimas = await repo.ultimasConsultasAdn();
+      const quando = (p) => ultimas.get(p.id) || '';
+      lista.sort((a, b) => quando(a).localeCompare(quando(b)));
+      r.total = lista.length;
+      for (const [i, p] of lista.entries()) {
+        if (Date.now() > ateMs) { r.faltaram = lista.length - i; break; }
+        if (recenteMs) {
+          // Confere de novo na hora: outra rodada (ou o usuário) pode ter acabado de consultar.
+          const d = await repo.distribuicao(p.id, p.ambiente, p.documento);
+          const ultima = [d.sincronizadoEm, d.recusadaEm].filter(Boolean).sort().at(-1);
+          if (ultima && Date.now() - Date.parse(ultima) < recenteMs) { r.emDia += 1; continue; }
+        }
+        try {
+          const x = await sincronizar(p);
+          r.empresas += 1;
+          r.tomadas += x.novas || 0; r.emitidas += x.emitidas || 0; r.canceladas += (x.canceladas || 0) + (x.emitidasCanceladas || 0);
+        } catch (e) {
+          // Consultada há menos de um minuto: já está em dia, não é falha.
+          if (e instanceof ErroApp && e.status === 429) r.emDia += 1; else r.falhas += 1;
+        }
+        if (pausaEntreEmpresasMs && i < lista.length - 1) await esperar(pausaEntreEmpresasMs);
       }
     } finally { rodandoTodas = false; }
-    return { empresas };
+    return r;
   }
 
   return { sincronizar, iniciarLote, situacaoLote, sincronizarTodas };

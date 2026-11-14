@@ -143,10 +143,15 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     await emissao.verificarPendentes();
     return { ok: true };
   });
+  // De hora em hora (24 agendamentos diários no vercel.json: o plano Hobby aceita cada um uma vez por dia).
   app.get('/api/cron/sincronizar', async (req) => {
     if (!cronAutorizado(req)) throw new ErroApp(401, 'Não autorizado.');
-    // Para antes do tempo máximo da função; as empresas que faltarem ficam para a próxima rodada.
-    return { ok: true, ...(await tomadas.sincronizarTodas({ ateMs: Date.now() + Number(process.env.NOTAVEZ_CRON_SEGUNDOS || 240) * 1000 })) };
+    // Para antes do tempo máximo da função; as empresas que faltarem ficam para a próxima rodada (rodízio).
+    // Empresa consultada há menos de 30 min fica para a próxima: a Vercel dispara em qualquer minuto da hora marcada.
+    const r = await tomadas.sincronizarTodas({ ateMs: Date.now() + Number(process.env.NOTAVEZ_CRON_SEGUNDOS || 240) * 1000, recenteMs: 30 * 60_000 });
+    // Só contagens no log (nada de CNPJ ou nome).
+    console.log(`[sincronização automática] ${JSON.stringify(r)}`);
+    return { ok: true, ...r };
   });
   await app.register(rotasConta, { prefix: '/api/conta' });
   await app.register(rotasPerfil, { prefix: '/api' });
