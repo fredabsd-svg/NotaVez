@@ -619,3 +619,48 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
 }
 .ia-nota .item-sub, .ia-historico .item-sub { white-space: normal; overflow-wrap: anywhere; }
 .ia-tela, .ia-chat, .ia-msg, .ia-confirmar { min-width: 0; max-width: 100%; }
+
+/* Assistente: anexos, arrastar e soltar, microfone, tabelas e troca de modelo */
+.ia-tela { position: relative; }
+.ia-modo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.ia-modo > span + span::before, .ia-modo > select + span::before { content: "· "; }
+.ia-modelo-rapido { font: inherit; font-size: var(--fs-13); color: var(--texto); background: var(--cartao); border: 1px solid var(--borda-campo); border-radius: 999px;
+  padding: 4px 28px 4px 10px; width: auto; max-width: 100%; min-height: 32px; appearance: none; background-image: var(--seta); background-repeat: no-repeat; background-position: right 8px center; background-size: 14px; }
+.ia-usuario .ia-usuario-corpo { display: flex; flex-direction: column; align-items: flex-end; gap: var(--esp-1); max-width: 85%; }
+.ia-usuario .ia-usuario-corpo .ia-bolha { max-width: 100%; }
+.ia-anexos { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ia-anexos li { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: var(--fs-13); line-height: 1.4; padding: 4px 10px; border-radius: var(--raio-controle);
+  background: var(--cartao); border: 1px solid var(--borda); color: var(--texto); }
+.ia-anexos li > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.ia-anexos .icone svg { width: 16px; height: 16px; }
+.ia-anexo-detalhe { color: var(--texto-2); font-size: var(--fs-12); }
+.ia-anexos-novos { padding: var(--esp-2) 0 0; }
+.ia-anexo-remover { border: 0; background: none; color: var(--texto-2); font-size: var(--fs-18); line-height: 1; cursor: pointer; min-width: 28px; min-height: 28px; border-radius: 50%; }
+.ia-anexo-remover:hover { background: var(--fundo-2); color: var(--vermelho); }
+.ia-compor { align-items: flex-end; }
+.ia-botao-icone { flex: none; width: 44px; height: 48px; display: grid; place-items: center; border: 1px solid var(--borda-campo); border-radius: var(--raio-controle);
+  background: var(--cartao); color: var(--texto-2); cursor: pointer; }
+.ia-botao-icone:hover { color: var(--azul); border-color: var(--azul); }
+.ia-botao-icone .icone svg { width: 20px; height: 20px; }
+.ia-botao-icone.gravando { color: var(--sobre-acento); background: var(--vermelho); border-color: var(--vermelho); animation: ia-pulso 1.2s ease-in-out infinite; }
+@keyframes ia-pulso { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--vermelho) 25%, transparent); } }
+.ia-soltar { display: none; }
+.ia-tela.arrastando .ia-soltar { display: flex; position: fixed; inset: var(--esp-3); z-index: 40; flex-direction: column; align-items: center; justify-content: center; gap: var(--esp-2);
+  text-align: center; padding: var(--esp-4); border: 2px dashed var(--azul); border-radius: var(--raio); color: var(--azul);
+  background: color-mix(in srgb, var(--fundo) 96%, transparent); backdrop-filter: blur(3px); }
+.ia-soltar .icone svg { width: 36px; height: 36px; }
+.ia-soltar span { color: var(--texto-2); font-size: var(--fs-14); }
+.ia-tabela { overflow-x: auto; margin: 0 0 var(--esp-2); max-width: 100%; }
+.ia-tabela table { border-collapse: collapse; font-size: var(--fs-14); min-width: 100%; }
+.ia-tabela th, .ia-tabela td { border: 1px solid var(--borda); padding: 6px 10px; text-align: left; vertical-align: top; }
+.ia-tabela th { background: var(--fundo-2); font-weight: 600; white-space: nowrap; }
+.ia-tabela td { font-variant-numeric: tabular-nums; overflow-wrap: normal; word-break: normal; min-width: 14ch; }
+.ia-tabela td.curta { white-space: nowrap; min-width: 0; }
+.ia-titulo-bloco { margin-top: var(--esp-3) !important; }
+.ia-carregar-modelos { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin: calc(-1 * var(--esp-1)) 0 var(--esp-3); }
+.ia-carregar-modelos .btn { margin: 0; }
+.ia-estado-modelos { margin: 0; flex: 1 1 220px; }
+@media (min-width: 1024px) {
+  main .ia-compor .ia-botao-icone { width: 48px; }
+  .ia-usuario .ia-usuario-corpo { max-width: 75%; }
+}

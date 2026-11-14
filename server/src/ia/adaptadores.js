@@ -10,6 +10,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ErroApp } from '../util/erros.js';
 import { PROVEDORES } from './provedores.js';
+import { anexoParaModelo } from './anexos.js';
 
 const LIMITE_SAIDA = 16000;
 const TEMPO_MS = 150_000;
@@ -18,6 +19,8 @@ export class ErroIA extends ErroApp {
   constructor(mensagem, extra = {}) { super(502, mensagem, { codigo: 'IA_PROVEDOR', ...extra }); }
 }
 
+// Mensagem do usuário com o texto extraído dos arquivos que ele anexou.
+const textoDoUsuario = (m) => `${m.texto}${(m.anexos || []).map(anexoParaModelo).join('')}`;
 const AVISO = (t) => `[Mensagem automática do aplicativo Nota Sem Stress, não digitada pelo usuário]\n${t}`;
 // A Anthropic só aceita identificadores de ferramenta com letras, números, "_" e "-".
 const idAnthropic = (id) => String(id || 'chamada').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
@@ -40,7 +43,7 @@ const COM_FALLBACK = /^claude-(opus-5-5|opus-5|sonnet-5-5|fable-5-[12])$/;
 function historicoAnthropic(historico) {
   const msgs = [];
   for (const m of historico) {
-    if (m.papel === 'usuario') msgs.push({ role: 'user', content: m.texto });
+    if (m.papel === 'usuario') msgs.push({ role: 'user', content: textoDoUsuario(m) });
     else if (m.papel === 'aviso') msgs.push({ role: 'user', content: AVISO(m.texto) });
     else if (m.papel === 'assistente') {
       if (m.nativo?.dialeto === 'anthropic' && Array.isArray(m.nativo.conteudo) && m.nativo.conteudo.length) {
@@ -100,7 +103,7 @@ async function chamarAnthropic({ modelo, chave, baseUrl, esforco, sistemaFixo, s
 function historicoOpenAI(historico, { devolverRaciocinio }) {
   const msgs = [];
   for (const m of historico) {
-    if (m.papel === 'usuario') msgs.push({ role: 'user', content: m.texto });
+    if (m.papel === 'usuario') msgs.push({ role: 'user', content: textoDoUsuario(m) });
     else if (m.papel === 'aviso') msgs.push({ role: 'user', content: AVISO(m.texto) });
     else if (m.papel === 'assistente') {
       const msg = { role: 'assistant', content: m.texto || '' };
@@ -166,4 +169,45 @@ export async function chamarModelo(opcoes) {
   const def = PROVEDORES[opcoes.provedor];
   if (!def) throw new ErroApp(422, 'Provedor de IA desconhecido. Escolha outro em Assistente › Configurar.');
   return def.dialeto === 'anthropic' ? chamarAnthropic(opcoes) : chamarOpenAI(opcoes);
+}
+
+// ---------------------------------------------------------------- lista de modelos do provedor
+// Modelos que não servem para conversar com ferramentas (embeddings, áudio, imagem, moderação…).
+const FORA_DO_CHAT = /embed|whisper|tts|dall-?e|moderation|davinci|babbage|audio|realtime|transcribe|image|vision-preview|search|rerank|speech|ocr|sora|-instruct$/i;
+
+export async function listarModelos({ provedor, chave, baseUrl, fetch: buscar }) {
+  const def = PROVEDORES[provedor];
+  if (!def) throw new ErroApp(422, 'Provedor de IA desconhecido.');
+  if (!chave) throw new ErroApp(422, 'Informe a chave de API para carregar os modelos.');
+  if (def.dialeto === 'anthropic') {
+    const client = new Anthropic({ apiKey: chave, ...(baseUrl ? { baseURL: baseUrl } : {}), timeout: 20_000, maxRetries: 1, ...(buscar ? { fetch: buscar } : {}) });
+    const modelos = [];
+    try {
+      for await (const m of client.models.list({ limit: 100 })) {
+        if (m.lifecycle === 'retired') continue;
+        modelos.push({ id: m.id, nome: m.display_name || m.id, criadoEm: m.created_at || null, obsoleto: m.lifecycle === 'deprecated' });
+      }
+    } catch (e) {
+      if (e instanceof Anthropic.APIConnectionError) throw new ErroIA('Sem resposta da Anthropic ao listar os modelos. Tente de novo.');
+      if (e instanceof Anthropic.APIError) throw new ErroIA(mensagemDeErro(e.status, e.error, 'Anthropic'));
+      throw e;
+    }
+    return modelos;
+  }
+  const base = (baseUrl || def.baseUrl).replace(/\/+$/, '');
+  let resp;
+  try {
+    resp = await (buscar || globalThis.fetch)(`${base}/models`, { headers: { Accept: 'application/json', Authorization: `Bearer ${chave}` }, signal: AbortSignal.timeout(20_000) });
+  } catch { throw new ErroIA(`Sem resposta do provedor ${def.nome} ao listar os modelos. Tente de novo.`); }
+  const dados = await resp.json().catch(() => null);
+  if (!resp.ok) throw new ErroIA(mensagemDeErro(resp.status, dados, def.nome));
+  const lista = Array.isArray(dados?.data) ? dados.data : Array.isArray(dados?.models) ? dados.models : Array.isArray(dados) ? dados : [];
+  return lista
+    .map((m) => (typeof m === 'string' ? { id: m } : m))
+    .filter((m) => m && typeof m.id === 'string' && !FORA_DO_CHAT.test(m.id))
+    // OpenRouter informa os parâmetros aceitos: só entram os modelos que usam ferramentas (o assistente precisa delas).
+    .filter((m) => !Array.isArray(m.supported_parameters) || m.supported_parameters.includes('tools'))
+    .map((m) => ({ id: m.id, nome: m.name || m.display_name || m.id, criadoEm: m.created ? new Date(m.created * 1000).toISOString() : (m.created_at || null), obsoleto: false }))
+    .sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')) || a.id.localeCompare(b.id))
+    .slice(0, 400);
 }

@@ -29,7 +29,7 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa } = {}) {
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa } = {}) {
   const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -52,7 +52,7 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('X-Frame-Options', 'DENY');
-    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
     reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     if ((rotaApi(req) || req.url.startsWith('/api/')) && !reply.hasHeader('Cache-Control')) reply.header('Cache-Control', 'no-store');
     if (!config.dev) reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -156,7 +156,7 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   await app.register(rotasTabelas, { prefix: '/api/tabelas' });
   await app.register(rotasEmpresas, { prefix: '/api' });
   await app.register(rotasTomadas, { prefix: '/api/tomadas' });
-  await app.register(rotasIa, { prefix: '/api/ia', chamarIa });
+  await app.register(rotasIa, { prefix: '/api/ia', chamarIa, listarModelosIa });
 
   if (servirWeb) {
     // Carregado só aqui: na Vercel o PWA é estático e a função não precisa (nem consegue) carregar este plugin.
