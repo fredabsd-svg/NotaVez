@@ -160,10 +160,14 @@ export function vazio({ icone: ic = ICONES.documento, titulo, texto, acoes = [] 
 }
 
 // Planilha em CSV para o contador: ponto e vírgula e vírgula decimal, como as planilhas em português esperam.
-export function baixarCsv(nome, cabecalho, linhas) {
+// CSV no padrão do Excel brasileiro (ponto e vírgula, UTF-8 com BOM).
+export function textoCsv(cabecalho, linhas) {
   // Texto que começa com = + - @ seria lido como fórmula pela planilha: vai com apóstrofo na frente.
   const celula = (v) => { const s = String(v ?? ''); return `"${(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`; };
-  baixarArquivo(nome, `\uFEFF${[cabecalho, ...linhas].map((l) => l.map(celula).join(';')).join('\r\n')}\r\n`, 'text/csv;charset=utf-8');
+  return `\uFEFF${[cabecalho, ...linhas].map((l) => l.map(celula).join(';')).join('\r\n')}\r\n`;
+}
+export function baixarCsv(nome, cabecalho, linhas) {
+  baixarArquivo(nome, textoCsv(cabecalho, linhas), 'text/csv;charset=utf-8');
 }
 export const valorCsv = (v) => (v === null || v === undefined || v === '' ? '' : Number(v).toFixed(2).replace('.', ','));
 

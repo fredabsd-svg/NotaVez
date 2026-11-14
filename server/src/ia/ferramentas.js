@@ -3,14 +3,14 @@
 // com a Receita nem grava nada que a tela não gravaria. Toda empresa é conferida contra o dono.
 import { rascunho as lerRascunho, cliente as lerCliente } from '../util/entrada.js';
 import { formatarDocumento, somenteDigitos, normalizarCnpj } from '../util/documentos.js';
-import { ErroApp, naoEncontrado } from '../util/erros.js';
+import { ErroApp, naoEncontrado, invalido } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
 import { hojeBrasilia } from '../fiscal/dps.js';
 import { buscarMunicipios, buscarServicos, municipio, servicoNacional } from '../fiscal/tabelas.js';
 import { opcoesIbsCbs, inicioObrigatoriedade } from '../fiscal/ibscbs.js';
 import { escolherPacote } from '../fiscal/regras/index.js';
 import { resumoNota, comTomadorAtual, comServico, clonarNota } from '../routes/notas.js';
-import { perfilPublico, regimeDescricao, elegibilidadeDe, painelDe, certPublico, situacaoReceita } from '../routes/perfil.js';
+import { perfilPublico, regimeDescricao, elegibilidadeDe, painelDe, certPublico, situacaoReceita, lerPerfil } from '../routes/perfil.js';
 import { lerServico } from '../routes/servicos.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -67,8 +67,22 @@ export const DEFINICOES = [
   { nome: 'ver_cliente', descricao: 'Dados completos de um cliente salvo (documento, endereço, e-mail).', parametros: obj({ empresaId, clienteId: { type: 'string' } }, ['clienteId']) },
   { nome: 'consultar_cnpj', descricao: 'Consulta a base pública da Receita: razão social, endereço, município, situação cadastral e enquadramento (MEI/Simples/Presumido/Real) de um CNPJ. Use antes de cadastrar cliente PJ.', parametros: obj({ cnpj: { type: 'string' } }, ['cnpj']) },
   { nome: 'cadastrar_cliente', descricao: 'Salva um cliente (tomador) na empresa. CNPJ exige endereço completo (regra E0235). Confirme os dados com o usuário antes, salvo se ele já os deu.', parametros: obj({ empresaId, documento: { type: 'string' }, nome: { type: 'string' }, email: { type: 'string' }, fone: { type: 'string' }, endereco, inscricaoMunicipal: { type: 'string' } }, ['documento', 'nome']) },
+  { nome: 'editar_cliente', descricao: 'Altera um cliente salvo (só os campos enviados mudam). Confirme a mudança com o usuário antes.', parametros: obj({ empresaId, clienteId: { type: 'string' }, documento: { type: 'string' }, nome: { type: 'string' }, email: { type: 'string' }, fone: { type: 'string' }, endereco, inscricaoMunicipal: { type: 'string' } }, ['clienteId']) },
+  { nome: 'excluir_cliente', descricao: 'Exclui um cliente salvo (as notas já emitidas para ele continuam no histórico). Só com pedido explícito do usuário.', parametros: obj({ empresaId, clienteId: { type: 'string' } }, ['clienteId']) },
   { nome: 'listar_servicos', descricao: 'Serviços salvos da empresa (apelido, código nacional, descrição, valor de costume).', parametros: obj({ empresaId }) },
   { nome: 'cadastrar_servico', descricao: 'Salva um serviço de costume da empresa.', parametros: obj({ empresaId, apelido: { type: 'string' }, cTribNac: { type: 'string' }, descricao: { type: 'string' }, valorPadrao: { type: 'string' }, cTribMun: { type: 'string' }, cNBS: { type: 'string' } }, ['apelido', 'cTribNac', 'descricao']) },
+  { nome: 'editar_servico', descricao: 'Altera um serviço salvo (só os campos enviados mudam).', parametros: obj({ empresaId, servicoId: { type: 'string' }, apelido: { type: 'string' }, cTribNac: { type: 'string' }, descricao: { type: 'string' }, valorPadrao: { type: 'string' }, cTribMun: { type: 'string' }, cNBS: { type: 'string' } }, ['servicoId']) },
+  { nome: 'excluir_servico', descricao: 'Exclui um serviço salvo. Só com pedido explícito do usuário.', parametros: obj({ empresaId, servicoId: { type: 'string' } }, ['servicoId']) },
+  { nome: 'atualizar_parametros_fiscais', descricao: 'Atualiza os parâmetros fiscais da empresa (só os campos enviados mudam), com as mesmas validações da tela Dados da empresa. Não muda CNPJ nem ambiente (produção/testes). SEMPRE mostre ao usuário o antes e o depois e só chame depois que ele confirmar.', parametros: obj({
+    empresaId, nome: { type: 'string', description: 'Razão social' }, municipioIbge: { type: 'string' }, inscricaoMunicipal: { type: 'string' }, email: { type: 'string' }, fone: { type: 'string' },
+    opSimpNac: { type: 'string', enum: ['1', '2', '3'], description: '1 Lucro Presumido/Real, 2 MEI, 3 ME/EPP do Simples' },
+    regApTribSN: { type: 'string', enum: ['1', '2', '3'], description: 'Simples: 1 tudo pelo DAS; 2 federais pelo DAS e ISS fora; 3 tudo fora' },
+    pTotTribSN: { type: 'string', description: 'Simples: % aproximado de tributos (alíquota efetiva), ex. "6.00"' },
+    aliqIssSN: { type: 'string', description: 'Simples: alíquota do ISS para retenção, entre 1,8 e 5' },
+    apuracao: { type: 'string', enum: ['presumido', 'real'] }, cstPisCofins: { type: 'string', enum: ['01', '06', '08', '09'] },
+    aliqPis: { type: 'string' }, aliqCofins: { type: 'string' }, pTotTribFed: { type: 'string' }, pTotTribEst: { type: 'string' }, pTotTribMun: { type: 'string' },
+    aliqIss: { type: 'string', description: 'Lucro Presumido/Real: alíquota do ISS (usada quando o município não é conveniado)' },
+  }) },
   { nome: 'buscar_codigo_servico', descricao: 'Busca na lista nacional (Anexo B / LC 116) o Código de Tributação Nacional por palavras ou código. Devolve código, descrição, local de incidência do ISS (EP = estabelecimento do prestador, LP = local da prestação, ET = estabelecimento do tomador) e se exige grupo especial (obra/evento, não suportado no app).', parametros: obj({ busca: { type: 'string' } }, ['busca']) },
   { nome: 'detalhar_codigo_servico', descricao: 'Detalhes de um código nacional: descrição, item da LC 116, incidência e as opções oficiais de IBS/CBS (NBS, cIndOp, cClassTrib).', parametros: obj({ codigo: { type: 'string' } }, ['codigo']) },
   { nome: 'buscar_municipio', descricao: 'Busca município pelo nome (ex.: "Campinas" ou "Campinas-SP") e devolve o código IBGE.', parametros: obj({ nome: { type: 'string' } }, ['nome']) },
@@ -210,6 +224,61 @@ export function criarFerramentas(ctx) {
       const id = await repo.salvarCliente(p.id, null, dados);
       await reg(p, 'cliente.criado', { entidade: 'cliente', entidadeId: id });
       return { clienteId: id, nome: dados.nome, documento: formatarDocumento(dados.tipo, dados.documento) };
+    },
+
+    async editar_cliente(a) {
+      const p = await empresa(a);
+      const atual = await repo.cliente(p.id, String(a.clienteId || ''));
+      if (!atual) throw naoEncontrado('Cliente');
+      const mudancas = Object.fromEntries(Object.entries(a).filter(([k, v]) => ['documento', 'nome', 'email', 'fone', 'endereco', 'inscricaoMunicipal'].includes(k) && v !== undefined));
+      const dados = lerCliente({ ...atual, ...mudancas });
+      const outro = await repo.clientePorDocumento(p.id, dados.documento);
+      if (outro && outro.id !== atual.id) throw new ErroApp(409, `Este documento já pertence ao cliente "${outro.nome}".`);
+      await repo.salvarCliente(p.id, atual.id, dados);
+      await reg(p, 'cliente.editado', { entidade: 'cliente', entidadeId: atual.id });
+      return { clienteId: atual.id, nome: dados.nome, documento: formatarDocumento(dados.tipo, dados.documento), alterados: Object.keys(mudancas) };
+    },
+
+    async excluir_cliente(a) {
+      const p = await empresa(a);
+      const c = await repo.cliente(p.id, String(a.clienteId || ''));
+      if (!c) throw naoEncontrado('Cliente');
+      await repo.removerCliente(p.id, c.id);
+      await reg(p, 'cliente.removido', { entidade: 'cliente', entidadeId: c.id });
+      return { ok: true, excluido: c.nome };
+    },
+
+    async editar_servico(a) {
+      const p = await empresa(a);
+      const atual = await repo.servico(p.id, String(a.servicoId || ''));
+      if (!atual) throw naoEncontrado('Serviço');
+      const mudancas = Object.fromEntries(Object.entries(a).filter(([k, v]) => ['apelido', 'cTribNac', 'descricao', 'valorPadrao', 'cTribMun', 'cNBS'].includes(k) && v !== undefined));
+      await repo.salvarServico(p.id, atual.id, lerServico({ ...atual, ...mudancas }));
+      await reg(p, 'servico.editado', { entidade: 'servico', entidadeId: atual.id });
+      return { servicoId: atual.id, servico: await repo.servico(p.id, atual.id), alterados: Object.keys(mudancas) };
+    },
+
+    async excluir_servico(a) {
+      const p = await empresa(a);
+      const s = await repo.servico(p.id, String(a.servicoId || ''));
+      if (!s) throw naoEncontrado('Serviço');
+      await repo.removerServico(p.id, s.id);
+      await reg(p, 'servico.removido', { entidade: 'servico', entidadeId: s.id });
+      return { ok: true, excluido: s.apelido };
+    },
+
+    async atualizar_parametros_fiscais(a) {
+      const p = await empresa(a);
+      const CAMPOS = ['nome', 'municipioIbge', 'inscricaoMunicipal', 'email', 'fone', 'opSimpNac', 'regApTribSN', 'pTotTribSN', 'aliqIssSN', 'apuracao', 'cstPisCofins', 'aliqPis', 'aliqCofins', 'pTotTribFed', 'pTotTribEst', 'pTotTribMun', 'aliqIss'];
+      const mudancas = Object.fromEntries(Object.entries(a).filter(([k, v]) => CAMPOS.includes(k) && v !== undefined));
+      if (!Object.keys(mudancas).length) throw invalido('Informe o que deve mudar.');
+      const antes = perfilPublico(p);
+      // CNPJ, série e ambiente (produção/testes) ficam como estão: essas mudanças são feitas só na tela, pela pessoa.
+      const dados = lerPerfil({ ...antes, ...mudancas, documento: p.documento, serieDps: p.serieDps, ambiente: p.ambiente }, { ambienteAtual: p.ambiente });
+      await repo.salvarPrestador(usuario.id, p.id, dados);
+      await reg(p, 'perfil.salvo', { detalhes: { campos: Object.keys(mudancas) } });
+      const depois = perfilPublico(await repo.prestador(p.id));
+      return { alterados: Object.fromEntries(Object.keys(mudancas).map((k) => [k, { antes: antes[k] ?? null, depois: depois[k] ?? null }])), regime: regimeDescricao(depois) };
     },
 
     async listar_servicos(a) {

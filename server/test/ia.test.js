@@ -17,11 +17,16 @@ const { validarBaseUrl } = await import('../src/ia/provedores.js');
 const { SISTEMA_FIXO } = await import('../src/ia/prompt.js');
 const { DEFINICOES } = await import('../src/ia/ferramentas.js');
 const { recortar } = await import('../src/ia/servico.js');
+const { chamarModelo: _c, listarModelos } = await import('../src/ia/adaptadores.js');
+const { extrairAnexo } = await import('../src/ia/anexos.js');
+const { zipSync, strToU8 } = await import('fflate');
+const { default: PDFDocument } = await import('pdfkit');
 
 const cert = gerarCertificadoTeste({ cnpj: '11222333000181' });
 let sefin; let app;
 // O "modelo" de cada teste: uma função que recebe o pedido montado pelo servidor.
 let modelo = null;
+const listagens = [];
 const pedidos = [];
 
 before(async () => {
@@ -31,6 +36,7 @@ before(async () => {
   app = await criarApp({
     banco: ':memory:', logger: false, servirWeb: false, fabricaCliente: (o) => criarClienteSefin({ ...o, ca: sefin.ca }),
     chamarIa: async (op) => { pedidos.push(op); return modelo(op); },
+    listarModelosIa: async (op) => { listagens.push(op); return [{ id: 'modelo-novo', nome: 'Modelo Novo' }, { id: 'modelo-antigo', nome: 'Modelo Antigo', obsoleto: true }]; },
   });
 });
 after(async () => { await app.close(); await sefin.fechar(); });
@@ -261,7 +267,7 @@ test('recorte do histórico nunca separa a chamada de ferramenta do resultado', 
 // ---------------------------------------------------------------- dialetos (fetch falso)
 function fetchFalso(respostas, capturados) {
   return async (url, init) => {
-    capturados.push({ url: String(url), headers: Object.fromEntries(new Headers(init.headers).entries()), corpo: JSON.parse(init.body) });
+    capturados.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers).entries()), corpo: init?.body ? JSON.parse(init.body) : null });
     const r = respostas.shift();
     return new Response(JSON.stringify(r.corpo), { status: r.status || 200, headers: { 'content-type': 'application/json', 'request-id': 'req_teste' } });
   };
@@ -355,4 +361,152 @@ test('dialeto OpenAI (OpenAI, Grok, OpenRouter, provedores chineses): funções,
 test('system prompt: conhecimento fiscal e regras do produto', () => {
   for (const termo of ['LC 116/2003', 'E0235', 'regApTribSN', 'Lucro Presumido', 'Lei 10.833/2003', 'IBS', 'CBS', 'cClassTrib', 'R$ 81.000,00', 'verificar_nota', 'NUNCA invente', 'Fator R'])
     assert.ok(SISTEMA_FIXO.includes(termo), termo);
+});
+
+// ---------------------------------------------------------------- modelos, anexos, identidade e ferramentas novas
+test('modelos: lista vem do provedor com a chave guardada; troca rápida de modelo', async () => {
+  const api = await contaPronta('ia-modelos@exemplo.com');
+  assert.equal((await api('POST', '/api/ia/modelos', { provedor: 'anthropic' })).status, 422, 'sem chave nenhuma');
+  await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-modelos-1234' });
+  const r = await api('POST', '/api/ia/modelos', { provedor: 'anthropic' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.modelos.map((m) => m.id), ['modelo-novo', 'modelo-antigo']);
+  assert.equal(listagens.at(-1).chave, 'sk-ant-modelos-1234', 'usou a chave guardada no servidor');
+  assert.ok(!JSON.stringify(r.body).includes('sk-ant'), 'a chave não volta ao app');
+  // Outro provedor: a chave guardada não vale; com a chave nova, lista.
+  assert.equal((await api('POST', '/api/ia/modelos', { provedor: 'openai' })).status, 422);
+  assert.equal((await api('POST', '/api/ia/modelos', { provedor: 'openai', chave: 'sk-openai-nova-123' })).status, 200);
+  assert.equal(listagens.at(-1).chave, 'sk-openai-nova-123');
+  const t = await api('PUT', '/api/ia/config/modelo', { modelo: 'modelo-novo' });
+  assert.equal(t.status, 200);
+  assert.equal(t.body.config.modelo, 'modelo-novo');
+  assert.equal(t.body.config.provedor, 'anthropic');
+  assert.equal((await api('PUT', '/api/ia/config/modelo', { modelo: 'x y z' })).status, 422);
+});
+
+test('listar modelos: Anthropic pela SDK; formato OpenAI filtra embeddings/áudio e, no OpenRouter, quem não usa ferramentas', async () => {
+  const cap = [];
+  const ant = await listarModelos({ provedor: 'anthropic', chave: 'k', fetch: fetchFalso([{ corpo: { data: [
+    { type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-10-01T00:00:00Z', lifecycle: 'active' },
+    { type: 'model', id: 'claude-velho', display_name: 'Velho', created_at: '2024-01-01T00:00:00Z', lifecycle: 'retired' },
+  ], has_more: false, first_id: 'claude-opus-5-5', last_id: 'claude-velho' } }], cap) });
+  assert.match(cap[0].url, /\/v1\/models/);
+  assert.deepEqual(ant.map((m) => m.id), ['claude-opus-5-5']);
+  assert.equal(ant[0].nome, 'Claude Opus 5.5');
+  const oa = await listarModelos({ provedor: 'openai', chave: 'k', fetch: fetchFalso([{ corpo: { data: [
+    { id: 'gpt-5', created: 1760000000 }, { id: 'text-embedding-3-large', created: 1 }, { id: 'whisper-1', created: 1 }, { id: 'gpt-5-mini', created: 1750000000 },
+  ] } }], []) });
+  assert.deepEqual(oa.map((m) => m.id), ['gpt-5', 'gpt-5-mini']);
+  const or = await listarModelos({ provedor: 'openrouter', chave: 'k', fetch: fetchFalso([{ corpo: { data: [
+    { id: 'anthropic/claude-opus-5.5', name: 'Claude Opus 5.5', supported_parameters: ['tools', 'max_tokens'] },
+    { id: 'algum/sem-ferramentas', name: 'Sem', supported_parameters: ['max_tokens'] },
+  ] } }], []) });
+  assert.deepEqual(or.map((m) => m.id), ['anthropic/claude-opus-5.5']);
+  await assert.rejects(listarModelos({ provedor: 'deepseek', chave: 'ruim', fetch: fetchFalso([{ status: 401, corpo: { error: { message: 'bad key' } } }], []) }), /recusou a chave/);
+});
+
+function xlsxClientes() {
+  return Buffer.from(zipSync({
+    'xl/workbook.xml': strToU8('<workbook xmlns:r="r"><sheets><sheet name="Notas de novembro" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Id="rId1" Type="x" Target="worksheets/sheet1.xml"/></Relationships>'),
+    'xl/sharedStrings.xml': strToU8('<sst><si><t>Cliente</t></si><si><t>CPF</t></si><si><t>Valor</t></si><si><t>Competência</t></si><si><r><t>Maria </t></r><r><t>da Silva</t></r></si><si><t>529.982.247-25</t></si></sst>'),
+    'xl/styles.xml': strToU8('<styleSheet><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>'),
+    'xl/worksheets/sheet1.xml': strToU8('<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c></row>'
+      + '<row r="2"><c r="A2" t="s"><v>4</v></c><c r="B2" t="s"><v>5</v></c><c r="C2"><v>350</v></c><c r="D2" s="1"><v>46325</v></c></row></sheetData></worksheet>'),
+  })).toString('base64');
+}
+
+test('anexos: Excel, Word, PDF e CSV viram texto; formatos antigos e arquivos grandes são recusados', async () => {
+  const x = await extrairAnexo({ nome: 'notas.xlsx', base64: xlsxClientes() });
+  assert.equal(x.tipo, 'planilha');
+  assert.match(x.texto, /Aba "Notas de novembro"/);
+  assert.match(x.texto, /Maria da Silva\t529\.982\.247-25\t350\t30\/10\/2026/);
+  const docx = Buffer.from(zipSync({ 'word/document.xml': strToU8('<w:document><w:body><w:p><w:r><w:t>Contrato de consultoria</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Valor mensal</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>R$ 2.000,00 &amp; ISS 2%</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>') }));
+  const w = await extrairAnexo({ nome: 'contrato.docx', base64: docx.toString('base64') });
+  assert.match(w.texto, /Contrato de consultoria/);
+  assert.match(w.texto, /Valor mensal +\| R\$ 2\.000,00 & ISS 2%/);
+  const pdf = await new Promise((ok) => { const d = new PDFDocument(); const p = []; d.on('data', (c) => p.push(c)); d.on('end', () => ok(Buffer.concat(p))); d.text('Proposta: consultoria tributária de R$ 5.000,00'); d.addPage(); d.text('Prazo de 30 dias'); d.end(); });
+  const pd = await extrairAnexo({ nome: 'proposta.pdf', base64: pdf.toString('base64') });
+  assert.match(pd.texto, /página 1[\s\S]*consultoria tributária de R\$ 5\.000,00[\s\S]*página 2[\s\S]*Prazo de 30 dias/);
+  assert.match(pd.detalhe, /2 página/);
+  const csv = await extrairAnexo({ nome: 'lista.csv', base64: Buffer.from('nome;valor\nJoão;10', 'latin1').toString('base64') });
+  assert.equal(csv.texto, 'nome;valor\nJoão;10', 'CSV do Excel em Windows-1252');
+  await assert.rejects(extrairAnexo({ nome: 'velho.xls', base64: 'AAAA' }), /\.xlsx/);
+  await assert.rejects(extrairAnexo({ nome: 'foto.png', base64: 'AAAA' }), /Tipo de arquivo/);
+  await assert.rejects(extrairAnexo({ nome: 'grande.txt', base64: Buffer.alloc(3 * 1024 * 1024 + 1).toString('base64') }), /3 MB/);
+});
+
+test('anexo na conversa: o texto do arquivo chega ao modelo como dado delimitado, e a tela mostra só o nome', async () => {
+  const api = await contaPronta('ia-anexo@exemplo.com');
+  await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-anexo-0000' });
+  const conv = (await api('POST', '/api/ia/conversas', {})).body.conversa;
+  modelo = () => diz('Encontrei 1 linha: Maria da Silva, R$ 350,00.');
+  const r = await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: '', anexos: [{ nome: 'notas.xlsx', base64: xlsxClientes() }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const op = pedidos.at(-1);
+  const ultimo = [...op.historico].reverse().find((m) => m.papel === 'usuario');
+  assert.equal(ultimo.texto, 'Analise o arquivo notas.xlsx.');
+  assert.match(ultimo.anexos[0].texto, /Maria da Silva/);
+  const item = r.body.conversa.itens.find((i) => i.tipo === 'usuario');
+  assert.equal(item.anexos[0].nome, 'notas.xlsx');
+  assert.equal(item.anexos[0].texto, undefined, 'o conteúdo não volta para a tela');
+  // No formato que vai ao provedor, o arquivo entra delimitado.
+  const cap = [];
+  await chamarModelo({ provedor: 'deepseek', modelo: 'm', chave: 'k', sistemaFixo: 'F', sistemaVariavel: 'V', historico: [ultimo], ferramentas: [],
+    fetch: fetchFalso([{ corpo: { choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] } }], cap) });
+  assert.match(cap[0].corpo.messages[1].content, /<arquivo_anexado nome="notas.xlsx" tipo="planilha"[\s\S]*Maria da Silva[\s\S]*<\/arquivo_anexado>/);
+  // Formato antigo: recusado antes de gastar chamada ao provedor.
+  const antes = pedidos.length;
+  const v = await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'veja', anexos: [{ nome: 'velho.doc', base64: 'AAAA' }] });
+  assert.equal(v.status, 422);
+  assert.equal(pedidos.length, antes);
+});
+
+test('identidade: o assistente sabe o modelo em uso e quem é o usuário', async () => {
+  const api = await contaPronta('ia-quem@exemplo.com');
+  await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-quem-0000' });
+  const conv = (await api('POST', '/api/ia/conversas', {})).body.conversa;
+  modelo = () => diz('Sou o Assistente Fiscal do Nota Sem Stress.');
+  await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'Qual modelo é você?' });
+  const op = pedidos.at(-1);
+  assert.match(op.sistemaVariavel, /Modelo em uso: claude-opus-5-5, do provedor Anthropic \(Claude\)/);
+  assert.match(op.sistemaVariavel, /Usuário: .*ia-quem@exemplo\.com/);
+  assert.match(op.sistemaVariavel, /Agora \(Brasília\): .*\d{2}\/\d{2}\/\d{4} às \d{2}:\d{2}/);
+  assert.match(op.sistemaFixo, /Modelo em uso/);
+  assert.match(op.sistemaFixo, /Nunca diga que não sabe/);
+});
+
+test('ferramentas novas: editar e excluir cliente/serviço e atualizar parâmetros fiscais (sem mexer em CNPJ e ambiente)', async () => {
+  const api = await contaPronta('ia-editar@exemplo.com');
+  await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-editar-0000' });
+  const conv = (await api('POST', '/api/ia/conversas', {})).body.conversa;
+  const clienteId = (await api('GET', '/api/clientes')).body.clientes[0].id;
+  const servicoId = (await api('GET', '/api/servicos')).body.servicos[0].id;
+  const antes = (await api('GET', '/api/perfil')).body.perfil;
+  let resultados = null;
+  modelo = (op) => {
+    if (op.historico.at(-1).papel === 'ferramentas') { resultados = ultimos(op); return diz('feito'); }
+    return pede(['editar_cliente', { clienteId, email: 'maria.nova@exemplo.com' }], ['editar_servico', { servicoId, valorPadrao: '400.00' }],
+      ['atualizar_parametros_fiscais', { opSimpNac: '3', regApTribSN: '1', pTotTribSN: '6.00' }]);
+  };
+  await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'atualize o e-mail da Maria, o valor do site e passe a empresa para o Simples' });
+  assert.ok(resultados.every((x) => !x.erro), JSON.stringify(resultados));
+  assert.equal((await api('GET', `/api/clientes/${clienteId}`)).body.cliente.email, 'maria.nova@exemplo.com');
+  assert.equal((await api('GET', `/api/servicos/${servicoId}`)).body.servico.valorPadrao, '400.00');
+  const depois = (await api('GET', '/api/perfil')).body.perfil;
+  assert.equal(depois.opSimpNac, '3');
+  assert.equal(depois.pTotTribSN, '6.00');
+  assert.equal(depois.documento, antes.documento, 'CNPJ não muda');
+  assert.equal(depois.ambiente, antes.ambiente, 'ambiente não muda');
+  assert.deepEqual(resultados[2].dados.alterados.opSimpNac, { antes: '2', depois: '3' });
+  // Valor inválido: a mesma validação da tela, e nada muda.
+  modelo = (op) => (op.historico.at(-1).papel === 'ferramentas' ? (resultados = ultimos(op), diz('não deu')) : pede(['atualizar_parametros_fiscais', { pTotTribSN: '150' }]));
+  await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'coloque 150%' });
+  assert.equal(resultados[0].erro, true);
+  assert.equal((await api('GET', '/api/perfil')).body.perfil.pTotTribSN, '6.00');
+  modelo = (op) => (op.historico.at(-1).papel === 'ferramentas' ? (resultados = ultimos(op), diz('ok')) : pede(['excluir_servico', { servicoId }], ['excluir_cliente', { clienteId }]));
+  await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'pode excluir o serviço e a cliente' });
+  assert.ok(resultados.every((x) => !x.erro));
+  assert.equal((await api('GET', `/api/clientes/${clienteId}`)).status, 404);
+  assert.equal((await api('GET', `/api/servicos/${servicoId}`)).status, 404);
 });

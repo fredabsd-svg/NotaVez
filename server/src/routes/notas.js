@@ -125,6 +125,21 @@ export async function clonarNota({ repo, db }, { usuarioId, prestador: p, origem
   return id;
 }
 
+// Período de competências pedido na lista (?de=AAAA-MM-DD&ate=AAAA-MM-DD). Datas inválidas são ignoradas;
+// invertidas, trocam de lugar.
+export function periodoDaConsulta(q = {}) {
+  const valida = (s) => {
+    const t = String(s || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return undefined;
+    const d = new Date(`${t}T12:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t ? t : undefined;
+  };
+  let de = valida(q.de);
+  let ate = valida(q.ate);
+  if (de && ate && de > ate) [de, ate] = [ate, de];
+  return { de, ate };
+}
+
 export async function rotasNotas(app) {
   const { repo, db, emissao } = app.ctx;
 
@@ -132,9 +147,11 @@ export async function rotasNotas(app) {
     const p = exigirPrestador(req);
     const q = String(req.query?.q || '').toLowerCase().trim();
     const situacao = req.query?.situacao || undefined;
-    const competencia = /^\d{4}-\d{2}$/.test(String(req.query?.competencia || '')) ? req.query.competencia : undefined;
-    const LIMITE = 200;
-    let notas = await repo.listarNotas(p.id, { situacao, competencia, limite: LIMITE + 1 });
+    const { de, ate } = periodoDaConsulta(req.query);
+    const competencia = !de && !ate && /^\d{4}-\d{2}$/.test(String(req.query?.competencia || '')) ? req.query.competencia : undefined;
+    // Sem filtro, as 200 mais recentes; com mês ou período escolhido, até 1000 (para conferir e baixar em lote).
+    const LIMITE = competencia || de || ate ? 1000 : 200;
+    let notas = await repo.listarNotas(p.id, { situacao, competencia, de, ate, limite: LIMITE + 1 });
     // Sem esconder em silêncio: a tela avisa quando há mais notas do que as mostradas.
     const limitado = notas.length > LIMITE;
     notas = notas.slice(0, LIMITE);
