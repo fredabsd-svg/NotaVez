@@ -56,11 +56,11 @@ export function filtroPeriodo({ meses = [], periodo, aoMudar, todas = 'Todas as 
 
   const seletor = campo({ rotulo: 'Competência', rotuloOculto: true, opcoes: [['', todas]], valor: '' });
   seletor.classList.add('campo-mes');
+  // Lista simples, sem <optgroup>: no Android os grupos viram cabeçalhos grandes e recuos desalinhados.
   seletor.entrada.append(
-    h('optgroup', { label: 'Períodos' },
-      lista.map(([v, t]) => h('option', { value: v }, t)),
-      h('option', { value: 'datas' }, digitado ? rotuloPeriodo(periodo) : 'Escolher datas (de/até)…')),
-    todosMeses.length ? h('optgroup', { label: 'Meses' }, todosMeses.map((m) => h('option', { value: m }, maiuscula(nomeMes(m))))) : null,
+    ...lista.map(([v, t]) => h('option', { value: v }, t)),
+    h('option', { value: 'datas' }, digitado ? rotuloPeriodo(periodo) : 'Escolher datas (de/até)…'),
+    ...todosMeses.map((m) => h('option', { value: m }, maiuscula(nomeMes(m)))),
   );
   seletor.entrada.value = atual;
 

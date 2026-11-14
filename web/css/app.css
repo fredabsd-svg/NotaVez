@@ -736,3 +736,13 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
 @media (min-width: 1024px) {
   .lote-acoes-finais { bottom: 0; }
 }
+
+/* Celular: ações da lista dividem a linha por igual; formatos do ZIP um embaixo do outro. */
+@media (max-width: 1023px) {
+  .barra-lista .barra-acoes { flex: 1 1 100%; }
+  .barra-lista .barra-acoes .btn { flex: 1 1 0; justify-content: center; min-width: 0; }
+}
+@media (max-width: 600px) {
+  .lote-formatos > div { flex-direction: column; gap: 0; }
+  .lote-acoes .btn { flex: 1 1 100%; justify-content: center; }
+}
