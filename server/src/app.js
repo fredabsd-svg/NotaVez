@@ -1,7 +1,6 @@
 // Monta o servidor HTTP (Fastify). Separado de index.js para permitir testes.
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
-import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
@@ -160,6 +159,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   await app.register(rotasIa, { prefix: '/api/ia', chamarIa });
 
   if (servirWeb) {
+    // Carregado só aqui: na Vercel o PWA é estático e a função não precisa (nem consegue) carregar este plugin.
+    const { default: fastifyStatic } = await import('@fastify/static');
     await app.register(fastifyStatic, {
       root: fileURLToPath(new URL('../../web/', import.meta.url)),
       // @fastify/static 10: setHeaders recebe o reply do Fastify (não mais o res do Node).

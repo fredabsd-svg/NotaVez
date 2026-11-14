@@ -4,6 +4,7 @@
   "installCommand": "npm ci --prefix server --omit=dev --no-audit --no-fund",
   "buildCommand": "node server/scripts/migrar.mjs",
   "outputDirectory": "web",
+  "regions": ["gru1"],
   "functions": {
     "api/index.mjs": {
       "maxDuration": 300,

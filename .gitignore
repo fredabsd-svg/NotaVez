@@ -23,3 +23,5 @@ server/dados-demo/
 # Vercel (saída local do build) e banco embutido (PGlite)
 .vercel/
 server/dados-banco/
+.vercel
+.env*
