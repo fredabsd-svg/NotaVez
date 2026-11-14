@@ -63,8 +63,10 @@ async function abrirPglite(arquivo) {
 async function abrirPostgres(url) {
   const { default: pg } = await import('pg');
   for (const [oid, f] of Object.entries(PARSERS)) pg.types.setTypeParser(Number(oid), f);
+  // sslmode=require/prefer/verify-ca já valem como verify-full no pg 8 (e o driver avisa no log a cada conexão):
+  // pede verify-full de uma vez, com o mesmo comportamento e sem o aviso.
   const pool = new pg.Pool({
-    connectionString: url,
+    connectionString: url.replace(/([?&])sslmode=(?:prefer|require|verify-ca)(?=&|$)/, '$1sslmode=verify-full'),
     max: Number(process.env.NOTAVEZ_DB_CONEXOES || 5),
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
