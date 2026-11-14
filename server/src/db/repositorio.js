@@ -256,11 +256,14 @@ export function criarRepositorio(db) {
     // ---------- notas ----------
     nota: async (prestadorId, id) => notaDe(await db.get('SELECT * FROM notas WHERE prestador_id = ? AND id = ?', prestadorId, id)),
     notaPorId: async (id) => notaDe(await db.get('SELECT * FROM notas WHERE id = ?', id)),
-    async listarNotas(prestadorId, { situacao, limite = 50, antesDe, competencia } = {}) {
+    // competencia = AAAA-MM (um mês); de/ate = AAAA-MM-DD (período de competências, inclusive).
+    async listarNotas(prestadorId, { situacao, limite = 50, antesDe, competencia, de, ate } = {}) {
       const where = ['prestador_id = ?'];
       const p = [prestadorId];
       if (situacao) { where.push('situacao = ?'); p.push(situacao); }
       if (competencia) { where.push('substr(competencia, 1, 7) = ?'); p.push(competencia); }
+      if (de) { where.push('substr(competencia, 1, 10) >= ?'); p.push(de); }
+      if (ate) { where.push('substr(competencia, 1, 10) <= ?'); p.push(ate); }
       if (antesDe) { where.push('atualizado_em < ?'); p.push(antesDe); }
       return (await db.all(`SELECT * FROM notas WHERE ${where.join(' AND ')} ORDER BY atualizado_em DESC, competencia DESC, ordem DESC LIMIT ?`, ...p, limite)).map(notaDe);
     },
@@ -420,10 +423,13 @@ export function criarRepositorio(db) {
     },
     cancelarTomada: async (prestadorId, ambiente, chave) => (await db.run("UPDATE notas_tomadas SET situacao = 'cancelada' WHERE prestador_id = ? AND ambiente = ? AND chave_indice = ? AND situacao <> 'cancelada'",
       prestadorId, ambiente, indiceCego(chave))).changes === 1,
-    async listarTomadas(prestadorId, ambiente, { competencia } = {}) {
-      const filtro = competencia ? ' AND substr(competencia, 1, 7) = ?' : '';
-      return (await db.all(`SELECT * FROM notas_tomadas WHERE prestador_id = ? AND ambiente = ?${filtro} ORDER BY COALESCE(emitida_em, baixada_em) DESC LIMIT 1000`,
-        prestadorId, ambiente, ...(competencia ? [competencia] : []))).map(tomadaDe);
+    async listarTomadas(prestadorId, ambiente, { competencia, de, ate, limite = 1000 } = {}) {
+      const where = ['prestador_id = ?', 'ambiente = ?'];
+      const p = [prestadorId, ambiente];
+      if (competencia) { where.push('substr(competencia, 1, 7) = ?'); p.push(competencia); }
+      if (de) { where.push('substr(competencia, 1, 10) >= ?'); p.push(de); }
+      if (ate) { where.push('substr(competencia, 1, 10) <= ?'); p.push(ate); }
+      return (await db.all(`SELECT * FROM notas_tomadas WHERE ${where.join(' AND ')} ORDER BY COALESCE(emitida_em, baixada_em) DESC LIMIT ?`, ...p, limite)).map(tomadaDe);
     },
     tomada: async (prestadorId, id) => tomadaDe(await db.get('SELECT * FROM notas_tomadas WHERE prestador_id = ? AND id = ?', prestadorId, id)),
     xmlTomada: async (prestadorId, id) => decifrar((await db.get('SELECT xml_cifrado x FROM notas_tomadas WHERE prestador_id = ? AND id = ?', prestadorId, id))?.x),

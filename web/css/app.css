@@ -664,3 +664,28 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
   main .ia-compor .ia-botao-icone { width: 48px; }
   .ia-usuario .ia-usuario-corpo { max-width: 75%; }
 }
+
+/* Listas de notas: período (de/até) e download em lote (ZIP) */
+.barra-acoes { display: flex; gap: var(--esp-2); flex-wrap: wrap; }
+.barra-acoes .btn { margin: 0; min-height: 48px; }
+.periodo-datas { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-2); margin: calc(-1 * var(--esp-1)) 0 var(--esp-3); }
+.periodo-datas .campo { margin: 0; flex: 1 1 140px; min-width: 0; }
+.periodo-datas .btn { margin: 0; min-height: 48px; flex: 0 0 auto; }
+.lote { margin: 0 0 var(--esp-3); }
+.lote-topo { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-2); }
+.lote-fechar { border: 0; background: none; color: var(--texto-2); font-size: var(--fs-22); line-height: 1; min-width: 40px; min-height: 40px; border-radius: 50%; cursor: pointer; }
+.lote-fechar:hover { background: var(--fundo-2); color: var(--texto); }
+.lote-formatos { border: 0; margin: var(--esp-2) 0 0; padding: 0; min-width: 0; }
+.lote-formatos legend { font-weight: 600; font-size: var(--fs-15); margin: 0 0 var(--esp-1); padding: 0; }
+.lote-formatos > div { display: flex; flex-wrap: wrap; gap: 0 var(--esp-4); }
+.lote .lote-opcao { display: inline-flex; align-items: center; gap: var(--esp-2); min-height: 44px; margin: 0; font-weight: 500; cursor: pointer; }
+.lote-opcao input { width: 20px; height: 20px; margin: 0; accent-color: var(--azul); }
+.lote-acoes { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin-top: var(--esp-2); }
+.lote-acoes .btn { margin: 0; }
+.lote-progresso { margin-top: var(--esp-3); }
+.lote-progresso progress { width: 100%; height: 10px; accent-color: var(--azul); }
+.lote-estado { margin: var(--esp-1) 0 0; font-size: var(--fs-14); }
+@media (min-width: 1024px) {
+  .barra-lista .barra-acoes { margin-left: auto; }
+  .periodo-datas .campo { flex: 0 1 220px; }
+}

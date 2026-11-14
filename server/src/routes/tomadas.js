@@ -3,7 +3,7 @@ import { formatarDocumento } from '../util/documentos.js';
 import { naoEncontrado } from '../util/erros.js';
 import { config } from '../config.js';
 import { exigirPrestador } from './perfil.js';
-import { sincronizarEmpresa, sincronizacaoPublica } from './notas.js';
+import { sincronizarEmpresa, sincronizacaoPublica, periodoDaConsulta } from './notas.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const publica = (t, completo = false) => ({
@@ -18,12 +18,17 @@ const publica = (t, completo = false) => ({
 export async function rotasTomadas(app) {
   const { repo } = app.ctx;
 
-  // ?competencia=AAAA-MM filtra pelo mês; ?q= por fornecedor, CNPJ, número ou chave.
+  // ?competencia=AAAA-MM filtra pelo mês; ?de=&ate= (AAAA-MM-DD) por período de competências;
+  // ?q= por fornecedor, CNPJ, número ou chave.
   app.get('/', async (req) => {
     const p = exigirPrestador(req);
-    const competencia = /^\d{4}-\d{2}$/.test(req.query?.competencia || '') ? req.query.competencia : undefined;
+    const { de, ate } = periodoDaConsulta(req.query);
+    const competencia = !de && !ate && /^\d{4}-\d{2}$/.test(req.query?.competencia || '') ? req.query.competencia : undefined;
     const q = semAcento(req.query?.q).trim();
-    let lista = await repo.listarTomadas(p.id, p.ambiente, { competencia });
+    const LIMITE = 2000;
+    let lista = await repo.listarTomadas(p.id, p.ambiente, { competencia, de, ate, limite: LIMITE + 1 });
+    const limitado = lista.length > LIMITE;
+    lista = lista.slice(0, LIMITE);
     if (q) {
       const dig = q.replace(/[^0-9a-z]/g, '');
       lista = lista.filter((t) => semAcento(t.emitente?.nome).includes(q) || (dig.length >= 3 && ((t.emitente?.documento || '').toLowerCase().includes(dig) || (t.nNfse || '').includes(dig) || (t.chaveAcesso || '').includes(dig))));
@@ -32,6 +37,7 @@ export async function rotasTomadas(app) {
     const soma = (k) => validas.reduce((s, t) => s + Number(t[k] || 0), 0).toFixed(2);
     return {
       tomadas: lista.map((t) => publica(t)),
+      limitado,
       totais: { quantidade: validas.length, valor: soma('valor'), valorLiquido: soma('valorLiquido') },
       sincronizacao: await sincronizacaoPublica(repo, p),
       temCertificado: !!await repo.certificadoEmissao(p),

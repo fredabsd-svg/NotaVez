@@ -3,13 +3,13 @@
 import { h, campo, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, plural, codigoServico, vazio, baixarCsv, valorCsv } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade } from '../api.js';
 import { comCache } from '../store.js';
-import { ir } from '../app.js';
+import { ir, estado } from '../app.js';
 import { partesDaLinha, resumoDaBusca } from './historico.js';
+import { periodoDaRota, paramsDaRota, paramsDaApi, temPeriodo, rotuloPeriodo, periodoNoArquivo, filtroPeriodo } from '../periodo.js';
+import { baixarEmLote } from '../lote.js';
 
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const mesAtual = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 7);
-const mesAnterior = () => { const d = new Date(Date.now() - 3 * 3600_000); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
-const nomeMes = (m) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 const selo = (t) => h('span', { class: `situacao s-${t.situacao}` }, t.situacao === 'cancelada' ? 'Cancelada' : 'Válida');
 
 async function baixar(t, tipo, { abrir = false } = {}) {
@@ -25,9 +25,16 @@ async function baixar(t, tipo, { abrir = false } = {}) {
   return arquivo;
 }
 
+const CSV_TOMADAS = ['Competência', 'Número da NFS-e', 'Fornecedor', 'CNPJ/CPF', 'Situação', 'ISS retido', 'Valor (R$)', 'Valor líquido (R$)', 'Chave de acesso'];
+const linhasCsv = (lista) => lista.map((t) => [data(t.competencia), t.nNfse || '', t.emitente?.nome || '', t.emitente?.documentoFormatado || '', t.situacao === 'cancelada' ? 'Cancelada' : 'Válida',
+  t.issRetido ? 'Sim' : 'Não', valorCsv(t.valor), valorCsv(t.valorLiquido), t.chaveAcesso || '']);
+
 export async function lista(_, query) {
-  const mes = /^\d{4}-\d{2}$/.test(query.mes || '') ? query.mes : '';
-  const dados = await comCache(`tomadas:${mes}`, () => api('GET', `/api/tomadas${mes ? `?competencia=${mes}` : ''}`));
+  // Competência: um mês, um atalho (últimos 3 meses, este ano...) ou datas de/até.
+  const periodo = periodoDaRota(query);
+  const comPeriodo = temPeriodo(periodo);
+  const qs = new URLSearchParams(paramsDaApi(periodo)).toString();
+  const dados = await comCache(`tomadas:${qs}`, () => api('GET', `/api/tomadas${qs ? `?${qs}` : ''}`));
   const ul = h('ul', { class: 'lista', 'aria-live': 'polite' });
   const semItens = h('div', {});
   const contador = h('p', { class: 'suave', role: 'status' });
@@ -43,11 +50,19 @@ export async function lista(_, query) {
   let visiveisAgora = [];
   // A lista mostrada, em planilha, para o contador conferir retenções e serviços tomados.
   const exportar = h('button', { class: 'btn btn-pequeno', type: 'button', title: 'Baixa a lista mostrada em planilha (CSV)', onclick: () => {
-    baixarCsv(`notas-tomadas-${mes || 'todas'}.csv`, ['Competência', 'Número da NFS-e', 'Fornecedor', 'CNPJ/CPF', 'Situação', 'ISS retido', 'Valor (R$)', 'Valor líquido (R$)', 'Chave de acesso'],
-      visiveisAgora.map((t) => [data(t.competencia), t.nNfse || '', t.emitente?.nome || '', t.emitente?.documentoFormatado || '', t.situacao === 'cancelada' ? 'Cancelada' : 'Válida',
-        t.issRetido ? 'Sim' : 'Não', valorCsv(t.valor), valorCsv(t.valorLiquido), t.chaveAcesso || '']));
+    baixarCsv(`notas-tomadas-${periodoNoArquivo(periodo)}.csv`, CSV_TOMADAS, linhasCsv(visiveisAgora));
     aviso(`${plural(visiveisAgora.length, 'nota exportada', 'notas exportadas')}.`);
   } }, icone(ICONES.baixar), 'Exportar CSV');
+  // XML e PDF (DANFSe) de todas as notas mostradas, num ZIP.
+  const lote = baixarEmLote({
+    notas: () => visiveisAgora.filter((t) => t.chaveAcesso),
+    url: (t, tipo) => `/api/tomadas/${encodeURIComponent(t.id)}/${tipo === 'xml' ? 'xml' : 'danfse?baixar=1'}`,
+    nomePadrao: (t, tipo) => (tipo === 'xml' ? `NFSe-${t.chaveAcesso}.xml` : `DANFSe-${t.chaveAcesso}.pdf`),
+    rotulo: (t) => `NFS-e nº ${t.nNfse || '?'} — ${t.emitente?.nome || 'fornecedor'} — chave ${t.chaveAcesso}`,
+    nomeZip: () => `notas-tomadas_${String(estado.conta?.empresaDocumentoFormatado || '').replace(/\D/g, '') || 'empresa'}_${periodoNoArquivo(periodo)}.zip`,
+    planilha: () => ({ cabecalho: CSV_TOMADAS, linhas: linhasCsv(visiveisAgora.filter((t) => t.chaveAcesso)) }),
+    observacao: dados.limitado ? 'A lista traz só as 2.000 mais recentes: escolha um período menor para baixar tudo.' : '',
+  });
   function mostrar(q = '') {
     const s = semAcento(q).trim();
     const dig = s.replace(/[^0-9a-z]/g, '');
@@ -55,12 +70,13 @@ export async function lista(_, query) {
       || (dig.length >= 3 && [t.emitente?.documentoFormatado, t.nNfse, t.chaveAcesso].some((x) => semAcento(x).replace(/[^0-9a-z]/g, '').includes(dig))));
     visiveisAgora = visiveis;
     exportar.hidden = !visiveis.length;
+    lote.atualizar();
     contador.textContent = plural(visiveis.length, 'nota', 'notas');
     ul.replaceChildren(...visiveis.map(item));
     cabecalho.hidden = !visiveis.length;
     semItens.replaceChildren(...(visiveis.length ? [] : [dados.tomadas.length
       ? vazio({ icone: ICONES.busca, titulo: 'Nenhuma nota encontrada', texto: 'Confira o fornecedor, o CNPJ, o número ou a chave digitados.' })
-      : vazio({ icone: ICONES.recebida, titulo: mes ? 'Nenhuma nota recebida nesta competência' : 'As notas recebidas aparecem aqui',
+      : vazio({ icone: ICONES.recebida, titulo: comPeriodo ? 'Nenhuma nota recebida neste período' : 'As notas recebidas aparecem aqui',
         texto: dados.temCertificado ? 'Toque em "Buscar notas na Receita" para trazer as notas que fornecedores emitiram para esta empresa.'
           : 'Envie o certificado (acima) para buscar na Receita as notas que fornecedores emitiram para esta empresa.' })]));
   }
@@ -79,19 +95,14 @@ export async function lista(_, query) {
     } finally { buscar.disabled = false; }
   });
 
-  // Seletor de mês em português (o <input type=month> aparece vazio ou em inglês em vários navegadores).
+  // Meses em português (o <input type=month> aparece vazio ou em inglês em vários navegadores) + atalhos e datas de/até.
   const ultimos = [];
   for (let i = 0, [a, m] = mesAtual().split('-').map(Number); i < 24; i++) {
     ultimos.push(`${a}-${String(m).padStart(2, '0')}`);
     m -= 1; if (m === 0) { m = 12; a -= 1; }
   }
-  if (mes && !ultimos.includes(mes)) ultimos.push(mes);
-  const rotuloMes = (m) => (m === mesAtual() ? `Este mês (${nomeMes(m)})` : m === mesAnterior() ? `Mês passado (${nomeMes(m)})` : nomeMes(m));
-  const filtroMes = campo({
-    rotulo: 'Competência', rotuloOculto: true, valor: mes, opcoes: [['', 'Todas as competências'], ...ultimos.map((m) => [m, rotuloMes(m)])],
-    onchange: (e) => ir(`/tomadas${e.target.value ? `?mes=${e.target.value}` : ''}`, { substituir: true }),
-  });
-  filtroMes.classList.add('campo-mes');
+  const { seletor: filtroMes, datas: datasPeriodo } = filtroPeriodo({ meses: ultimos, periodo,
+    aoMudar: (p) => { const q = new URLSearchParams(paramsDaRota(p)).toString(); ir(`/tomadas${q ? `?${q}` : ''}`, { substituir: true }); } });
   const busca = dados.tomadas.length > 5 ? campo({ rotulo: 'Pesquisar notas tomadas', rotuloOculto: true,
     atributos: { type: 'search', autocomplete: 'off', placeholder: 'Buscar fornecedor, CNPJ, número ou chave' }, oninput: (e) => mostrar(e.target.value) }) : null;
   busca?.classList.add('busca-icone');
@@ -113,10 +124,13 @@ export async function lista(_, query) {
             h('p', {}, 'A Receita só entrega as notas recebidas para quem apresenta o certificado digital do CNPJ (ou do escritório, por procuração).'),
             h('a', { class: 'btn btn-pequeno', href: '#/perfil' }, 'Enviar certificado')),
       // Sem certificado e sem notas: só o cartão de como começar (sem filtro nem totais zerados).
-      ...(dados.tomadas.length || dados.temCertificado || mes ? [
-        h('div', { class: 'barra-lista' }, busca, filtroMes, exportar),
+      ...(dados.tomadas.length || dados.temCertificado || comPeriodo ? [
+        h('div', { class: 'barra-lista' }, busca, filtroMes, h('div', { class: 'barra-acoes' }, exportar, lote.botao)),
+        datasPeriodo,
+        lote.painel,
+        dados.limitado ? h('p', { class: 'cartao cartao-alerta' }, 'Mostrando as 2.000 notas mais recentes. Escolha um período menor para ver as demais.') : null,
         h('section', { 'aria-label': 'Totais' },
-          h('div', { class: 'secao-titulo' }, h('h3', { class: 'titulo-mes' }, mes ? nomeMes(mes) : 'Todas as competências'),
+          h('div', { class: 'secao-titulo' }, h('h3', { class: 'titulo-mes' }, rotuloPeriodo(periodo)),
             h('span', { class: 'secao-extra' }, plural(dados.totais.quantidade, 'nota válida', 'notas válidas'))),
           h('div', { class: `painel${moeda(dados.totais.valor).length > 13 ? ' uma-coluna' : ''}` },
             h('div', { class: 'cartao kpi' }, h('div', { class: 'kpi-rotulo' }, 'Valor dos serviços'), h('div', { class: 'kpi-valor' }, moeda(dados.totais.valor))),
