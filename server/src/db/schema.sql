@@ -215,3 +215,29 @@ CREATE TABLE IF NOT EXISTS certificados_procurador (
   removido_em TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_cert_procurador_usuario ON certificados_procurador(usuario_id, removido_em);
+
+-- Assistente de IA: provedor, modelo e chave de API por conta (a chave fica cifrada e nunca volta ao app).
+CREATE TABLE IF NOT EXISTS ia_config (
+  usuario_id TEXT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  provedor TEXT NOT NULL,
+  modelo TEXT NOT NULL,
+  chave_cifrada TEXT,
+  base_url TEXT,
+  esforco TEXT,
+  emissao_autonoma INTEGER NOT NULL DEFAULT 0,
+  atualizado_em TEXT NOT NULL
+);
+
+-- Conversas com o assistente (cifradas: citam clientes, CPF/CNPJ e valores).
+CREATE TABLE IF NOT EXISTS ia_conversas (
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  prestador_id TEXT,
+  titulo_cifrado TEXT,
+  mensagens_cifradas TEXT NOT NULL,
+  pendentes_cifrados TEXT,
+  versao INTEGER NOT NULL DEFAULT 1,
+  criado_em TEXT NOT NULL,
+  atualizado_em TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ia_conversas_usuario ON ia_conversas(usuario_id, atualizado_em);

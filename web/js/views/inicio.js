@@ -197,6 +197,7 @@ export async function tela() {
           h('div', { class: 'secao-titulo' }, h('h3', { id: 'h-atalhos' }, 'Atalhos')),
           h('ul', { class: 'atalhos' },
             rascunhos ? atalho('#/notas?situacao=rascunho', ICONES.rascunho, 'Rascunhos', [dados.rascunhos ? `${plural(dados.rascunhos, 'salvo', 'salvos')} na conta` : null, locais ? `${locais} só neste aparelho` : null].filter(Boolean).join(' · ')) : null,
+            atalho('#/assistente', 'M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8zM19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9z', 'Assistente com IA', 'Emite notas e tira dúvidas fiscais conversando'),
             atalho('#/servicos', ICONES.servico, 'Serviços salvos', 'Descrições prontas para a nota'),
             atalho('#/perfil', ICONES.ajustes, 'Dados da empresa', 'Regime, certificado e endereço'),
             atalho('#/conta', ICONES.pessoas, 'Minha conta', `Conectado como ${estado.conta?.documentoFormatado || estado.conta?.email || 'você'}`)))),

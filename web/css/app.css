@@ -548,3 +548,74 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
   .abas a.nav-marca:hover { background: none; }
   .abas a.aba-nova-topo:hover { background: var(--azul-claro); border-color: var(--azul); color: var(--azul); }
 }
+
+/* ---------- Assistente de IA ---------- */
+@media (max-width: 380px) { .abas a > svg { width: 44px; padding: 2px 10px; } .abas a { font-size: 11px; } }
+.ia-tela { display: flex; flex-direction: column; }
+.ia-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: var(--esp-2); flex-wrap: wrap; }
+.ia-cabecalho .ia-titulo { margin: 0; flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ia-cabecalho-acoes { display: flex; gap: var(--esp-2); }
+.ia-cabecalho-acoes .btn { margin: 0; }
+.ia-modo { margin: var(--esp-1) 0 var(--esp-2); }
+.ia-historico { margin-bottom: var(--esp-2); }
+.ia-historico summary { cursor: pointer; color: var(--azul); font-weight: 600; font-size: var(--fs-14); min-height: 44px; display: flex; align-items: center; }
+.ia-historico .item[aria-current="true"] { background: var(--azul-claro); }
+.ia-chat { display: flex; flex-direction: column; gap: var(--esp-3); padding: var(--esp-2) 0; min-height: 30vh; }
+.ia-msg { display: flex; gap: var(--esp-2); align-items: flex-start; max-width: 100%; }
+.ia-msg p { margin: 0 0 var(--esp-2); } .ia-msg p:last-child { margin-bottom: 0; }
+.ia-msg ul, .ia-msg ol { margin: 0 0 var(--esp-2); padding-left: var(--esp-5); }
+.ia-msg code { font-size: var(--fs-14); background: var(--fundo-2); border-radius: 4px; padding: 0 4px; }
+.ia-bolha { padding: var(--esp-3) var(--esp-4); border-radius: var(--raio); line-height: 1.5; overflow-wrap: anywhere; }
+.ia-usuario { justify-content: flex-end; }
+.ia-usuario .ia-bolha { background: var(--azul); color: var(--sobre-acento); border-bottom-right-radius: 4px; max-width: 85%; }
+.ia-usuario .ia-bolha a { color: inherit; }
+.ia-assistente .ia-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--esp-2); }
+.ia-assistente .ia-bolha { background: var(--cartao); border: 1px solid var(--borda); border-top-left-radius: 4px; box-shadow: var(--sombra); }
+.ia-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--azul-claro); color: var(--azul); }
+.ia-avatar .icone svg { width: 18px; height: 18px; }
+.ia-avatar.grande { width: 56px; height: 56px; margin-bottom: var(--esp-2); }
+.ia-avatar.grande .icone svg { width: 30px; height: 30px; }
+.ia-aviso { justify-content: center; text-align: center; font-size: var(--fs-13); color: var(--texto-2); background: var(--fundo-2); border-radius: var(--raio); padding: var(--esp-2) var(--esp-3); flex-direction: column; }
+.ia-acoes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ia-acoes li { font-size: var(--fs-12); font-weight: 600; line-height: 1.5; padding: 1px 10px; border-radius: 999px; background: var(--fundo-2); color: var(--texto-2); }
+.ia-acoes li.erro { background: var(--vermelho-claro); color: var(--vermelho); }
+.ia-notas { display: grid; gap: var(--esp-2); }
+.ia-nota { background: var(--cartao); border: 1px solid var(--borda); border-left: 4px solid var(--azul); border-radius: var(--raio); padding: var(--esp-3); }
+.ia-nota.s-borda-emitida { border-left-color: var(--verde); }
+.ia-nota.s-borda-rejeitada, .ia-nota.s-borda-cancelada { border-left-color: var(--vermelho); }
+.ia-nota.s-borda-pendente, .ia-nota.s-borda-enviando { border-left-color: var(--ambar); }
+.ia-nota-topo { display: flex; justify-content: space-between; align-items: center; gap: var(--esp-2); }
+.ia-nota .btn { margin-top: var(--esp-2); }
+.ia-pensando .carregando { padding: var(--esp-2) 0; display: flex; align-items: center; gap: var(--esp-2); text-align: left; }
+.ia-pensando .girando { width: 18px; height: 18px; margin: 0; }
+.ia-vazio { color: var(--texto-2); }
+.ia-sugestoes { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.ia-sugestao { min-height: 44px; padding: var(--esp-2) var(--esp-3); border-radius: var(--raio-controle); border: 1px solid var(--borda-campo); background: var(--cartao); color: var(--texto); font: inherit; font-size: var(--fs-14); text-align: left; cursor: pointer; }
+.ia-sugestao:hover { border-color: var(--azul); }
+.ia-confirmar { border-color: var(--azul); border-width: 2px; }
+.ia-resumo { display: grid; grid-template-columns: max-content 1fr; gap: var(--esp-1) var(--esp-3); margin: 0 0 var(--esp-2); font-size: var(--fs-15); }
+.ia-resumo dt { color: var(--texto-2); }
+.ia-resumo dd { margin: 0; overflow-wrap: anywhere; }
+.ia-real { font-weight: 600; color: var(--texto); background: var(--ambar-claro); border-radius: var(--raio-controle); padding: var(--esp-2) var(--esp-3); font-size: var(--fs-14); }
+.ia-confirmar-acoes { display: flex; gap: var(--esp-2); flex-wrap: wrap; }
+.ia-confirmar-acoes .btn { flex: 1 1 160px; margin: 0; }
+.ia-compor { position: sticky; bottom: calc(var(--abas) + env(safe-area-inset-bottom)); display: flex; gap: var(--esp-2); align-items: flex-end;
+  background: var(--fundo); padding: var(--esp-2) 0; border-top: 1px solid var(--borda); z-index: 5; }
+.ia-entrada { flex: 1; min-width: 0; min-height: 48px; max-height: 40vh; resize: vertical; font: inherit; color: var(--texto); background: var(--cartao);
+  border: 1px solid var(--borda-campo); border-radius: var(--raio-controle); padding: 10px var(--esp-3); }
+.btn.ia-enviar { width: 52px; min-width: 52px; margin: 0; padding: 0; flex: none; }
+.ia-rodape { font-size: var(--fs-12); margin-top: var(--esp-1); }
+.ia-boas-vindas { text-align: center; }
+.ia-boas-vindas .ia-avatar { margin-inline: auto; }
+.ia-modos { border: 1px solid var(--borda); border-radius: var(--raio); padding: var(--esp-2) var(--esp-3); margin: var(--esp-3) 0; }
+.ia-modos legend { font-weight: 600; padding: 0 var(--esp-1); }
+.ia-opcao { display: flex; gap: var(--esp-3); align-items: flex-start; padding: var(--esp-2) 0; cursor: pointer; }
+.ia-opcao input { width: 20px; height: 20px; margin-top: 3px; flex: none; accent-color: var(--azul); }
+@media (min-width: 1024px) {
+  main form.ia-compor { display: flex; bottom: 0; }
+  main .btn.ia-enviar { width: 52px; min-width: 52px; }
+  .ia-confirmar-acoes .btn:not(.btn-pequeno) { width: auto; min-width: 200px; flex: none; }
+  .ia-usuario .ia-bolha { max-width: 75%; }
+}
+.ia-nota .item-sub, .ia-historico .item-sub { white-space: normal; overflow-wrap: anywhere; }
+.ia-tela, .ia-chat, .ia-msg, .ia-confirmar { min-width: 0; max-width: 100%; }

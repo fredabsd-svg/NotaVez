@@ -17,6 +17,7 @@ import * as empresas from './views/empresas.js';
 import * as tomadas from './views/tomadas.js';
 import * as assistida from './views/assistida.js';
 import * as procurador from './views/procurador.js';
+import * as assistente from './views/assistente.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -43,6 +44,9 @@ const rotas = [
   ['/procurador', procurador.tela],
   ['/tomadas', tomadas.lista],
   ['/tomadas/:id', tomadas.detalhe],
+  ['/assistente', assistente.tela],
+  ['/assistente/configurar', assistente.configurar],
+  ['/assistente/:id', assistente.tela],
 ];
 // Áreas que existem em qualquer empresa: ao trocar de empresa, a pessoa continua na mesma área
 // (das notas tomadas de uma para as notas tomadas da outra), em vez de voltar ao Início.
@@ -59,7 +63,7 @@ function lembrarEmpresa(id) {
 }
 
 // Telas que funcionam sem uma empresa escolhida.
-const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/procurador']);
+const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/procurador', '/assistente', '/assistente/configurar']);
 
 export const estado = { conta: null, inicio: null };
 

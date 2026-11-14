@@ -4,7 +4,7 @@ import { somenteDigitos } from '../util/documentos.js';
 import { invalido, naoEncontrado } from '../util/erros.js';
 import { exigirPrestador } from './perfil.js';
 
-function lerServico(b = {}) {
+export function lerServico(b = {}) {
   const erros = {};
   const apelido = String(b.apelido || '').trim().slice(0, 80);
   const cTribNac = somenteDigitos(b.cTribNac).padStart(6, '0').slice(-6);
