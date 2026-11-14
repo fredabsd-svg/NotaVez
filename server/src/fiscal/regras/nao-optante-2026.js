@@ -62,7 +62,7 @@ function exigenciaAliquota(ctx) {
   const nome = municipio(ctx.municipioIncidencia)?.nome || 'O município de incidência';
   if (conv?.situacao === 'ativo') return { modo: 'proibida', regra: 'E0617', motivo: `O ISS é calculado pela alíquota que ${nome} cadastrou no sistema nacional.` };
   if (conv?.situacao === 'inexistente') return { modo: 'obrigatoria', minimo: 0, maximo: 5, regra: 'E0619', motivo: `${nome} não é conveniado ao sistema nacional: informe a alíquota do ISS do município para este serviço.` };
-  return { modo: 'indefinida', regra: 'E0617/E0619', motivo: 'Não foi possível consultar o convênio do município agora.' };
+  return { modo: 'opcional', regra: 'E0617/E0619', motivo: 'Não foi possível confirmar o convênio do município agora. Pela LC 214/2025 os municípios aderem ao padrão nacional, então a alíquota só vai na nota se você informar. Se a Receita pedir (E0619), informe a alíquota do município.' };
 }
 
 export const pacote = {
@@ -83,7 +83,8 @@ export const pacote = {
     return {
       tribISSQN: '1',
       tpRetISSQN: nota.issRetido ? '2' : '1',
-      pAliq: ex.modo === 'obrigatoria' && aliq !== null ? fmt2(aliq) : undefined,
+      // Convênio não confirmado: a alíquota só vai se a pessoa a informou nesta nota.
+      pAliq: (ex.modo === 'obrigatoria' && aliq !== null) || (ex.modo === 'opcional' && percentual(nota.pAliq) !== null) ? fmt2(ex.modo === 'opcional' ? percentual(nota.pAliq) : aliq) : undefined,
       tribFed: {
         piscofins: {
           CST: pc.CST,
@@ -147,7 +148,7 @@ export const pacote = {
       else if (nota.tomador.tipo !== 'CNPJ') add('tributacao', 'A retenção de ISS por pessoa física depende de autorização do município (E0667). Nesta versão, só clientes com CNPJ podem reter.', 'E0667');
     }
     const ex = exigenciaAliquota(ctx);
-    if (ex.modo === 'indefinida') add('tributacao', `${ex.motivo} Tente novamente em instantes.`, ex.regra);
+    if (ex.modo === 'opcional' && percentual(nota.pAliq) !== null && (percentual(nota.pAliq) <= 0 || percentual(nota.pAliq) > 5)) add('tributacao', 'A alíquota do ISS deve ficar entre 0 e 5%.', 'E0595');
     if (ex.modo === 'obrigatoria') {
       const aliq = percentual(nota.pAliq ?? prestador.aliqIss);
       if (aliq === null || aliq <= 0) add('tributacao', `Informe a alíquota do ISS. ${ex.motivo}`, ex.regra);

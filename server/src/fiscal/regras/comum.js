@@ -87,12 +87,11 @@ export function validarComum({ prestador, nota, hoje }) {
   return e;
 }
 
-// Fora do MEI, o município emissor precisa ser conveniado e usar os emissores nacionais (E0037–E0039).
-export function validarConvenioEmissor(e, parametros) {
-  const ce = parametros?.convenioEmissor;
-  if (ce?.situacao === 'inexistente') e.push({ campo: 'perfil.municipio', mensagem: 'O município do seu CNPJ não é conveniado ao Sistema Nacional da NFS-e: a nota deve ser emitida no sistema da prefeitura.', regra: 'E0037' });
-  else if (ce?.situacao === 'ativo' && ce.aderenteEmissorNacional === false) e.push({ campo: 'perfil.municipio', mensagem: 'O município do seu CNPJ não liberou os emissores nacionais: a nota deve ser emitida no sistema da prefeitura.', regra: 'E0039' });
-}
+// Convênio do município emissor (E0037–E0039): quem decide é a Receita, no envio. A LC 214/2025 obriga
+// todos os municípios a aderir ao padrão nacional e, desde 01/11/2026, o Simples emite por ele em qualquer
+// município (Res. CGSN 191/2026). Por isso a consulta prévia nunca bloqueia: se a Receita recusar, nenhuma
+// nota é gerada e a mensagem dela explica o que fazer. (Mantida para não mudar a assinatura dos pacotes.)
+export function validarConvenioEmissor() {}
 
 // Arredondamento bancário (half-even), adotado pela NT 007 para vPis/vCofins.
 export function arredondarBancario(v) {

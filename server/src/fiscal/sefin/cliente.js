@@ -150,19 +150,30 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
      * qualquer falha de rede ou formato inesperado = 'desconhecido' (nunca supomos).
      */
     async consultarConvenio(municipio) {
-      if (!baseParam) return { situacao: 'desconhecido', motivo: 'sem_endereco' };
-      const r = await requisitar('GET', rota(rotasParametros.convenio || '/{municipio}/convenio', { municipio }), undefined, baseParam);
-      const base = { http: r.status ?? null, ms: r.ms };
-      if (r.erroRede) return { ...base, situacao: 'desconhecido', motivo: r.erroRede.code || r.erroRede.message };
-      const p = pegar(r.json, 'parametrosConvenio', 'ParametrosConvenio');
-      if (r.status === 200 && p) {
-        const adere = pegar(p, 'aderenteEmissorNacional', 'AderenteEmissorNacional');
-        return { ...base, situacao: 'ativo', aderenteEmissorNacional: adere === undefined ? null : String(adere) === '1', tipoConvenio: String(pegar(p, 'tipoConvenio', 'tipoConvenioDeserializationSetter') ?? '') || null };
+      // Rota oficial (Manual dos Contribuintes, API do Emissor Público Nacional): GET /parametros_municipais/{codigoMunicipio}/convenio,
+      // na Sefin Nacional. As demais são alternativas para o caso de a Receita servir a API no host de parametrização do ADN.
+      const candidatas = [
+        [base, `/parametros_municipais/${encodeURIComponent(municipio)}/convenio`],
+        ...(baseParam ? [[baseParam, `/parametros_municipais/${encodeURIComponent(municipio)}/convenio`],
+          [baseParam, rota(rotasParametros.convenio || '/{municipio}/convenio', { municipio })]] : []),
+      ];
+      const tentativas = [];
+      let ultima = { http: null, ms: 0 };
+      for (const [raiz, caminho] of candidatas) {
+        const r = await requisitar('GET', caminho, undefined, raiz);
+        ultima = { http: r.status ?? null, ms: r.ms };
+        if (r.erroRede) { tentativas.push(r.erroRede.code || 'rede'); continue; }
+        tentativas.push(`http_${r.status}`);
+        const p = pegar(r.json, 'parametrosConvenio', 'ParametrosConvenio');
+        if (r.status === 200 && p) {
+          const adere = pegar(p, 'aderenteEmissorNacional', 'AderenteEmissorNacional');
+          return { ...ultima, situacao: 'ativo', aderenteEmissorNacional: adere === undefined ? null : String(adere) === '1', tipoConvenio: String(pegar(p, 'tipoConvenio', 'tipoConvenioDeserializationSetter') ?? '') || null };
+        }
+        // Só a resposta EXPLÍCITA da Receita diz que não há convênio. Um 404 sem mensagem é rota inexistente: tenta a próxima.
+        const mensagem = pegar(r.json, 'mensagem', 'Mensagem');
+        if ([200, 400, 404].includes(r.status) && mensagem) return { ...ultima, situacao: 'inexistente', mensagem };
       }
-      if (r.status === 404 || ((r.status === 200 || r.status === 400) && pegar(r.json, 'mensagem', 'Mensagem'))) {
-        return { ...base, situacao: 'inexistente', mensagem: pegar(r.json, 'mensagem', 'Mensagem') ?? null };
-      }
-      return { ...base, situacao: 'desconhecido', motivo: `http_${r.status}` };
+      return { ...ultima, situacao: 'desconhecido', motivo: tentativas.join(',') || 'sem_endereco' };
     },
 
     /** Alíquota de ISS parametrizada (informativa: o Nota Sem Stress não a envia quando o município é conveniado). */
@@ -204,7 +215,7 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
           })).filter((d) => Number.isSafeInteger(d.nsu) && d.nsu >= 0),
         };
       }
-      return { ...base, tipo: 'falha', erros: lerMensagens(r.json), detalhe: `http_${r.status}` };
+      return { ...base, tipo: 'falha', erros: lerMensagens(r.json), detalhe: `http_${r.status}`, corpo: String(r.texto || '').slice(0, 300) };
     },
 
     fechar: () => agente.destroy(),

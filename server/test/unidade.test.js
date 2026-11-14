@@ -150,13 +150,17 @@ test('ME/EPP com ISS fora do Simples: alíquota depende do convênio do municíp
   assert.ok(regras(p, {}, { convenioEmissor: ativo, convenioIncidencia: inexistente }).includes('E0640'));
   const xml2 = await dpsMe(p, { pAliq: '3.00' }, { convenioEmissor: ativo, convenioIncidencia: inexistente });
   assert.match(xml2, /<pAliq>3.00<\/pAliq>/);
-  // Sem conseguir consultar → não chuta: pede para tentar de novo.
-  assert.ok(regras(p, {}, { convenioEmissor: ativo, convenioIncidencia: { situacao: 'desconhecido' } }).includes('E0635/E0640'));
+  // Sem conseguir consultar → não bloqueia: a alíquota só vai se a pessoa informar nesta nota (a Receita decide).
+  const desconhecido = { situacao: 'desconhecido' };
+  assert.equal(meEpp.exigencias(ctxMe(p, {}, { convenioIncidencia: desconhecido })).aliquota.modo, 'opcional');
+  assert.deepEqual(regras(p, {}, { convenioEmissor: ativo, convenioIncidencia: desconhecido }), []);
+  assert.ok(!/<pAliq>/.test(await dpsMe(p, {}, { convenioEmissor: ativo, convenioIncidencia: desconhecido })));
+  assert.match(await dpsMe(p, { pAliq: '2.50' }, { convenioEmissor: ativo, convenioIncidencia: desconhecido }), /<pAliq>2.50<\/pAliq>/);
 });
 
-test('ME/EPP: município do CNPJ precisa estar no Sistema Nacional (E0037, E0039) e perfil completo', () => {
-  assert.ok(regras(empresa(), {}, { convenioEmissor: inexistente }).includes('E0037'));
-  assert.ok(regras(empresa(), {}, { convenioEmissor: { situacao: 'ativo', aderenteEmissorNacional: false } }).includes('E0039'));
+test('ME/EPP: convênio do município do CNPJ não bloqueia (a Receita decide E0037/E0039); perfil completo é exigido', () => {
+  assert.ok(!regras(empresa(), {}, { convenioEmissor: inexistente }).includes('E0037'));
+  assert.ok(!regras(empresa(), {}, { convenioEmissor: { situacao: 'ativo', aderenteEmissorNacional: false } }).includes('E0039'));
   assert.ok(regras(empresa({ regApTribSN: null }), {}).includes('E0166'));
   assert.ok(regras(empresa({ pTotTribSN: null }), {}).includes('Leiaute totTrib'));
 });

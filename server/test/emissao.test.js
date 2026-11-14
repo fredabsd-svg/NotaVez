@@ -333,21 +333,39 @@ test('ME/EPP pelo Simples: emite sem retenção e com ISS retido pelo cliente', 
   assert.ok(e3.body.erros.some((x) => x.regra === 'E0667'));
 });
 
-test('ME/EPP em município sem convênio: só rascunho, com o motivo (E0037)', async () => {
+test('ME/EPP em município sem convênio: a consulta prévia não bloqueia; a Receita decide e o motivo (E0037) é explicado', async () => {
   const antes = sefin.estado.recebidas.length;
   const u = await usuarioPronto('me-sem-convenio@exemplo.com', { opSimpNac: '3', simples: SIMPLES, municipioIbge: '3304557' });
   const perfil = await u.api('GET', '/api/perfil');
   const conv = perfil.body.elegibilidade.itens.find((i) => i.id === 'convenio');
-  assert.equal(conv.ok, false);
-  assert.match(conv.comoResolver, /prefeitura/);
+  assert.equal(conv.ok, true, 'Simples emite pelo padrão nacional em todos os municípios (Res. CGSN 191/2026)');
+  assert.equal(conv.aviso, null);
+  assert.equal(perfil.body.elegibilidade.podeEmitir, true);
   const consultas = sefin.estado.consultasParametros;
   await u.api('GET', '/api/perfil');
   assert.equal(sefin.estado.consultasParametros, consultas, 'convênio em cache');
   const n = await novoRascunho(u);
   const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
-  assert.equal(e.status, 403);
-  assert.ok(e.body.pendencias.some((p) => p.id === 'convenio'));
-  assert.equal(sefin.estado.recebidas.length, antes, 'nada enviado');
+  assert.equal(e.status, 200, JSON.stringify(e.body));
+  assert.equal(e.body.nota.situacao, 'rejeitada', 'a Receita (simulada) recusa: nenhuma nota é gerada');
+  assert.ok(e.body.nota.erros.some((x) => x.codigo === 'E0037'));
+  assert.equal(sefin.estado.recebidas.length, antes + 1);
+});
+
+test('convênio: rota oficial /parametros_municipais na Sefin; resposta sem mensagem nunca vira "sem convênio"', async () => {
+  const { criarClienteSefin: cliente } = await import('../src/fiscal/sefin/cliente.js');
+  const mat = { ...cert, chavePem: cert.chavePem, certPem: cert.certPem };
+  const c = cliente({ baseUrl: sefin.baseUrl, baseParametros: `${sefin.baseAdn}/nao-existe`, ...mat, ca: sefin.ca, timeoutMs: 1500 });
+  const ativo = await c.consultarConvenio('3550308');
+  assert.equal(ativo.situacao, 'ativo');
+  const semConvenio = await c.consultarConvenio('3304557');
+  assert.equal(semConvenio.situacao, 'inexistente', 'resposta explícita da Receita');
+  // Todas as rotas respondem 404 sem mensagem (rota errada): fica "desconhecido", e não bloqueia nada.
+  const errado = cliente({ baseUrl: `${sefin.baseAdn}/outra-coisa`, baseParametros: `${sefin.baseAdn}/nao-existe`, ...mat, ca: sefin.ca, timeoutMs: 1500 });
+  const r = await errado.consultarConvenio('3550308');
+  assert.equal(r.situacao, 'desconhecido');
+  assert.match(r.motivo, /http_404/);
+  c.fechar(); errado.fechar();
 });
 
 test('ME/EPP com ISS fora do Simples: alíquota só quando o município de incidência não é conveniado', async () => {

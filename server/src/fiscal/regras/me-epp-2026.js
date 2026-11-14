@@ -38,7 +38,7 @@ function exigenciaAliquota(ctx) {
     const nome = municipio(ctx.municipioIncidencia)?.nome || 'do município de incidência';
     if (conv?.situacao === 'ativo') return { modo: 'proibida', regra: 'E0635', motivo: `O ISS é calculado pela alíquota que ${nome} cadastrou no sistema nacional.` };
     if (conv?.situacao === 'inexistente') return { modo: 'obrigatoria', minimo: 0, maximo: ALIQ_MAX, regra: 'E0640', motivo: `${nome} não é conveniado ao sistema nacional: informe a alíquota do ISS do município para este serviço.` };
-    return { modo: 'indefinida', regra: 'E0635/E0640', motivo: 'Não foi possível consultar o convênio do município agora.' };
+    return { modo: 'opcional', regra: 'E0635/E0640', motivo: 'Não foi possível confirmar o convênio do município agora. Desde 01/11/2026 o Simples emite pelo padrão nacional em todos os municípios, então a alíquota só vai na nota se você informar. Se a Receita pedir (E0640), informe a alíquota do município.' };
   }
   return { modo: 'indefinida', regra: 'E0166', motivo: 'Informe no perfil o regime de apuração do Simples.' };
 }
@@ -57,7 +57,8 @@ export const pacote = {
     return {
       tribISSQN: '1',
       tpRetISSQN: v.retido ? '2' : '1',
-      pAliq: ex.modo === 'obrigatoria' && v.pAliq !== null ? fmt2(v.pAliq) : undefined,
+      // Convênio não confirmado ('opcional'): só vai a alíquota que a pessoa informou nesta nota.
+      pAliq: (ex.modo === 'obrigatoria' || ex.modo === 'opcional') && v.pAliq !== null ? fmt2(v.pAliq) : undefined,
       totTrib: { pTotTribSN: v.pTotTribSN !== null ? fmt2(v.pTotTribSN) : undefined }, // E0712: indTotTrib proibido
     };
   },
@@ -81,6 +82,7 @@ export const pacote = {
 
     const ex = exigenciaAliquota(ctx);
     if (ex.modo === 'indefinida' && ['1', '2', '3'].includes(v.regApTribSN)) add('tributacao', `${ex.motivo} Tente novamente em instantes.`, ex.regra);
+    if (ex.modo === 'opcional' && v.pAliq !== null && (v.pAliq <= 0 || v.pAliq > ALIQ_MAX)) add('tributacao', 'A alíquota do ISS deve ficar entre 0 e 5%.', 'E0595');
     if (ex.modo === 'obrigatoria') {
       if (v.pAliq === null) add('tributacao', `Informe a alíquota do ISS. ${ex.motivo}`, ex.regra);
       else if (v.pAliq > ALIQ_MAX) add('tributacao', 'A alíquota do ISS não pode passar de 5%.', 'E0595');

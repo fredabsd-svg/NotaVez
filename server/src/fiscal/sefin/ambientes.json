@@ -17,7 +17,7 @@
     "parametros": "https://adn.nfse.gov.br/parametrizacao",
     "emissorNacional": "https://www.nfse.gov.br/EmissorNacional"
   },
-  "_nota_parametros": "API de Parâmetros Municipais: host oficial listado na página de APIs (adn…/parametrizacao). As rotas e o formato das respostas vieram de bibliotecas de código aberto (o Swagger exige certificado); confirmar na homologação e ajustar aqui.",
+  "_nota_parametros": "API de Parâmetros Municipais: rota oficial GET /parametros_municipais/{codigoMunicipio}/convenio na Sefin Nacional (Manual dos Contribuintes – API do Emissor Público Nacional, v1.2). O cliente tenta também o host de parametrização do ADN.",
   "rotasParametros": {
     "convenio": "/{municipio}/convenio",
     "aliquota": "/{municipio}/{servico}/{competencia}/aliquota"

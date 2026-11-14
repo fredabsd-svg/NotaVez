@@ -202,6 +202,8 @@ test('falha do ADN não apaga o progresso e é informada', async () => {
   try {
     const r = await api('POST', '/api/tomadas/sincronizar', {}, h);
     assert.equal(r.status, 502);
+    assert.match(r.body.erro, /código 500|erro interno/, 'a tela mostra o que a Receita respondeu, e não só "não respondeu"');
+    assert.equal(r.body.http, 500);
     assert.equal((await api('GET', '/api/tomadas', undefined, h)).body.sincronizacao.ultimoNsu, 0);
   } finally { sefin.estado.falharDistribuicao = false; }
 });
