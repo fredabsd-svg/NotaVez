@@ -1,0 +1,14 @@
+# O que não sobe para a Vercel (dados locais, dependências e o que não faz parte do app publicado).
+.git
+.env*
+**/node_modules
+server/dados-demo
+server/dados-banco
+server/homologacao-saida
+server/test-results
+server/playwright-report
+**/*.pfx
+**/*.p12
+**/*.pem
+android-twa
+docs
