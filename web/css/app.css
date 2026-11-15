@@ -753,3 +753,28 @@ body.pagina-publica .cartao h2 { margin-top: 0; font-size: var(--fs-18); }
 .lote-acoes-finais > .btn-pequeno { align-self: flex-start; margin: 0; }
 /* Sem a barra de abas (conta ainda sem empresa aberta): a barra de ações encosta no rodapé. */
 body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: env(safe-area-inset-bottom); }
+
+/* Conta › Backup e Restauração */
+.bk-bloco { margin-bottom: var(--esp-4); }
+.bk-bloco h2 { margin-top: 0; }
+.bk-situacao { margin-bottom: var(--esp-4); }
+.bk-situacao p { margin: var(--esp-1) 0 0; }
+.bk-andamento { margin-top: var(--esp-3); }
+.bk-andamento progress { width: 100%; height: 10px; accent-color: var(--azul); }
+.bk-andamento p { margin: var(--esp-1) 0 0; font-size: var(--fs-14); }
+.bk-codigo { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-13); }
+.bk-previa { margin-top: var(--esp-3); }
+.bk-previa h3 { margin-top: 0; color: var(--texto); font-size: var(--fs-16); }
+.bk-empresas { padding-left: var(--esp-4); margin: var(--esp-2) 0; }
+.bk-empresas li { margin: 2px 0; overflow-wrap: anywhere; }
+.bk-acoes { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin-top: var(--esp-2); }
+.bk-acoes .btn { margin: 0; }
+.bk-historico .bk-item { padding: var(--esp-3) 0; border-bottom: 1px solid var(--borda); display: flex; flex-direction: column; gap: 4px; }
+.bk-historico .bk-item:last-child { border-bottom: 0; }
+.bk-historico .suave { overflow-wrap: anywhere; }
+.bk input[type="file"] { display: block; width: 100%; margin: 0 0 var(--esp-3); padding: var(--esp-2); border: 1px dashed var(--borda-campo); border-radius: var(--raio-controle); background: var(--cartao); color: var(--texto); }
+.bk-previa .ia-tabela th, .bk-previa .ia-tabela td { white-space: normal; min-width: 0; }
+.bk-previa .ia-tabela td { text-align: right; width: 22%; }
+.bk-senha-item { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-2); margin-top: var(--esp-2); }
+.bk-senha-item .campo { flex: 1 1 220px; margin: 0; }
+.bk-senha-item .btn { margin: 0; }

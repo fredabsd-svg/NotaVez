@@ -290,3 +290,41 @@ CREATE TABLE IF NOT EXISTS limites_requisicoes (
   chave TEXT PRIMARY KEY, quantidade INTEGER NOT NULL, expira_em BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_limites_expira ON limites_requisicoes(expira_em);
+
+-- Backup e restauração por conta. O arquivo (já cifrado com a senha do backup) é guardado em partes de até
+-- ~1,9 MB, cada uma cifrada também com a chave do servidor, para baixar/enviar abaixo do limite de 4,5 MB por
+-- requisição da Vercel. A senha nunca é guardada.
+CREATE TABLE IF NOT EXISTS backups (
+  id TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,                 -- manual | seguranca (antes de restaurar) | enviado (arquivo trazido para restaurar)
+  situacao TEXT NOT NULL,             -- gravando | recebendo | guardado | removido (só os dados, a linha fica no histórico)
+  nome_arquivo TEXT NOT NULL,
+  bytes BIGINT NOT NULL,
+  sha256 TEXT NOT NULL,               -- SHA-256 do arquivo inteiro
+  partes INTEGER NOT NULL,
+  formato INTEGER,
+  esquema INTEGER,
+  versao_app TEXT,
+  gerado_em TEXT,                     -- data e hora do backup (do próprio arquivo)
+  resumo TEXT,                        -- contagens (sem nomes nem documentos)
+  criado_em TEXT NOT NULL,
+  verificado_em TEXT,                 -- o servidor abriu o arquivo e conferiu tudo
+  baixado_em TEXT,                    -- o aparelho baixou e conferiu o SHA-256
+  restaurado_em TEXT,
+  origem_id TEXT                      -- backup de segurança: o backup cuja restauração o gerou
+);
+CREATE INDEX IF NOT EXISTS ix_backups_usuario ON backups(usuario_id, criado_em);
+CREATE TABLE IF NOT EXISTS backup_partes (
+  backup_id TEXT NOT NULL REFERENCES backups(id) ON DELETE CASCADE,
+  parte INTEGER NOT NULL,
+  dados_cifrados TEXT NOT NULL,
+  PRIMARY KEY (backup_id, parte)
+);
+-- Uma operação de backup ou restauração por conta de cada vez (com prazo, se o processo cair no meio).
+CREATE TABLE IF NOT EXISTS backup_operacoes (
+  usuario_id TEXT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  operacao TEXT NOT NULL,
+  token TEXT NOT NULL,
+  expira_em BIGINT NOT NULL
+);
