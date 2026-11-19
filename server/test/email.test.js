@@ -182,12 +182,27 @@ test('servidor interno, porta estranha e endereço inválido são recusados ante
   // Nome público que resolve para a rede interna (DNS malicioso): recusado.
   const resolver = async () => [{ address: '169.254.169.254', family: 4 }];
   await assert.rejects(smtp.resolverServidor('smtp.exemplo.test', { resolver }), /endereço interno/);
-  assert.deepEqual(await smtp.resolverServidor('smtp.exemplo.test', { resolver: async () => [{ address: '142.250.0.108', family: 4 }] }), { nome: 'smtp.exemplo.test', ip: '142.250.0.108' });
+  // IPv4 antes do IPv6 (sem saída IPv6, o primeiro endereço do DNS falharia) e todos os endereços conferidos.
+  assert.deepEqual(await smtp.resolverServidor('smtp.exemplo.test', { resolver: async () => [{ address: '2607:f8b0::1', family: 6 }, { address: '142.250.0.108', family: 4 }] }),
+    { nome: 'smtp.exemplo.test', ip: '142.250.0.108', ips: ['142.250.0.108', '2607:f8b0::1'] });
+  await assert.rejects(smtp.resolverServidor('smtp.exemplo.test', { resolver: async () => [{ address: '142.250.0.108', family: 4 }, { address: 'fd00::1', family: 6 }] }), /endereço interno/);
   const base = { host: '127.0.0.1', porta: portaSsl, de: 'a@b.test', para: ['c@d.test'], assunto: 'x', texto: 'y', ca: certTls };
   await assert.rejects(smtp.enviarEmail(base), /Porta de e-mail não aceita/);
   await assert.rejects(smtp.enviarEmail({ ...base, porta: 465 }), /endereço interno/);
   await assert.rejects(smtp.enviarEmail({ ...base, para: ['sem-arroba'] }), /inválido/);
   await assert.rejects(smtp.enviarEmail({ ...base, para: ['x@y.test\r\nRCPT TO:<z@w.test>'] }), /inválido/);
+});
+
+test('conexão: prefere IPv4 e, se um endereço não responde, tenta o próximo (sem saída IPv6 o envio não pode falhar)', async () => {
+  const base = { host: 'localhost', porta: portaSsl, de: 'a@b.test', para: ['c@d.test'], assunto: 'x', texto: 'y', ca: certTls, permitirRedeLocal: true };
+  const antes = sslSrv.estado.mensagens.length;
+  // O DNS lista o IPv6 primeiro (onde nada atende): vai direto ao IPv4.
+  await smtp.enviarEmail({ ...base, resolver: async () => [{ address: '::1', family: 6 }, { address: '127.0.0.1', family: 4 }] });
+  // O primeiro IPv4 recusa a conexão: passa para o próximo endereço conferido.
+  await smtp.enviarEmail({ ...base, resolver: async () => [{ address: '127.0.0.2', family: 4 }, { address: '127.0.0.1', family: 4 }] });
+  assert.equal(sslSrv.estado.mensagens.length, antes + 2);
+  // Nenhum endereço atende: mensagem clara.
+  await assert.rejects(smtp.enviarEmail({ ...base, resolver: async () => [{ address: '127.0.0.2', family: 4 }] }), /Não consegui conectar/);
 });
 
 test('texto: leitura da resposta da IA, nomes naturais e conferência do que precisa estar no e-mail', () => {

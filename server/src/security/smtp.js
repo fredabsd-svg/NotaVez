@@ -101,7 +101,40 @@ export async function resolverServidor(host, { permitirRedeLocal = false, resolv
   if (!permitirRedeLocal && enderecos.some((e) => enderecoInterno(e.address))) {
     throw new ErroSmtp('Esse servidor de e-mail aponta para um endereço interno e não pode ser usado.', { etapa: 'endereco' });
   }
-  return { nome, ip: enderecos[0].address };
+  // IPv4 primeiro: muitos servidores (a Vercel inclusive) não têm saída IPv6, e o DNS pode listar o IPv6 antes.
+  const ips = [...enderecos].sort((a, b) => (net.isIPv4(b.address) ? 1 : 0) - (net.isIPv4(a.address) ? 1 : 0)).map((e) => e.address);
+  return { nome, ip: ips[0], ips };
+}
+
+// Erro de rede ou de TLS → mensagem em linguagem comum.
+const ERROS_DE_REDE = ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH', 'ECONNRESET', 'ETIMEDOUT', 'EADDRNOTAVAIL'];
+function erroConexao(e) {
+  if (e instanceof ErroSmtp) return e;
+  const msg = e?.message || '';
+  return new ErroSmtp(ERROS_DE_REDE.includes(e?.code) ? 'Não consegui conectar ao servidor de e-mail. Confira o servidor e a porta.'
+    : /certificate|self.signed|altnames/i.test(msg) ? 'O certificado de segurança do servidor de e-mail não confere com o endereço informado.'
+      : /wrong version|packet length|ssl3|tls/i.test(msg) ? 'A segurança escolhida não combina com a porta: use SSL/TLS na porta 465 e STARTTLS na 587.'
+        : 'A conexão com o servidor de e-mail falhou.', { etapa: 'conexao' });
+}
+
+// Abre a conexão tentando cada endereço conferido, na ordem (rede fora do ar num endereço → o próximo).
+// Erro de TLS (certificado, segurança trocada) não muda de um endereço para outro: para na hora.
+async function conectar(ips, porta, seguro, opcoesTls, limiteMs) {
+  let ultimo = null;
+  for (const ip of ips.slice(0, 4)) {
+    try {
+      return await new Promise((ok, falha) => {
+        const s = seguro ? tls.connect({ host: ip, port: porta, ...opcoesTls }) : net.connect({ host: ip, port: porta });
+        const relogio = setTimeout(() => { s.destroy(); falha(Object.assign(new Error('tempo esgotado ao conectar'), { code: 'ETIMEDOUT' })); }, limiteMs);
+        s.once(seguro ? 'secureConnect' : 'connect', () => { clearTimeout(relogio); s.removeListener('error', falha); ok(s); });
+        s.once('error', (e) => { clearTimeout(relogio); falha(e); });
+      });
+    } catch (e) {
+      ultimo = e;
+      if (!ERROS_DE_REDE.includes(e?.code)) break;
+    }
+  }
+  throw erroConexao(ultimo);
 }
 
 function leitor(socket) {
@@ -162,7 +195,7 @@ export async function enviarEmail({
     checkServerIdentity: (_h, cert) => tls.checkServerIdentity(destino.nome, cert) };
 
   const seguro = seguranca === 'ssl';
-  let socket = seguro ? tls.connect({ host: destino.ip, port: p, ...opcoesTls }) : net.connect({ host: destino.ip, port: p });
+  let socket = await conectar(destino.ips, p, seguro, opcoesTls, Math.min(timeoutMs, 10_000));
   const tempo = () => socket.destroy(new ErroSmtp('O servidor de e-mail não respondeu a tempo. Confira o servidor, a porta e a segurança (SSL/TLS ou STARTTLS).', { etapa: 'conexao' }));
   // Saudação em até 10 s: STARTTLS numa porta SSL (ou o contrário) fica muda; melhor avisar logo.
   socket.setTimeout(Math.min(timeoutMs, 10_000), tempo);
@@ -172,14 +205,7 @@ export async function enviarEmail({
   const enviar = (linha) => socket.write(linha + CRLF);
   const esperar = async (esperado, etapa, extra) => {
     let r;
-    try { r = await ler.proxima(); } catch (e) {
-      if (e instanceof ErroSmtp) throw e;
-      const conexao = ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH', 'ECONNRESET'].includes(e?.code);
-      throw new ErroSmtp(conexao ? 'Não consegui conectar ao servidor de e-mail. Confira o servidor e a porta.'
-        : /certificate|self.signed|altnames/i.test(e?.message || '') ? 'O certificado de segurança do servidor de e-mail não confere com o endereço informado.'
-          : /wrong version|packet length|ssl3|tls/i.test(e?.message || '') ? 'A segurança escolhida não combina com a porta: use SSL/TLS na porta 465 e STARTTLS na 587.'
-            : 'A conexão com o servidor de e-mail falhou.', { etapa: 'conexao' });
-    }
+    try { r = await ler.proxima(); } catch (e) { throw erroConexao(e); }
     if (!esperado.includes(r.codigo)) throw erroDaEtapa(etapa, r, extra);
     return r;
   };
