@@ -778,3 +778,28 @@ body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: 
 .bk-senha-item { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-2); margin-top: var(--esp-2); }
 .bk-senha-item .campo { flex: 1 1 220px; margin: 0; }
 .bk-senha-item .btn { margin: 0; }
+
+/* E-mail da nota ao cliente (Enviar ao cliente) e configuração do envio */
+.em-tela, .em-config { max-width: 46rem; }
+.em-resumo p { margin: 0 0 var(--esp-1); }
+.em-resumo .em-resumo-titulo { font-size: var(--fs-17); }
+.em-teste { font-weight: 600; }
+.em-de { margin: 0 0 var(--esp-3); overflow-wrap: anywhere; }
+.em-subtitulo { margin: 0 0 var(--esp-2); font-size: var(--fs-17); }
+.em-anexos { border: 0; padding: 0; margin: var(--esp-2) 0; }
+.em-anexos legend { font-weight: 600; padding: 0; margin-bottom: var(--esp-1); }
+.em-anexos .caixa { margin: var(--esp-2) 0; }
+.em-arquivo { font-size: var(--fs-14); overflow-wrap: anywhere; }
+.em-mensagem { min-height: 16rem; line-height: 1.5; resize: vertical; overflow: hidden; }
+.em-alternativas { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.em-alternativas .btn { margin: 0; flex: 1 1 auto; }
+.em-origem { margin-top: calc(-1 * var(--esp-2)); }
+.em-faltas { color: var(--texto); background: var(--ambar-claro); border-radius: var(--raio-controle); padding: var(--esp-2) var(--esp-3); }
+.em-ia { margin: var(--esp-2) 0 var(--esp-4); }
+.em-ia summary { cursor: pointer; font-weight: 600; color: var(--azul); min-height: 44px; display: flex; align-items: center; }
+.em-envios h3 { margin-bottom: var(--esp-1); }
+.em-ja-enviado { display: flex; gap: var(--esp-2); align-items: flex-start; margin: 0; }
+.em-ja-enviado .icone { flex: none; }
+.em-dica { font-size: var(--fs-15); background: var(--azul-claro); box-shadow: none; }
+.em-servidor { margin: var(--esp-2) 0 var(--esp-3); }
+.em-servidor summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }

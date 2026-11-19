@@ -317,8 +317,16 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, listar = listarM
     return { revisoes, modelo: r.modeloUsado || cfg.modelo, provedorNome: PROVEDORES[cfg.provedor]?.nome || cfg.provedor };
   }
 
+  // ---------------------------------------------------------- texto avulso (ex.: e-mail da nota ao cliente)
+  // Uma chamada sem ferramentas, com a IA configurada na conta. Sem IA configurada: erro IA_NAO_CONFIGURADA.
+  async function gerarTexto(usuarioId, { sistema, contexto = '', texto }) {
+    const cfg = await exigirConfig(usuarioId);
+    const r = await chamar({ ...cfg, sistemaFixo: sistema, sistemaVariavel: contexto, historico: [{ papel: 'usuario', texto }], ferramentas: [], esforco: cfg.esforco || '', log });
+    return { texto: r.texto || '', modelo: r.modeloUsado || cfg.modelo, provedorNome: PROVEDORES[cfg.provedor]?.nome || cfg.provedor };
+  }
+
   return {
-    configPublica, salvarConfig, removerConfig, testarConfig, modelosDisponiveis, trocarModelo, criarConversa, listarConversas, removerConversa, enviarMensagem, decidirEmissao, revisarEmpresas,
+    configPublica, salvarConfig, removerConfig, testarConfig, modelosDisponiveis, trocarModelo, criarConversa, listarConversas, removerConversa, enviarMensagem, decidirEmissao, revisarEmpresas, gerarTexto,
     conversa: async (usuarioId, id) => { const c = await conversaBruta(usuarioId, id); if (!c) throw naoEncontrado('Conversa'); return await visao(usuarioId, c); },
   };
 }

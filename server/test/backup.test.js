@@ -29,6 +29,7 @@ const CNPJ = '11222333000181';
 const OUTRO = '11444777000161';
 const SENHA = 'senha-do-backup-2026';
 const CHAVE_IA = 'sk-ant-segredo-muito-secreto-9876';
+const SENHA_EMAIL = 'senha-do-email-de-envio-42';
 const cert = gerarCertificadoTeste({ cnpj: CNPJ, nome: 'ESTUDIO WEB LTDA' });
 const sha = (t) => createHash('sha256').update(t).digest('hex');
 const PARTE = 1_900_000;
@@ -103,6 +104,11 @@ async function contaRepresentativa(email) {
   assert.equal((await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: CHAVE_IA })).status, 200);
   const conv = (await api('POST', '/api/ia/conversas', {})).body.conversa;
   assert.equal((await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'Quanto faturei este mês?' })).status, 200);
+  // E-mail das notas: configuração de envio (com senha) e um envio registrado na nota emitida.
+  const cfgEmail = await api('PUT', '/api/email/config', { host: 'smtp.exemplo.test', porta: 465, seguranca: 'ssl', usuario: 'contato@estudio.test',
+    senha: SENHA_EMAIL, remetenteEmail: 'contato@estudio.test', remetenteNome: 'Estúdio Web', copiaParaMim: true });
+  assert.equal(cfgEmail.status, 200, JSON.stringify(cfgEmail.body));
+  await app.ctx.repo.registrarEnvioEmail(e1, nota.id, { para: ['maria@exemplo.com'], cco: ['contato@estudio.test'], assunto: 'Nota fiscal nº 1 - 11/2026', anexos: ['pdf', 'xml'] });
   return { api, e1, e2, h1, h2, notaId: nota.id };
 }
 
@@ -165,7 +171,8 @@ test('1-3) backup de dados representativos, restauração completa num servidor 
   const { api, e1 } = await contaRepresentativa('origem@exemplo.test');
   const antes = await foto('origem@exemplo.test');
   assert.ok(antes.notas.length >= 3 && antes.notas_tomadas.length === 2 && antes.certificados.length === 1 && antes.certificados_procurador.length === 1
-    && antes.ia_conversas.length === 1 && antes.ia_config.length === 1 && antes.distribuicao_dfe.length >= 1 && antes.clientes.length === 3, 'dados representativos');
+    && antes.ia_conversas.length === 1 && antes.ia_config.length === 1 && antes.distribuicao_dfe.length >= 1 && antes.clientes.length === 3
+    && antes.email_config.length === 1 && antes.notas_emails.length === 1, 'dados representativos');
   const b = await criarBackup(api);
   assert.equal(b.situacao, 'guardado');
   assert.ok(b.verificadoEm, 'só responde depois de verificar');
@@ -187,6 +194,9 @@ test('1-3) backup de dados representativos, restauração completa num servidor 
     assert.deepEqual(r.indices, [], 'índices de busca recalculados com a chave do novo servidor');
     assert.equal(r.ia.configurado, true);
     assert.equal(r.ia.chaveFinal, `••••${CHAVE_IA.slice(-4)}`);
+    assert.equal(r.email.configurado, true);
+    assert.equal(r.email.temSenha, true, 'a senha do e-mail de envio volta (cifrada com a chave do novo servidor)');
+    assert.equal(r.email.host, 'smtp.exemplo.test');
     const est = r.funcionamento['11.222.333/0001-81'];
     assert.ok(est.notas >= 3 && est.tomadas === 2 && est.clientes === 2 && est.buscaCliente === 1 && est.danfse === true && est.certificado === true, JSON.stringify(est));
     assert.equal(est.clienteRepetido, 409, 'cadastro repetido barrado: índice do documento funciona');
@@ -351,7 +361,8 @@ test('6) backup de versão anterior (sem tabelas e colunas que vieram depois) re
   const b = await criarBackup(api);
   const texto = await baixar(api, b);
   const antigo = await regravar(texto, (c) => {
-    for (const t of ['ia_conversas', 'ia_config', 'certificados_procurador']) { delete c.tabelas[t]; delete c.manifesto[t]; }
+    for (const t of ['ia_conversas', 'ia_config', 'certificados_procurador', 'email_config', 'notas_emails']) { delete c.tabelas[t]; delete c.manifesto[t]; }
+    c.esquema = 1;
     for (const p of c.tabelas.prestadores) delete p.usa_procuracao;
     for (const n of c.tabelas.notas) { delete n.canal; delete n.importada_conferida; }
     for (const d of c.tabelas.distribuicao_dfe) { delete d.falha_em; delete d.falha_cifrada; }
@@ -362,6 +373,7 @@ test('6) backup de versão anterior (sem tabelas e colunas que vieram depois) re
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const depois = await foto('versoes@exemplo.test');
   assert.equal(depois.ia_conversas.length, 0);
+  assert.equal(depois.email_config.length, 0);
   assert.ok(depois.prestadores.every((p) => JSON.parse(p).usa_procuracao === 0), 'padrão aplicado');
   assert.ok(depois.notas.every((n) => JSON.parse(n).importada_conferida === 0));
   // Versão mais nova: recusada sem mexer em nada.
@@ -462,7 +474,7 @@ test('9) permissões e sigilo: só o dono vê e usa; nada sensível em claro no 
   // Senha fraca não gera backup.
   assert.equal((await api('POST', '/api/backup', { senha: 'curta' })).body.codigo, 'BACKUP_SENHA_CURTA');
   // Nada sensível em claro no arquivo baixado.
-  for (const segredo of [cert.senha, CHAVE_IA, 'Maria da Silva', '52998224725', CNPJ, '<NFSe', 'fiscal@estudio.test', SENHA]) {
+  for (const segredo of [cert.senha, CHAVE_IA, SENHA_EMAIL, 'contato@estudio.test', 'maria@exemplo.com', 'Maria da Silva', '52998224725', CNPJ, '<NFSe', 'fiscal@estudio.test', SENHA]) {
     assert.ok(!texto.includes(segredo), `o arquivo não contém "${segredo}" em claro`);
   }
   // Nem no banco (partes guardadas cifradas também com a chave do servidor) nem na auditoria: a senha nunca é guardada.

@@ -328,3 +328,20 @@ CREATE TABLE IF NOT EXISTS backup_operacoes (
   token TEXT NOT NULL,
   expira_em BIGINT NOT NULL
 );
+
+-- Envio das notas ao cliente por e-mail: servidor SMTP da própria conta. Tudo cifrado (servidor, usuário,
+-- senha, remetente) num JSON só.
+CREATE TABLE IF NOT EXISTS email_config (
+  usuario_id TEXT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  dados_cifrados TEXT NOT NULL,       -- {host, porta, seguranca, usuario, senha, remetenteEmail, remetenteNome, responderPara, copiaParaMim}
+  atualizado_em TEXT NOT NULL
+);
+-- E-mails enviados com cada nota (destinatários e assunto cifrados).
+CREATE TABLE IF NOT EXISTS notas_emails (
+  id TEXT PRIMARY KEY,
+  prestador_id TEXT NOT NULL REFERENCES prestadores(id) ON DELETE CASCADE,
+  nota_id TEXT NOT NULL REFERENCES notas(id) ON DELETE CASCADE,
+  dados_cifrados TEXT NOT NULL,       -- {para, cco, assunto, anexos}
+  enviado_em TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_notas_emails_nota ON notas_emails(nota_id, enviado_em);

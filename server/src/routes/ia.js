@@ -1,10 +1,8 @@
 // Assistente de IA: configuração do provedor, conversas e confirmação de emissão.
 import { PROVEDORES, provedorPublico } from '../ia/provedores.js';
-import { criarServicoIa } from '../ia/servico.js';
 
-export async function rotasIa(app, { chamarIa, listarModelosIa } = {}) {
-  const { limites } = app.ctx;
-  const ia = criarServicoIa(app.ctx, { ...(chamarIa ? { chamar: chamarIa } : {}), ...(listarModelosIa ? { listar: listarModelosIa } : {}), log: app.log });
+export async function rotasIa(app) {
+  const { limites, ia } = app.ctx;
 
   app.get('/provedores', async () => ({ provedores: Object.entries(PROVEDORES).map(([id, p]) => provedorPublico(id, p)) }));
 

@@ -2,16 +2,6 @@ import { h, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, situaca
 import { api, ErroApi, cabecalhosIdentidade, comEmpresa } from '../api.js';
 import { ir, estado } from '../app.js';
 
-// Baixa um documento da nota como File (para a folha de compartilhamento do celular).
-async function arquivo(n, tipo) {
-  const cfg = {
-    danfse: { url: `/api/notas/${n.id}/danfse`, nome: `DANFSe-${n.chaveAcesso}.pdf`, mime: 'application/pdf' },
-    xml: { url: `/api/notas/${n.id}/xml`, nome: `NFSe-${n.chaveAcesso}.xml`, mime: 'application/xml' },
-  }[tipo];
-  const r = await fetch(cfg.url, { credentials: 'same-origin', headers: cabecalhosIdentidade() });
-  return r.ok ? new File([await r.blob()], cfg.nome, { type: cfg.mime }) : null;
-}
-
 // Abre o PDF numa nova aba; se o servidor recusar (ex.: XML ainda não obtido),
 // fecha a aba e mostra a mensagem aqui, em vez de uma página de erro.
 async function abrirDanfse(e, n) {
@@ -29,30 +19,17 @@ async function abrirDanfse(e, n) {
   }
 }
 
-async function compartilhar(n) {
-  const url = n.documentos?.consultaPublica;
-  const texto = `NFS-e nº ${n.nNfse || ''} — ${moeda(n.valor)}\nChave de acesso: ${n.chaveAcesso}${url ? `\nConsulta Pública: ${url}` : ''}`;
-  try {
-    const arquivos = (await Promise.all([
-      n.documentos?.danfse ? arquivo(n, 'danfse') : null,
-      n.documentos?.xml !== undefined ? arquivo(n, 'xml') : null,
-    ])).filter(Boolean);
-    if (arquivos.length && navigator.canShare?.({ files: arquivos })) await navigator.share({ title: 'NFS-e', text: texto, files: arquivos });
-    else if (navigator.share) await navigator.share({ title: 'NFS-e', text: texto, url: url || undefined });
-    else { await navigator.clipboard.writeText(texto); aviso('Dados da nota copiados.'); }
-  } catch (e) {
-    if (e?.name !== 'AbortError') aviso('Não foi possível compartilhar.');
-  }
-}
-
 // Depois de emitir, a próxima ação vem primeiro: enviar ao cliente; PDF e XML ao lado; dados depois.
 function blocoEmitida(n, detalhe) {
   return [
-    h('button', { class: 'btn btn-primario btn-grande', type: 'button', onclick: () => compartilhar(n) }, icone(ICONES.compartilhar), 'Enviar ao cliente'),
+    // E-mail ao cliente com o PDF e o XML (texto escrito pela IA, tudo editável antes de enviar).
+    h('a', { class: 'btn btn-primario btn-grande', href: `#/notas/${n.id}/email` }, icone(ICONES.email), 'Enviar ao cliente'),
+    n.emails?.length ? h('p', { class: 'suave em-ja-enviado' }, icone(ICONES.email),
+      `Enviada por e-mail em ${dataHora(n.emails[0].enviadoEm)} para ${n.emails[0].para.join(', ')}${n.emails.length > 1 ? ` (e mais ${n.emails.length - 1} envio${n.emails.length > 2 ? 's' : ''})` : ''}.`) : null,
     h('div', { class: 'acoes-par' },
       n.documentos?.danfse ? h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/danfse`), target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe') : null,
       n.documentos?.xml !== undefined ? h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/xml`), download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML') : null),
-    h('p', { class: 'suave' }, '"Enviar ao cliente" manda o DANFSe (PDF) e o XML. O DANFSe é a versão para imprimir da NFS-e, gerada a partir do XML oficial, no modelo da NT 008, com QR Code para conferir a nota.'),
+    h('p', { class: 'suave' }, '"Enviar ao cliente" manda por e-mail o DANFSe (PDF) e o XML, com uma mensagem que você revisa antes. O DANFSe é a versão para imprimir da NFS-e, gerada a partir do XML oficial, no modelo da NT 008, com QR Code para conferir a nota.'),
     n.homologacao ? h('p', { class: 'cartao cartao-alerta' }, 'Ambiente de testes: esta nota não tem validade jurídica, e o DANFSe traz esse aviso.') : null,
     h('dl', { class: 'dados cartao' },
       h('div', {}, h('dt', {}, 'Número da NFS-e'), h('dd', {}, n.nNfse || '—')),
@@ -78,7 +55,7 @@ function montar(n, { detalhe = false } = {}) {
   const orientacao = {
     // XML trazido pela pessoa: o app não falou com a Receita sobre esta nota.
     // XML trazido pela pessoa ou vindo da Receita na sincronização: o app não emitiu esta nota.
-    emitida: n.canal === 'emissor_nacional' || n.canal === 'sincronizada' ? n.aviso : 'A Receita confirmou a sua NFS-e. Compartilhe com o cliente.',
+    emitida: n.canal === 'emissor_nacional' || n.canal === 'sincronizada' ? n.aviso : 'A Receita confirmou a sua NFS-e. Envie ao cliente por e-mail.',
     cancelada: 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais. O XML e o DANFSe ficam guardados, com a marca "CANCELADA".',
     rejeitada: 'A Receita recusou. Nenhuma nota fiscal foi emitida. Veja o motivo, corrija e envie de novo.',
     pendente: 'A Receita não confirmou a tempo. A nota pode ter sido emitida ou não. NÃO emita de novo: vamos consultar a Receita antes de qualquer reenvio.',

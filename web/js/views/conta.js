@@ -43,7 +43,7 @@ function acessoGovbr(conta) {
 }
 
 export async function tela(_, query = {}) {
-  const conta = await api('GET', '/api/conta');
+  const [conta, envio] = await Promise.all([api('GET', '/api/conta'), api('GET', '/api/email/config').catch(() => ({ config: null }))]);
   if (query.govbr === 'vinculado') aviso('Conta gov.br vinculada.');
   if (query.govbr === 'pendente') aviso('Há nota com resultado ainda não confirmado. Verifique a situação antes de excluir a conta.', 8000);
   if (query.govbr === 'outro') aviso('A conta gov.br usada agora não é a vinculada a este acesso. Nada foi excluído.', 8000);
@@ -71,6 +71,11 @@ export async function tela(_, query = {}) {
       linha('E-mail', conta.email || 'Não informado')),
     acessoGovbr(conta),
     conta.govbr && !conta.email ? null : codigoRecuperacao(conta),
+    h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'E-mail para enviar notas'),
+      envio.config?.configurado
+        ? h('p', {}, 'As notas saem por ', h('strong', {}, envio.config.remetenteEmail), envio.config.remetenteNome ? ` (como "${envio.config.remetenteNome}")` : ' (com o nome da empresa da nota)', '.')
+        : h('p', {}, 'Configure o seu e-mail (Gmail, Outlook, o do seu domínio…) para o botão "Enviar ao cliente" mandar a nota com o PDF e o XML.'),
+      h('a', { class: `btn ${envio.config?.configurado ? '' : 'btn-primario'}`, href: '#/email' }, envio.config?.configurado ? 'Alterar e-mail de envio' : 'Configurar e-mail de envio')),
     h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Backup e Restauração'),
       h('p', {}, 'Baixe uma cópia completa e cifrada de tudo desta conta (empresas, certificados, notas e XML, clientes, serviços e configurações) e restaure quando precisar.'),
       h('a', { class: 'btn btn-primario', href: '#/backup' }, 'Abrir Backup e Restauração')),

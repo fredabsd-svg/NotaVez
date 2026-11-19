@@ -17,7 +17,7 @@ Conta › **Backup e Restauração**. Cada conta gera, baixa e restaura uma cóp
 
 ## 2. O que entra e o que não entra
 
-**Entra** (tudo o que reconstrói o estado da conta): empresas e parâmetros fiscais; certificados das empresas e do escritório (procuração); clientes; serviços; notas (rascunhos, situação, DPS assinada, XML da NFS-e, erros e alertas); notas tomadas com o XML; posição da leitura no Ambiente de Dados Nacional (NSU); configuração do assistente de IA (inclusive a chave de API) e conversas; numeração das DPS dos emitentes da conta; auditoria.
+**Entra** (tudo o que reconstrói o estado da conta): empresas e parâmetros fiscais; certificados das empresas e do escritório (procuração); clientes; serviços; notas (rascunhos, situação, DPS assinada, XML da NFS-e, erros e alertas); notas tomadas com o XML; posição da leitura no Ambiente de Dados Nacional (NSU); configuração do assistente de IA (inclusive a chave de API) e conversas; e-mail das notas (configuração de envio, inclusive a senha do SMTP, e o histórico dos e-mails enviados com cada nota); numeração das DPS dos emitentes da conta; auditoria.
 
 **Não entra:** identidade e acesso (e-mail, senha, gov.br, sessões, aparelhos confiáveis, códigos de recuperação), caches públicos, limites de requisição e registros técnicos de chamadas à API oficial. A restauração **não troca** o login da conta.
 
@@ -28,7 +28,7 @@ O teste `o backup cobre todas as colunas das tabelas da conta` falha se alguém 
 Um JSON com cabeçalho legível e conteúdo cifrado:
 
 ```
-{ "tipo": "nota-sem-stress/backup", "formato": 1, "criadoEm": "...", "app": "0.1.0", "esquema": 1,
+{ "tipo": "nota-sem-stress/backup", "formato": 1, "criadoEm": "...", "app": "0.1.0", "esquema": 2,
   "kdf": { "nome": "scrypt", "N": 32768, "r": 8, "p": 1, "sal": "..." },
   "cifra": { "nome": "aes-256-gcm", "iv": "..." }, "compressao": "gzip",
   "conteudo": { "bytes": ..., "comprimido": ..., "sha256": "..." },
@@ -101,7 +101,7 @@ O servidor guarda o **arquivo** dos 5 backups manuais mais recentes (configuráv
 | 3. Comparação | `1-3)`, `2)`, `8)` | Fotografia **independente do código de backup**: tabela por tabela, campo por campo (decifrado), ordem das notas. Também: XML oficial idêntico (SHA-256), DANFSe gerado, índices de busca recalculados, cadastro repetido barrado, certificado utilizável e número de DPS novo acima do último usado. |
 | 4. Arquivo corrompido | `4/7)` | Bit trocado no conteúdo; cabeçalho adulterado; arquivo pela metade; senha errada; arquivo que não é backup; SHA-256 declarado diferente; conteúdo alterado e cifrado de novo (manifesto não confere); referência quebrada; envio com parte faltando; restauração sem confirmação. |
 | 5. Interrupção na restauração | `5/7)` e `5) queda REAL` | Falha simulada no meio da inserção das notas (depois de apagar e inserir as outras tabelas) e divergência injetada antes da conferência final: rollback total; depois, a trava está livre e o backup de segurança devolve o estado anterior. **Queda real (só com PostgreSQL):** um segundo processo do servidor para no meio da transação e é morto com `SIGKILL`. O PostgreSQL desfaz tudo, a conta fica idêntica à de antes, a trava da operação que caiu aparece e, vencida, a restauração seguinte funciona. |
-| 6. Versões anteriores | `6)` | Backup sem as tabelas e colunas que vieram depois (como faria uma versão anterior) restaura com os valores padrão. Esquema mais novo e formato mais novo são recusados sem mexer em nada. |
+| 6. Versões anteriores | `6)` | Backup sem as tabelas e colunas que vieram depois (como faria uma versão anterior: esquema 1, sem o e-mail das notas) restaura com os valores padrão. Esquema mais novo e formato mais novo são recusados sem mexer em nada. |
 | 7. Preservação em falha | `4/7)`, `5/7)`, `7)` | A fotografia da conta é idêntica depois de cada tentativa recusada ou falha. Backup de A restaurado em B com A existindo: recusado, com A e B intactas. |
 | 8. Grande volume | `8)` | 4.000 notas e 4.000 tomadas com XML, mais 1.000 clientes, em 2 empresas. Arquivo de 6,7 MB em 4 partes. Sem perda nem duplicação. Tempos na máquina de teste (PGlite, mesmo processo, sem rede): backup ≈ 1,7 s; restauração com backup de segurança ≈ 2,3 s. |
 | 9. Permissões e sigilo | `9)` | Outra conta recebe 404 em todas as rotas; sem sessão, 401; sem anti-CSRF, 403; senha curta é recusada. Sem em claro no arquivo: senha do certificado, chave da IA, nome e CPF do cliente, CNPJ, XML, e-mail e senha do backup. Senha ausente do banco e da auditoria. Partes guardadas cifradas. Duas operações simultâneas: uma passa e a outra recebe 409. |
