@@ -73,8 +73,9 @@ export async function tela(_, query = {}) {
     conta.govbr && !conta.email ? null : codigoRecuperacao(conta),
     h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'E-mail para enviar notas'),
       envio.config?.configurado
-        ? h('p', {}, 'As notas saem por ', h('strong', {}, envio.config.remetenteEmail), envio.config.remetenteNome ? ` (como "${envio.config.remetenteNome}")` : ' (com o nome da empresa da nota)', '.')
-        : h('p', {}, 'Configure o seu e-mail (Gmail, Outlook, o do seu domínio…) para o botão "Enviar ao cliente" mandar a nota com o PDF e o XML.'),
+        ? h('p', {}, 'As notas saem por ', h('strong', {}, envio.config.remetenteEmail),
+          envio.config.provedorNome ? ` (conta ${envio.config.provedorNome} conectada)` : envio.config.remetenteNome ? ` (como "${envio.config.remetenteNome}")` : ' (com o nome da empresa da nota)', '.')
+        : h('p', {}, 'Entre com a sua conta Google ou Microsoft (ou use usuário e senha) para o botão "Enviar ao cliente" mandar a nota com o PDF e o XML.'),
       h('a', { class: `btn ${envio.config?.configurado ? '' : 'btn-primario'}`, href: '#/email' }, envio.config?.configurado ? 'Alterar e-mail de envio' : 'Configurar e-mail de envio')),
     h('section', { class: 'cartao' }, h('h2', { style: 'margin-top:0' }, 'Backup e Restauração'),
       h('p', {}, 'Baixe uma cópia completa e cifrada de tudo desta conta (empresas, certificados, notas e XML, clientes, serviços e configurações) e restaure quando precisar.'),

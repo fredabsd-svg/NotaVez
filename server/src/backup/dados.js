@@ -107,7 +107,7 @@ async function colunasDoBanco(db, tabela) {
 }
 
 // Tabelas da conta que ficam de fora de propósito: identidade, sessão e o próprio histórico de backups.
-export const FORA_DO_BACKUP = ['sessoes', 'recuperacoes_senha', 'aparelhos_confiaveis', 'govbr_fluxos', 'backups', 'backup_operacoes'];
+export const FORA_DO_BACKUP = ['sessoes', 'recuperacoes_senha', 'aparelhos_confiaveis', 'govbr_fluxos', 'email_oauth_fluxos', 'backups', 'backup_operacoes'];
 
 // Confere que o backup cobre todas as colunas do banco (coluna nova sem regra = backup incompleto: recusa) e
 // toda tabela com dados de conta ou de empresa (tabela nova esquecida aqui também recusa).

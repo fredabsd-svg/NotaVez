@@ -19,7 +19,10 @@ O system prompt (`server/src/email/nota.js`, `SISTEMA_EMAIL`) pede um e-mail hum
 
 ## Configuração (Conta › E-mail para enviar notas)
 
-O e-mail sai pelo SMTP **da própria conta** (vale para todas as empresas da conta). A tela traz os dados de Gmail/Google Workspace, Outlook.com, Microsoft 365, Zoho, Hostinger, Locaweb, Yahoo, iCloud e Brevo, ou "Outro servidor".
+Vale para todas as empresas da conta. Há duas formas:
+
+- **Entrar com o Google / Entrar com a Microsoft** (recomendado): a pessoa autoriza o app só a enviar e-mails, sem senha guardada. O envio vai pela Gmail API ou pelo Microsoft Graph, por isso funciona mesmo com o "SMTP autenticado" desligado no Microsoft 365. Para os botões aparecerem, o servidor precisa das credenciais dos apps registrados no Google e na Microsoft: veja o [guia de ativação](12-entrar-com-google-microsoft.md). Pela Microsoft, o nome que aparece para o cliente é o da própria conta.
+- **Usuário e senha (SMTP)**: a tela traz os dados de Gmail/Google Workspace, Outlook.com, Microsoft 365, Zoho, Hostinger, Locaweb, Yahoo, iCloud e Brevo, ou "Outro servidor".
 
 - Gmail, Outlook, Yahoo, iCloud e Zoho com verificação em duas etapas pedem uma **senha de app** (não a senha normal da conta).
 - Microsoft 365: o administrador precisa liberar o "SMTP autenticado" para a caixa.
@@ -28,6 +31,7 @@ O e-mail sai pelo SMTP **da própria conta** (vale para todas as empresas da con
 
 ## Segurança
 
+- Conta conectada: só o refresh token fica guardado, cifrado. O pedido de conexão é de uso único, vale 10 minutos e fica ligado à conta e ao navegador (cookie + `state` + PKCE). Desconectar revoga o acesso no Google.
 - A configuração inteira (servidor, usuário, senha, remetente) fica **cifrada** (AES-256-GCM) na tabela `email_config`; a senha nunca volta para a tela. O histórico de envios (`notas_emails`) guarda destinatários e assunto cifrados. A auditoria registra só quantidades e anexos.
 - Conexão sempre protegida: SSL/TLS desde o início (porta 465) ou STARTTLS obrigatório (587); nada de senha ou conteúdo sem TLS. O certificado do servidor é conferido pelo nome.
 - O servidor informado pelo usuário é resolvido e **endereços internos** (rede local, nuvem, loopback, reservados) são recusados; a conexão vai ao IP conferido. Portas aceitas: 25, 465, 587 e 2525.

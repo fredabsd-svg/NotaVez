@@ -61,6 +61,15 @@ export const config = {
     redirectUri: process.env.NOTAVEZ_GOVBR_REDIRECT_URI || '',
     base: process.env.NOTAVEZ_GOVBR_AMBIENTE === 'staging' ? 'https://sso.staging.acesso.gov.br' : 'https://sso.acesso.gov.br',
   },
+  // E-mail das notas pela conta Google (Gmail API) ou Microsoft (Microsoft Graph), sem senha guardada.
+  // Credenciais dos apps registrados no Google Cloud e no Microsoft Entra (guia em docs/12). Sem elas, o botão não aparece.
+  // Endereço de retorno: <NOTAVEZ_URL_PUBLICA ou o endereço do app>/api/email/oauth/<google|microsoft>/retorno
+  emailOAuth: {
+    google: { clientId: process.env.NOTAVEZ_GOOGLE_CLIENT_ID || '', clientSecret: process.env.NOTAVEZ_GOOGLE_CLIENT_SECRET || '' },
+    microsoft: { clientId: process.env.NOTAVEZ_MICROSOFT_CLIENT_ID || '', clientSecret: process.env.NOTAVEZ_MICROSOFT_CLIENT_SECRET || '',
+      tenant: process.env.NOTAVEZ_MICROSOFT_TENANT || 'common' },
+  },
+  urlPublica: process.env.NOTAVEZ_URL_PUBLICA || '',
   // Banco: DATABASE_URL (Postgres/Neon) tem prioridade. Sem ela, Postgres embutido (PGlite) numa pasta.
   bancoArquivo: process.env.NOTAVEZ_DB || (dev ? ':memory:' : './dados-banco'),
   // Produção (notas reais) é o padrão do servidor; ver producaoLiberadaEm. A empresa nova nasce no

@@ -1,5 +1,6 @@
-// Envio das notas ao cliente por e-mail: configuração SMTP da conta (cifrada), texto escrito pela IA da conta
-// (ou modelo simples, sem IA), envio com o PDF (DANFSe) e o XML oficiais em anexo e histórico por nota.
+// Envio das notas ao cliente por e-mail: configuração da conta (cifrada) — conta Google ou Microsoft conectada
+// (OAuth, sem senha guardada) ou servidor SMTP com usuário e senha —, texto escrito pela IA da conta (ou modelo
+// simples, sem IA), envio com o PDF (DANFSe) e o XML oficiais em anexo e histórico por nota.
 import { agora } from '../db/banco.js';
 import { cifrar, decifrarJson } from '../security/cripto.js';
 import { ErroApp, invalido, naoEncontrado } from '../util/erros.js';
@@ -9,6 +10,7 @@ import { enviarEmail, enderecoValido, ErroSmtp, PORTAS_SMTP } from '../security/
 import { gerarDanfse, lerXmlNfse } from '../fiscal/danfse/index.js';
 import { xmlOficial, marcaDaguaDanfse } from '../routes/notas.js';
 import { fatosDaNota, emailsDoCliente, textoModelo, SISTEMA_EMAIL, pedidoRedacao, lerRedacao, faltasNoTexto } from './nota.js';
+import { PROVEDORES_OAUTH } from './oauth.js';
 
 export const MAX_DESTINATARIOS = 10;
 const SEGURANCAS = ['ssl', 'starttls'];
@@ -16,20 +18,26 @@ const nomeHost = (h) => /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z
 const umaLinha = (s, max) => String(s ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
 const minusculo = (s) => String(s ?? '').trim().toLowerCase();
 
-export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLocal = false } = {}) {
+export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLocal = false, oauth = null } = {}) {
   const { db, repo } = appCtx;
+  const ehOAuth = (c) => !!PROVEDORES_OAUTH[c?.tipo];
 
   // ---------------------------------------------------------- configuração (por conta)
   async function configBruta(usuarioId) {
     const r = await db.get('SELECT dados_cifrados, atualizado_em FROM email_config WHERE usuario_id = ?', usuarioId);
-    return r ? { ...decifrarJson(r.dados_cifrados), atualizadoEm: r.atualizado_em } : null;
+    return r ? { tipo: 'smtp', ...decifrarJson(r.dados_cifrados), atualizadoEm: r.atualizado_em } : null;
   }
+  const gravar = async (usuarioId, dados) => db.run(`INSERT INTO email_config (usuario_id, dados_cifrados, atualizado_em) VALUES (?,?,?)
+    ON CONFLICT (usuario_id) DO UPDATE SET dados_cifrados = excluded.dados_cifrados, atualizado_em = excluded.atualizado_em`, usuarioId, cifrar(dados), agora());
+  const semDataDeAtualizacao = ({ atualizadoEm, ...c }) => c;
 
   async function configPublica(usuarioId) {
     const c = await configBruta(usuarioId);
     if (!c) return { configurado: false };
-    return { configurado: true, host: c.host, porta: c.porta, seguranca: c.seguranca, usuario: c.usuario || '', temSenha: !!c.senha,
-      remetenteEmail: c.remetenteEmail, remetenteNome: c.remetenteNome || '', responderPara: c.responderPara || '', copiaParaMim: c.copiaParaMim !== false, atualizadoEm: c.atualizadoEm };
+    const comum = { configurado: true, tipo: c.tipo, remetenteEmail: c.remetenteEmail, remetenteNome: c.remetenteNome || '', responderPara: c.responderPara || '',
+      copiaParaMim: c.copiaParaMim !== false, atualizadoEm: c.atualizadoEm };
+    if (ehOAuth(c)) return { ...comum, provedorNome: PROVEDORES_OAUTH[c.tipo].nome, conta: c.conta, nomeConta: c.nomeConta || '', conectadoEm: c.conectadoEm || null };
+    return { ...comum, host: c.host, porta: c.porta, seguranca: c.seguranca, usuario: c.usuario || '', temSenha: !!c.senha };
   }
 
   async function salvarConfig(usuarioId, b = {}, ip = null) {
@@ -51,15 +59,38 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     const responderPara = minusculo(b.responderPara);
     if (responderPara && !enderecoValido(responderPara)) erros.responderPara = 'E-mail inválido.';
     if (Object.keys(erros).length) throw invalido('Confira a configuração de e-mail.', erros);
-    const dados = { host, porta, seguranca, usuario, senha, remetenteEmail, remetenteNome, responderPara, copiaParaMim: b.copiaParaMim !== false };
-    await db.run(`INSERT INTO email_config (usuario_id, dados_cifrados, atualizado_em) VALUES (?,?,?)
-      ON CONFLICT (usuario_id) DO UPDATE SET dados_cifrados = excluded.dados_cifrados, atualizado_em = excluded.atualizado_em`, usuarioId, cifrar(dados), agora());
-    await auditar(db, { usuarioId, acao: 'email.config_salva', detalhes: { porta, seguranca }, ip });
+    const dados = { tipo: 'smtp', host, porta, seguranca, usuario, senha, remetenteEmail, remetenteNome, responderPara, copiaParaMim: b.copiaParaMim !== false };
+    await gravar(usuarioId, dados);
+    // Trocou a conta Google conectada por usuário e senha: desfaz a autorização antiga.
+    if (ehOAuth(atual)) await oauth?.revogar(atual);
+    await auditar(db, { usuarioId, acao: 'email.config_salva', detalhes: { tipo: 'smtp', porta, seguranca }, ip });
+    return await configPublica(usuarioId);
+  }
+
+  // Conta Google ou Microsoft conectada (retorno do OAuth): guarda o refresh token cifrado e mantém as preferências.
+  async function conectarOAuth(usuarioId, { provedor, conta, nome, refreshToken }, ip = null) {
+    const atual = await configBruta(usuarioId);
+    await gravar(usuarioId, { tipo: provedor, conta, nomeConta: nome || '', refreshToken, remetenteEmail: conta, conectadoEm: agora(),
+      remetenteNome: atual?.remetenteNome || '', responderPara: atual?.responderPara || '', copiaParaMim: atual ? atual.copiaParaMim !== false : true });
+    if (ehOAuth(atual) && atual.refreshToken !== refreshToken) await oauth?.revogar(atual);
+    await auditar(db, { usuarioId, acao: 'email.conta_conectada', detalhes: { provedor }, ip });
+    return await configPublica(usuarioId);
+  }
+
+  // Nome do remetente, "responder para" e cópia: valem para qualquer forma de envio.
+  async function salvarPreferencias(usuarioId, b = {}, ip = null) {
+    const atual = await exigirConfig(usuarioId);
+    const responderPara = minusculo(b.responderPara);
+    if (responderPara && !enderecoValido(responderPara)) throw invalido('Confira a configuração de e-mail.', { responderPara: 'E-mail inválido.' });
+    await gravar(usuarioId, { ...semDataDeAtualizacao(atual), remetenteNome: umaLinha(b.remetenteNome, 80), responderPara, copiaParaMim: b.copiaParaMim !== false });
+    await auditar(db, { usuarioId, acao: 'email.preferencias_salvas', ip });
     return await configPublica(usuarioId);
   }
 
   async function removerConfig(usuarioId, ip = null) {
+    const atual = await configBruta(usuarioId);
     await db.run('DELETE FROM email_config WHERE usuario_id = ?', usuarioId);
+    if (ehOAuth(atual)) await oauth?.revogar(atual);
     await auditar(db, { usuarioId, acao: 'email.config_removida', ip });
     return { configurado: false };
   }
@@ -70,7 +101,14 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     return c;
   }
 
-  async function mandar(c, mensagem) {
+  async function mandar(usuarioId, c, mensagem) {
+    if (ehOAuth(c)) {
+      if (!oauth) throw new ErroApp(409, 'O envio pela conta conectada não está disponível neste servidor.', { codigo: 'EMAIL_OAUTH_INDISPONIVEL' });
+      // A Microsoft troca o refresh token a cada renovação: o novo é guardado na hora (o antigo deixa de valer),
+      // mesmo que o envio em seguida falhe.
+      return await oauth.enviar(c, { responderPara: c.responderPara || '', ...mensagem },
+        { aoRenovar: (refreshToken) => gravar(usuarioId, { ...semDataDeAtualizacao(c), refreshToken }) });
+    }
     try {
       return await enviar({ host: c.host, porta: c.porta, seguranca: c.seguranca, usuario: c.usuario, senha: c.senha, de: c.remetenteEmail,
         responderPara: c.responderPara || '', permitirRedeLocal, ...mensagem });
@@ -83,7 +121,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
   // E-mail de teste para o próprio remetente (confere servidor, porta, segurança, usuário e senha).
   async function testar(usuarioId, ip = null) {
     const c = await exigirConfig(usuarioId);
-    await mandar(c, { nomeRemetente: c.remetenteNome || 'Nota Sem Stress', para: [c.remetenteEmail], assunto: 'Teste de envio do Nota Sem Stress',
+    await mandar(usuarioId, c, { nomeRemetente: c.remetenteNome || 'Nota Sem Stress', para: [c.remetenteEmail], assunto: 'Teste de envio do Nota Sem Stress',
       texto: 'Tudo certo! Este é um e-mail de teste do Nota Sem Stress.\n\nSe ele chegou, o aplicativo já consegue enviar as notas fiscais aos seus clientes por este endereço.\n' });
     await auditar(db, { usuarioId, acao: 'email.testado', ip });
     return { ok: true, para: c.remetenteEmail };
@@ -119,7 +157,8 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
       para: emailsDoCliente(cliente?.email, r.tomador?.email, xmlEmailTomador(xml)),
       clienteNome: f.cliente.nome, clienteId: cliente?.id || null, clienteSemEmail: !!cliente && !cliente.email,
       config: cfg, iaConfigurada: !!(await appCtx.ia.configPublica(usuarioId)).configurado,
-      remetente: cfg.configurado ? { email: cfg.remetenteEmail, nome: cfg.remetenteNome || f.empresa.nomeNatural } : null,
+      // Pelo Microsoft Graph, o nome que aparece é o da própria conta Microsoft.
+      remetente: cfg.configurado ? { email: cfg.remetenteEmail, nome: cfg.tipo === 'microsoft' ? (cfg.nomeConta || cfg.remetenteEmail) : (cfg.remetenteNome || f.empresa.nomeNatural), via: cfg.provedorNome || null } : null,
       anexos: [{ id: 'pdf', nome: nomes.pdf, descricao: ANEXOS.pdf }, { id: 'xml', nome: nomes.xml, descricao: ANEXOS.xml }],
       resumo: { numero: f.nota.numero, competencia: f.nota.competencia, valor: f.nota.valorServico, retencao: f.retencao, teste: f.teste },
       envios: await repo.enviosEmail(p.id, n.id),
@@ -171,7 +210,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     if (anexos.includes('pdf')) arquivos.push({ nome: nomes.pdf, tipo: 'application/pdf', conteudo: await gerarDanfse(xml, { marcaDagua: marcaDaguaDanfse(n) }) });
     if (anexos.includes('xml')) arquivos.push({ nome: nomes.xml, tipo: 'application/xml', conteudo: Buffer.from(xml, 'utf8') });
     const f = fatos(p, n, xml, consultaPublica, anexos);
-    await mandar(c, { nomeRemetente: c.remetenteNome || f.empresa.nomeNatural, para, cco: copia, assunto, texto: corpo, anexos: arquivos });
+    await mandar(usuarioId, c, { nomeRemetente: c.remetenteNome || f.empresa.nomeNatural, para, cco: copia, assunto, texto: corpo, anexos: arquivos });
     const envio = await repo.registrarEnvioEmail(p.id, n.id, { para, cco: copia, assunto, anexos });
     // Cliente sem e-mail no cadastro: guarda o primeiro destinatário (se a pessoa pediu), para os próximos envios.
     let clienteAtualizado = false;
@@ -187,7 +226,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     return { ok: true, enviadoEm: envio.enviadoEm, para, copia, clienteAtualizado, envios: await repo.enviosEmail(p.id, n.id) };
   }
 
-  return { configPublica, salvarConfig, removerConfig, testar, preparar, texto, enviarNota };
+  return { configPublica, salvarConfig, conectarOAuth, salvarPreferencias, removerConfig, testar, preparar, texto, enviarNota };
 }
 
 // E-mail do tomador que veio na própria NFS-e (quando a nota foi emitida fora do app ou sem cliente salvo).
