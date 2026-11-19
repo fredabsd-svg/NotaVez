@@ -225,15 +225,19 @@ export function criarServicoIa(appCtx, { chamar = chamarModelo, listar = listarM
       if (!c.historico.length) c.titulo = t.replace(/\s+/g, ' ').slice(0, 70);
       if (empresa) c.prestadorId = empresa.id;
       const empresaAtual = (c.prestadorId && await repo.prestadorDoUsuarioPorId(usuario.id, c.prestadorId)) || empresa || null;
-      c.historico.push({ papel: 'usuario', texto: t, em: agora(), ...(anexos.length ? { anexos } : {}) });
+      // Contexto do emissor calculado UMA vez por mensagem e guardado com ela: as chamadas seguintes (nesta resposta e
+      // nas próximas) reenviam exatamente o mesmo texto. Assim o começo da conversa nunca é reescrito — exigência do
+      // raciocínio preservado da Anthropic (modelos 5 em diante) e o que mantém o cache de prompt valendo.
+      const sistemaVariavel = await montarContexto({ ctx: appCtx, usuario, empresa: empresaAtual && await repo.prestadorDoUsuarioPorId(usuario.id, empresaAtual.id),
+        emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes, ia: { modelo: cfg.modelo, provedorNome: PROVEDORES[cfg.provedor]?.nome || cfg.provedor } });
+      c.historico.push({ papel: 'usuario', texto: t, em: agora(), ...(anexos.length ? { anexos } : {}), ...contextoParaGuardar(c.historico, sistemaVariavel) });
       const ctxFerramentas = { app: { ...appCtx, log }, usuario, empresaPadrao: empresaAtual, ip, emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes };
       const executar = criarFerramentas(ctxFerramentas);
       let erro = null;
       try {
         for (let etapa = 0; etapa < MAX_ETAPAS; etapa++) {
-          const sistemaVariavel = await montarContexto({ ctx: appCtx, usuario, empresa: empresaAtual && await repo.prestadorDoUsuarioPorId(usuario.id, empresaAtual.id), emissaoAutonoma: cfg.emissaoAutonoma, pendentes: c.pendentes,
-            ia: { modelo: cfg.modelo, provedorNome: PROVEDORES[cfg.provedor]?.nome || cfg.provedor } });
-          const r = await chamar({ ...cfg, sistemaFixo: SISTEMA_FIXO, sistemaVariavel, historico: recortar(c.historico, MAX_HISTORICO_ENVIADO), ferramentas: DEFINICOES });
+          const r = await chamar({ ...cfg, sistemaFixo: SISTEMA_FIXO, sistemaVariavel, contextoNasMensagens: true, log,
+            historico: recortar(c.historico, MAX_HISTORICO_ENVIADO), ferramentas: DEFINICOES });
           const entrada = { papel: 'assistente', texto: r.texto, chamadas: r.chamadas.map(({ argsInvalidos, ...x }) => x), nativo: r.nativo || undefined, modelo: r.modeloUsado }; // eslint-disable-line no-unused-vars
           if (r.fim === 'recusa' && !r.texto) entrada.texto = 'O provedor de IA recusou responder a este pedido. Reformule ou tente outro modelo.';
           if (r.fim === 'limite' && !r.chamadas.length) entrada.texto = `${r.texto}\n\n(A resposta foi cortada pelo limite de tamanho. Peça para continuar.)`.trim();
@@ -380,6 +384,19 @@ export function lerRevisoes(texto, cnpjs) {
       regimeSugerido: REGIMES_IA.includes(x.regimeSugerido) ? x.regimeSugerido : null,
     };
   });
+}
+
+// Contexto a guardar com a mensagem: completo quando algo mudou desde o último completo; senão só a linha da hora
+// (a conversa não incha com o mesmo contexto repetido). O último completo precisa estar perto (metade da janela
+// enviada ao modelo): assim ele nunca fica de fora quando o começo de uma conversa longa é cortado.
+const LINHA_HORA = /^- Agora \(Brasília\):.*$/m;
+export function contextoParaGuardar(historico, contexto, janela = MAX_HISTORICO_ENVIADO / 2) {
+  const semHora = (t) => String(t || '').replace(LINHA_HORA, '');
+  const anterior = historico.slice(-janela).reverse().find((m) => m.papel === 'usuario' && m.contexto && !m.contextoResumido);
+  if (anterior && semHora(anterior.contexto) === semHora(contexto)) {
+    return { contexto: `${(LINHA_HORA.exec(contexto) || [''])[0]}\n- Demais dados do emissor: iguais aos do último contexto completo desta conversa.`.trim(), contextoResumido: true };
+  }
+  return { contexto };
 }
 
 // Corta o começo do histórico sem separar uma chamada de ferramenta do seu resultado:
