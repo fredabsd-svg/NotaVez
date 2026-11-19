@@ -345,3 +345,16 @@ CREATE TABLE IF NOT EXISTS notas_emails (
   enviado_em TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_notas_emails_nota ON notas_emails(nota_id, enviado_em);
+
+-- Conexão do e-mail de envio com a conta Google ou Microsoft (OAuth): fluxo de uso único, por 10 minutos,
+-- ligado à conta que pediu e a um cookie deste navegador (só o hash do cookie fica aqui).
+CREATE TABLE IF NOT EXISTS email_oauth_fluxos (
+  token_hash TEXT PRIMARY KEY,
+  usuario_id TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  provedor TEXT NOT NULL,
+  state TEXT NOT NULL,
+  verificador_cifrado TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  voltar TEXT,
+  expira_em TEXT NOT NULL
+);

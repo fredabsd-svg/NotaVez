@@ -38,12 +38,15 @@ const nomeEndereco = (nome, email) => (nome ? `${/^[\w .-]*$/.test(nome) ? `"${n
 const nomeArquivo = (n) => String(n || 'anexo').replace(/[^\w.-]+/g, '_').slice(0, 120);
 
 // Mensagem MIME: texto simples; com anexos, multipart/mixed. Só base64 no corpo (nenhuma linha começa com ".").
-export function montarMensagem({ de, nomeRemetente = '', para, cc = [], responderPara = '', assunto, texto, anexos = [], agora = new Date() }) {
+// cco: só para envio por API (Gmail), que lê os destinatários ocultos do cabeçalho Bcc e o remove antes de entregar;
+// no SMTP a cópia oculta vai só no envelope (RCPT TO), nunca na mensagem.
+export function montarMensagem({ de, nomeRemetente = '', para, cc = [], cco = [], responderPara = '', assunto, texto, anexos = [], agora = new Date() }) {
   const dominio = de.split('@')[1] || 'nota-sem-stress';
   const cab = [
     `From: ${nomeEndereco(nomeRemetente, de)}`,
     `To: ${para.map((e) => `<${e}>`).join(', ')}`,
     ...(cc.length ? [`Cc: ${cc.map((e) => `<${e}>`).join(', ')}`] : []),
+    ...(cco.length ? [`Bcc: ${cco.map((e) => `<${e}>`).join(', ')}`] : []),
     ...(responderPara ? [`Reply-To: <${responderPara}>`] : []),
     `Subject: ${cabecalhoUtf8(assunto)}`,
     `Date: ${agora.toUTCString().replace('GMT', '+0000')}`,
@@ -168,6 +171,11 @@ const resumoResposta = (texto) => String(texto || '').split('\n').map((l) => l.r
 
 function erroDaEtapa(etapa, r, extra = {}) {
   const detalhe = resumoResposta(r.texto);
+  // Microsoft 365 com o "SMTP autenticado" desligado (padrão da Microsoft): a saída é o Graph, sem SMTP.
+  if (/SmtpClientAuthentication is disabled|smtp_auth_disabled|5\.7\.139/i.test(r.texto || '')) {
+    return new ErroSmtp('O Microsoft 365 desta conta está com o envio por usuário e senha ("SMTP autenticado") desligado. Use o botão "Entrar com a Microsoft" ou peça ao administrador para liberar o SMTP autenticado nesta caixa de e-mail.'
+      + `${detalhe ? ` Resposta do servidor: ${detalhe}` : ''}`, { codigo: r.codigo, etapa: 'smtp_desligado', resposta: detalhe });
+  }
   const mensagens = {
     autenticacao: 'O servidor de e-mail recusou o usuário ou a senha. No Gmail e no Outlook use uma "senha de app" (não a senha normal da conta).',
     remetente: 'O servidor de e-mail recusou o remetente. Use como remetente o mesmo e-mail da conta configurada.',

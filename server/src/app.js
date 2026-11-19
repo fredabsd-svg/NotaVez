@@ -24,6 +24,7 @@ import { rotasBackup } from './routes/backup.js';
 import { rotasEmail } from './routes/email.js';
 import { criarServicoIa } from './ia/servico.js';
 import { criarServicoEmail } from './email/servico.js';
+import { criarOAuthEmail } from './email/oauth.js';
 import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
 import { criarServicoTomadas } from './fiscal/tomadas.js';
 import { auditar } from './security/auditoria.js';
@@ -34,7 +35,7 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
   assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup,
-  enviarEmail, emailRedeLocal } = {}) {
+  enviarEmail, emailRedeLocal, emailOAuth = config.emailOAuth, fetchEmailOAuth } = {}) {
   const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -49,7 +50,9 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   app.decorate('ctx', { db, repo, auth, emissao, tomadas, limites, consultarCnpj, contaPublica, govbr: criarGovBr(db, govbr) });
   // Assistente de IA da conta: usado no chat, na revisão do cadastro em lote e no texto do e-mail das notas.
   app.ctx.ia = criarServicoIa(app.ctx, { ...(chamarIa ? { chamar: chamarIa } : {}), ...(listarModelosIa ? { listar: listarModelosIa } : {}), log: app.log });
-  app.ctx.email = criarServicoEmail(app.ctx, { ...(enviarEmail ? { enviar: enviarEmail } : {}), permitirRedeLocal: emailRedeLocal ?? (config.dev || config.demo) });
+  // E-mail das notas: conta Google/Microsoft conectada (OAuth) ou SMTP com usuário e senha.
+  app.ctx.emailOAuth = criarOAuthEmail({ db, credenciais: emailOAuth, ...(fetchEmailOAuth ? { fetch: fetchEmailOAuth } : {}) });
+  app.ctx.email = criarServicoEmail(app.ctx, { ...(enviarEmail ? { enviar: enviarEmail } : {}), permitirRedeLocal: emailRedeLocal ?? (config.dev || config.demo), oauth: app.ctx.emailOAuth });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador
   // decodifica o caminho (ex.: "/%61pi/notas" cai em "/api/notas"), então checar
@@ -85,6 +88,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     // gov.br: só as rotas GET (descoberta, início e retorno) dispensam sessão.
     const livre = /^\/api\/(conta\/(entrar|cadastrar|recuperar|recuperacao|redefinir|redefinir-codigo|transparencia|sair)$|saude$|tabelas\/)/.test(rota)
       || (req.method === 'GET' && /^\/api\/conta\/govbr(\/(entrar|retorno))?$/.test(rota))
+      // Retorno do Google/Microsoft ao conectar o e-mail das notas: vale pelo cookie e o state do fluxo.
+      || (req.method === 'GET' && rota === '/api/email/oauth/:provedor/retorno')
       || (config.demo && rota.startsWith('/api/demo/'))
       // Tarefas agendadas: sem sessão, mas só com o segredo do Cron (conferido na própria rota).
       || (req.method === 'GET' && rota.startsWith('/api/cron/'));

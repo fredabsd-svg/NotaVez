@@ -803,3 +803,10 @@ body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: 
 .em-dica { font-size: var(--fs-15); background: var(--azul-claro); box-shadow: none; }
 .em-servidor { margin: var(--esp-2) 0 var(--esp-3); }
 .em-servidor summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.em-bloco h2 { margin: 0 0 var(--esp-2); font-size: var(--fs-17); }
+.em-oauth { display: inline-flex; align-items: center; justify-content: center; gap: var(--esp-2); font-weight: 600; }
+.em-logo { width: 20px; height: 20px; flex: none; }
+.em-conectada { display: flex; gap: var(--esp-2); align-items: center; overflow-wrap: anywhere; }
+.em-smtp > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.em-smtp[open] > summary { margin-bottom: var(--esp-2); }
+.em-estado { margin-top: var(--esp-2); }

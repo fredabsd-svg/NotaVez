@@ -54,7 +54,7 @@ function servidorSmtp({ modo = 'ssl', auth = 'LOGIN PLAIN', senhaCerta = 's3nh@-
         }
         conversa.push(linha);
         if (authEtapa === 'usuario') { usuario = Buffer.from(linha, 'base64').toString(); authEtapa = 'senha'; fim('334 UGFzc3dvcmQ6'); continue; }
-        if (authEtapa === 'senha') { authEtapa = null; fim(Buffer.from(linha, 'base64').toString() === senhaCerta ? '235 ok' : '535 5.7.8 Username and Password not accepted'); continue; }
+        if (authEtapa === 'senha') { authEtapa = null; fim(Buffer.from(linha, 'base64').toString() === senhaCerta ? '235 ok' : (servidor.respostaAuth || '535 5.7.8 Username and Password not accepted')); continue; }
         if (/^EHLO/.test(linha)) {
           const extras = [...(!protegido && modo === 'starttls' ? ['STARTTLS'] : []), ...(protegido ? [`AUTH ${auth}`] : [])];
           s.write(['teste', ...extras].map((x, k, a) => `250${k === a.length - 1 ? ' ' : '-'}${x}\r\n`).join(''));
@@ -80,11 +80,12 @@ function servidorSmtp({ modo = 'ssl', auth = 'LOGIN PLAIN', senhaCerta = 's3nh@-
     });
   };
   const srv = modo === 'ssl' ? tls.createServer(opcoesTls, (s) => atender(s)) : net.createServer((s) => atender(s));
-  return {
-    estado,
+  const servidor = {
+    estado, respostaAuth: null,
     iniciar: () => new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok(srv.address().port))),
     fechar: () => new Promise((ok) => srv.close(ok)),
   };
+  return servidor;
 }
 
 // Lê uma mensagem MIME simples (cabeçalhos + partes base64).
@@ -366,6 +367,17 @@ test('envio: STARTTLS com AUTH PLAIN, recusas do servidor explicadas e nada regi
     const auth = await api('POST', '/api/email/config/testar', {});
     assert.equal(auth.status, 502);
     assert.match(auth.body.erro, /senha de app/);
+    // Microsoft 365 com o "SMTP autenticado" desligado: explica e aponta o botão "Entrar com a Microsoft".
+    const m365 = servidorSmtp({ modo: 'starttls', auth: 'LOGIN', senhaCerta: 'nunca' });
+    const portaM365 = await m365.iniciar();
+    try {
+      m365.respostaAuth = '535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant. Visit https://aka.ms/smtp_auth_disabled for more information.';
+      assert.equal((await api('PUT', '/api/email/config', CONFIG(portaM365, { seguranca: 'starttls' }))).status, 200);
+      const desligado = await api('POST', '/api/email/config/testar', {});
+      assert.equal(desligado.status, 502);
+      assert.match(desligado.body.erro, /SMTP autenticado.*desligado.*Entrar com a Microsoft/);
+      assert.equal(desligado.body.etapa, 'smtp_desligado');
+    } finally { await m365.fechar(); }
     // Segurança trocada (SSL numa porta STARTTLS): mensagem clara, sem travar.
     assert.equal((await api('PUT', '/api/email/config', CONFIG(porta, { seguranca: 'ssl' }))).status, 200);
     const trocada = await api('POST', '/api/email/config/testar', {});
