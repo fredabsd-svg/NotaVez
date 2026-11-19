@@ -173,6 +173,59 @@ export async function tela({ id }) {
     const n = Number(String(v).replace('%', '').replace(',', '.'));
     return String(v).trim() && Number.isFinite(n) ? n.toFixed(2) : null;
   };
+  // Retenções federais feitas pelo cliente empresa (NT 007: PIS, COFINS e CSLL retidos vão SOMADOS em um só valor).
+  // Vale para o Lucro Presumido/Real e para a ME/EPP do Simples (ex.: INSS de 11% na construção civil).
+  function blocoRetencoesFederais() {
+    const rf = { pis: false, cofins: false, csll: false, valorContribuicoes: null, irrf: null, cp: null, ...(r.retencoesFederais || {}) };
+    const salvarRf = () => { r.retencoesFederais = { ...rf }; revisado('tributacao'); persistir(); };
+    const valorTexto = (v) => (v ? Number(v).toFixed(2).replace('.', ',') : '');
+    const lerValor = (v) => {
+      const t = String(v).trim();
+      if (!t) return null;
+      const n = Number(/,\d{1,2}$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''));
+      return Number.isFinite(n) && n > 0 ? n.toFixed(2) : null;
+    };
+    const caixa = (k, rotulo) => h('label', { class: 'caixa', style: 'margin:6px 0' },
+      h('input', { type: 'checkbox', checked: !!rf[k], onchange: (e) => { rf[k] = e.target.checked; salvarRf(); } }), h('span', {}, rotulo));
+    const vContrib = campo({ rotulo: 'Valor retido de PIS/COFINS/CSLL, somados (R$)', valor: valorTexto(rf.valorContribuicoes), atributos: { inputmode: 'decimal', placeholder: '0,00' },
+      oninput: (e) => { rf.valorContribuicoes = lerValor(e.target.value); salvarRf(); } });
+    const calc465 = h('button', {
+      class: 'btn btn-pequeno btn-texto', type: 'button',
+      onclick: () => {
+        if (!r.valor) return aviso('Informe o valor do serviço primeiro.');
+        const v = (Number(r.valor) * 4.65 / 100).toFixed(2);
+        vContrib.entrada.value = v.replace('.', ','); rf.valorContribuicoes = v; rf.pis = rf.cofins = rf.csll = true;
+        for (const cx of bloco.querySelectorAll('.ret-contrib input[type=checkbox]')) cx.checked = true;
+        salvarRf();
+      },
+    }, 'Preencher 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%)');
+    const vIrrf = campo({ rotulo: 'IRRF retido (R$)', valor: valorTexto(rf.irrf), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.irrf = lerValor(e.target.value); salvarRf(); } });
+    const vCp = campo({ rotulo: 'INSS retido (contribuição previdenciária) (R$)', valor: valorTexto(rf.cp), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.cp = lerValor(e.target.value); salvarRf(); } });
+    // INSS de 11% sobre a mão de obra (construção civil e cessão de mão de obra): base editável, padrão = valor da nota.
+    const baseInss = campo({ rotulo: 'Base do INSS: valor da mão de obra (R$)', ajuda: 'Em branco = valor do serviço. Com materiais e equipamentos discriminados na nota, a base pode ser menor (IN RFB 2.110/2022).',
+      valor: '', atributos: { inputmode: 'decimal', placeholder: r.valor ? Number(r.valor).toFixed(2).replace('.', ',') : '0,00' } });
+    const calc11 = h('button', {
+      class: 'btn btn-pequeno btn-texto', type: 'button',
+      onclick: () => {
+        const base = lerValor(baseInss.entrada.value) || r.valor;
+        if (!base) return aviso('Informe o valor do serviço primeiro.');
+        const v = (Number(base) * 11 / 100).toFixed(2);
+        vCp.entrada.value = v.replace('.', ','); rf.cp = v; salvarRf();
+      },
+    }, 'Calcular INSS de 11%');
+    const obra = meta.servicoNacional?.grupoExigido === 'obra';
+    const bloco = h('details', { open: !!(rf.pis || rf.cofins || rf.csll || rf.irrf || rf.cp) || obra },
+      h('summary', {}, 'Retenções federais (cliente empresa)'),
+      h('p', { class: 'suave' }, 'Marque o que o cliente vai reter. As alíquotas dependem do serviço e do cliente: confirme com seu contador.'),
+      h('h4', { class: 'ret-titulo' }, 'INSS (contribuição previdenciária)'),
+      h('p', { class: 'suave' }, 'Construção civil e cessão de mão de obra: o cliente retém 11% sobre a mão de obra (Lei 8.212/1991, art. 31), inclusive de empresas do Simples tributadas pelo Anexo IV.'),
+      vCp, baseInss, calc11,
+      h('h4', { class: 'ret-titulo' }, 'Imposto de renda'), vIrrf,
+      h('h4', { class: 'ret-titulo' }, 'PIS, COFINS e CSLL'),
+      h('div', { class: 'ret-contrib' }, caixa('pis', 'PIS retido'), caixa('cofins', 'COFINS retida'), caixa('csll', 'CSLL retida')), vContrib, calc465);
+    return bloco;
+  }
+
   if (perfil?.opSimpNac === '3') {
     const reg = String(perfil.regApTribSN || '1');
     const explicacao = {
@@ -207,7 +260,7 @@ export async function tela({ id }) {
     anexar(blocoTrib,
       h('div', { class: 'cartao' }, h('p', { style: 'margin:0' }, h('strong', {}, 'ME/EPP: '), explicacao)),
       h('label', { class: 'caixa', for: 'iss-retido' }, retido, h('span', {}, h('strong', {}, 'O cliente vai reter o ISS'), h('span', { class: 'ajuda' }, 'Marque se o cliente desconta o ISS e recolhe ao município.'))),
-      avisoRet, aliq, pTot, marcador('tributacao'));
+      avisoRet, aliq, pTot, blocoRetencoesFederais(), marcador('tributacao'));
     atualizarAliq();
   } else if (perfil?.opSimpNac === '1') {
     // ISS: retenção pelo cliente; alíquota só vale se o município de incidência não for conveniado (E0617/E0619).
@@ -219,36 +272,7 @@ export async function tela({ id }) {
       oninput: (e) => { r.pAliq = lerPct(e.target.value); revisado('tributacao'); persistir(); },
     });
 
-    // Retenções federais (NT 007: PIS, COFINS e CSLL retidos vão SOMADOS em um só valor).
-    const rf = { pis: false, cofins: false, csll: false, valorContribuicoes: null, irrf: null, cp: null, ...(r.retencoesFederais || {}) };
-    const salvarRf = () => { r.retencoesFederais = { ...rf }; revisado('tributacao'); persistir(); };
-    const valorTexto = (v) => (v ? Number(v).toFixed(2).replace('.', ',') : '');
-    const lerValor = (v) => {
-      const t = String(v).trim();
-      if (!t) return null;
-      const n = Number(/,\d{1,2}$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''));
-      return Number.isFinite(n) && n > 0 ? n.toFixed(2) : null;
-    };
-    const caixa = (k, rotulo) => h('label', { class: 'caixa', style: 'margin:6px 0' },
-      h('input', { type: 'checkbox', checked: !!rf[k], onchange: (e) => { rf[k] = e.target.checked; salvarRf(); } }), h('span', {}, rotulo));
-    const vContrib = campo({ rotulo: 'Valor retido de PIS/COFINS/CSLL, somados (R$)', valor: valorTexto(rf.valorContribuicoes), atributos: { inputmode: 'decimal', placeholder: '0,00' },
-      oninput: (e) => { rf.valorContribuicoes = lerValor(e.target.value); salvarRf(); } });
-    const calc465 = h('button', {
-      class: 'btn btn-pequeno btn-texto', type: 'button',
-      onclick: () => {
-        if (!r.valor) return aviso('Informe o valor do serviço primeiro.');
-        const v = (Number(r.valor) * 4.65 / 100).toFixed(2);
-        vContrib.entrada.value = v.replace('.', ','); rf.valorContribuicoes = v; rf.pis = rf.cofins = rf.csll = true;
-        for (const cx of blocoRet.querySelectorAll('input[type=checkbox]')) cx.checked = true;
-        salvarRf();
-      },
-    }, 'Preencher 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%)');
-    const vIrrf = campo({ rotulo: 'IRRF retido (R$)', valor: valorTexto(rf.irrf), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.irrf = lerValor(e.target.value); salvarRf(); } });
-    const vCp = campo({ rotulo: 'INSS retido (R$)', valor: valorTexto(rf.cp), atributos: { inputmode: 'decimal', placeholder: '0,00' }, oninput: (e) => { rf.cp = lerValor(e.target.value); salvarRf(); } });
-    const blocoRet = h('details', { open: !!(rf.pis || rf.cofins || rf.csll || rf.irrf || rf.cp) },
-      h('summary', {}, 'Retenções federais (cliente empresa)'),
-      h('p', { class: 'suave' }, 'Marque o que o cliente vai reter. As alíquotas dependem do serviço e do cliente: confirme com seu contador.'),
-      caixa('pis', 'PIS retido'), caixa('cofins', 'COFINS retida'), caixa('csll', 'CSLL retida'), vContrib, calc465, vIrrf, vCp);
+    const blocoRet = blocoRetencoesFederais();
 
     // IBS/CBS (opções oficiais do Anexo VIII para o serviço escolhido).
     const blocoIbs = h('div', { class: 'cartao' });
@@ -417,6 +441,10 @@ export async function tela({ id }) {
         } }, 'Usar versão da conta')) : null,
       // "Salvo" no topo: no rodapé ele cobria o campo de descrição.
       h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Tudo é salvo automaticamente. Pode sair e continuar depois.'), status),
+      // Nota substituta: deixa claro o que acontece com a original ao emitir esta.
+      r.substituicao?.chave ? h('div', { class: 'cartao cartao-alerta' },
+        h('strong', {}, `Nota substituta da NFS-e nº ${r.substituicao.nNfse || ''}`.trim()),
+        h('p', { style: 'margin:4px 0 0' }, 'Os dados vieram da nota original. Corrija o que precisar e emita: ao emitir esta, a Receita cancela a original automaticamente (cancelamento por substituição).')) : null,
       blocoCliente, blocoServico, blocoObra, blocoQuando, blocoTrib, blocoLocal,
       h('div', { class: 'rodape-fixo' },
         h('button', {

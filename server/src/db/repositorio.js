@@ -65,6 +65,8 @@ export function criarRepositorio(db) {
     chaveAcesso: decifrar(row.chave_cifrada),
     nNfse: row.n_nfse,
     temXml: !!row.nfse_xml_cifrado,
+    // Cancelada pelo app (evento de cancelamento) ou substituída por outra NFS-e.
+    cancelamento: row.cancelamento_cifrado ? decifrarJson(row.cancelamento_cifrado) : null,
     erros: row.erros_json ? JSON.parse(row.erros_json) : null,
     alertas: row.alertas_json ? JSON.parse(row.alertas_json) : null,
     tentativas: row.tentativas,
@@ -343,7 +345,7 @@ export function criarRepositorio(db) {
         proximaVerificacaoEm: 'proxima_verificacao_em', verificacoes: 'verificacoes',
         ambiente: 'ambiente', serie: 'serie', nDps: 'n_dps', nNfse: 'n_nfse',
         erros: 'erros_json', alertas: 'alertas_json', ultimoEnvioEm: 'ultimo_envio_em', emitidaEm: 'emitida_em',
-        dpsXml: 'dps_xml_cifrado', nfseXml: 'nfse_xml_cifrado', tentativas: 'tentativas',
+        dpsXml: 'dps_xml_cifrado', nfseXml: 'nfse_xml_cifrado', tentativas: 'tentativas', cancelamento: 'cancelamento_cifrado',
       };
       const sets = ['situacao = ?', 'atualizado_em = ?', 'versao = versao + 1'];
       const vals = [para, agora()];
@@ -356,7 +358,7 @@ export function criarRepositorio(db) {
         }
         if (!mapa[k]) throw new Error(`campo desconhecido ${k}`);
         sets.push(`${mapa[k]} = ?`);
-        vals.push(['dpsXml', 'nfseXml', 'contextoEmitente'].includes(k) ? (v === null ? null : cifrar(v)) : (k === 'erros' || k === 'alertas') && v !== null ? JSON.stringify(v) : v);
+        vals.push(['dpsXml', 'nfseXml', 'contextoEmitente', 'cancelamento'].includes(k) ? (v === null ? null : cifrar(v)) : (k === 'erros' || k === 'alertas') && v !== null ? JSON.stringify(v) : v);
       }
       const origem = Array.isArray(de) ? de : [de];
       const condicoes = []; const parametros = [];

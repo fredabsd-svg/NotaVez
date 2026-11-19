@@ -28,6 +28,28 @@ export const hojeBrasilia = (d = new Date()) => new Date(d.getTime() - 3 * 3600_
 
 export const formatarValor = (v) => Number(v).toFixed(2);
 
+// NFS-e substituta (TCSubstituicao): a chave da NFS-e substituída e o motivo. A Receita cancela a original
+// (evento 105102, "cancelamento por substituição") ao gerar esta.
+function substXml(nota) {
+  const s = nota.substituicao;
+  if (!s?.chave) return '';
+  return `<subst>${el('chSubstda', s.chave)}${el('cMotivo', s.cMotivo)}${el('xMotivo', s.xMotivo)}</subst>`;
+}
+
+// Evento de cancelamento (pedRegEvento, e101101): o autor é o próprio emitente (nunca o procurador).
+// cMotivo: 1 erro na emissão, 2 serviço não prestado, 9 outros. Id = "PRE" + chave + código do evento.
+export const MOTIVOS_CANCELAMENTO = { 1: 'Erro na emissão', 2: 'Serviço não prestado', 9: 'Outros' };
+export function montarPedidoCancelamento({ tpAmb, prestador, chave, cMotivo, xMotivo, dhEvento, verAplic }) {
+  const Id = `PRE${chave}101101`;
+  const autor = prestador.tipoDocumento === 'CPF' ? el('CPFAutor', prestador.documento) : el('CNPJAutor', prestador.documento);
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>'
+    + `<pedRegEvento xmlns="${NS_NFSE}" versao="${VERSAO_LEIAUTE}"><infPedReg Id="${Id}">`
+    + `${el('tpAmb', tpAmb)}${el('verAplic', verAplic)}${el('dhEvento', dhEvento)}${autor}${el('chNFSe', chave)}`
+    + `<e101101>${el('xDesc', 'Cancelamento de NFS-e')}${el('cMotivo', cMotivo)}${el('xMotivo', xMotivo)}</e101101>`
+    + '</infPedReg></pedRegEvento>';
+  return { xml, Id };
+}
+
 // Grupo da obra (TCInfoObra): inscImobFisc? e um entre cObra (CNO/CEI), cCIB ou end (CEP, logradouro, número,
 // complemento, bairro). Só nos serviços de construção civil (E0370/E0372).
 function obraXml(nota) {
@@ -101,6 +123,7 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
     + `<DPS xmlns="${NS_NFSE}" versao="${VERSAO_LEIAUTE}"><infDPS Id="${Id}">`
     + `${el('tpAmb', tpAmb)}${el('dhEmi', dhEmi)}${el('verAplic', verAplic)}${el('serie', serie)}${el('nDPS', nDPS)}`
     + `${el('dCompet', nota.competencia)}${el('tpEmit', '1')}${el('cLocEmi', cLocEmi)}`
+    + substXml(nota)
     + prest + toma + serv + valores + ibscbs
     + '</infDPS></DPS>';
   return { xml, Id };

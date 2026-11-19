@@ -118,6 +118,48 @@ export function criarClienteSefin({ baseUrl, baseParametros, baseAdn, rotasParam
       return { ...base, tipo: 'incerta', motivo: `http_${r.status}` };
     },
 
+    /**
+     * POST /nfse/{chaveAcesso}/eventos — registra um evento da NFS-e (ex.: cancelamento e101101). O pedido vai
+     * assinado, em GZip + Base64. Resposta com o XML do evento = registrado; erros oficiais = recusado;
+     * rede ou resposta estranha = incerto (confirme com consultarEvento antes de pedir de novo).
+     */
+    async registrarEvento(chaveAcesso, xmlAssinado) {
+      const r = await requisitar('POST', `/nfse/${encodeURIComponent(chaveAcesso)}/eventos`, { pedidoRegistroEventoXmlGZipB64: gz64(xmlAssinado) });
+      const base = { http: r.status ?? null, ms: r.ms };
+      if (r.erroRede) {
+        const certo = !r.conectado && (ANTES_DO_ENVIO.has(r.erroRede.code) || /SSL|TLS|CERT|EPROTO/i.test(`${r.erroRede.code} ${r.erroRede.message}`));
+        return { ...base, tipo: certo ? 'nao_enviado' : 'incerto', motivo: certo ? 'conexao' : 'rede', detalhe: r.erroRede.code || r.erroRede.message };
+      }
+      const xmlB64 = pegar(r.json, 'eventoXmlGZipB64', 'EventoXmlGZipB64');
+      if (r.status >= 200 && r.status < 300) {
+        let eventoXml = null;
+        try { eventoXml = xmlB64 ? gunzipSync(Buffer.from(String(xmlB64), 'base64')).toString('utf8') : null; } catch { eventoXml = null; }
+        return { ...base, tipo: 'registrado', eventoXml };
+      }
+      if (r.status === 401 || r.status === 403) return { ...base, tipo: 'nao_enviado', motivo: 'autorizacao' };
+      if (r.status === 429) return { ...base, tipo: 'nao_enviado', motivo: 'limite' };
+      if (r.status >= 400 && r.status < 500) {
+        const erros = lerMensagens(r.json);
+        return erros.length ? { ...base, tipo: 'recusado', erros } : { ...base, tipo: 'nao_enviado', motivo: 'requisicao', detalhe: r.texto?.slice(0, 300) };
+      }
+      return { ...base, tipo: 'incerto', motivo: `http_${r.status}` };
+    },
+
+    /** GET /nfse/{chaveAcesso}/eventos/{tipoEvento}/{numSeqEvento} — o evento já foi registrado? */
+    async consultarEvento(chaveAcesso, tipoEvento, numSeq = 1) {
+      const r = await requisitar('GET', `/nfse/${encodeURIComponent(chaveAcesso)}/eventos/${encodeURIComponent(tipoEvento)}/${encodeURIComponent(numSeq)}`);
+      const base = { http: r.status ?? null, ms: r.ms };
+      if (r.erroRede) return { ...base, tipo: 'falha', detalhe: r.erroRede.code || r.erroRede.message };
+      if (r.status === 200) {
+        let eventoXml = null;
+        const xmlB64 = pegar(r.json, 'eventoXmlGZipB64', 'EventoXmlGZipB64');
+        try { eventoXml = xmlB64 ? gunzipSync(Buffer.from(String(xmlB64), 'base64')).toString('utf8') : null; } catch { eventoXml = null; }
+        return { ...base, tipo: 'encontrado', eventoXml };
+      }
+      if (r.status === 404) return { ...base, tipo: 'nao_encontrado' };
+      return { ...base, tipo: 'falha', detalhe: `http_${r.status}` };
+    },
+
     /** GET /dps/{id} — descobre se a DPS já gerou NFS-e (retorna a chave). */
     async consultarDps(idDps) {
       const r = await requisitar('GET', `/dps/${encodeURIComponent(idDps)}`);

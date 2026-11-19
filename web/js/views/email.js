@@ -140,7 +140,7 @@ export async function enviar({ id }) {
       aviso(`E-mail enviado para ${r.para.join(', ')}.${r.clienteAtualizado ? ' O e-mail ficou salvo no cadastro do cliente.' : ''}`, 6000);
       ir(`/notas/${id}`, { substituir: true });
     } catch (e) {
-      if (e instanceof ErroApi && e.campos) mostrarErros({ para: cPara, assunto: cAssunto, corpo: cCorpo }, e.campos);
+      if (e instanceof ErroApi && e.dados?.campos) mostrarErros({ para: cPara, assunto: cAssunto, corpo: cCorpo }, e.dados.campos);
       erroEnvio.textContent = mensagemDe(e);
       erroEnvio.hidden = false;
       erroEnvio.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -304,7 +304,7 @@ export async function configurar(_params, query = {}) {
         mostrarErros({ responderPara: pResponder }, {});
         aviso('Preferências salvas.');
       } catch (e) {
-        if (e instanceof ErroApi && e.campos) mostrarErros({ responderPara: pResponder }, e.campos); else aviso(mensagemDe(e));
+        if (e instanceof ErroApi && e.dados?.campos) mostrarErros({ responderPara: pResponder }, e.dados.campos); else aviso(mensagemDe(e));
       } finally { btnPref.disabled = false; }
     } },
     h('h2', {}, 'Como o e-mail sai'),
@@ -348,7 +348,7 @@ export async function configurar(_params, query = {}) {
         mostrarErros({ assunto: mAssunto, corpo: mCorpo }, {});
         aviso('Modelo do e-mail salvo. Vale para as próximas notas.');
       } catch (e) {
-        if (e instanceof ErroApi && e.campos) mostrarErros({ assunto: mAssunto, corpo: mCorpo }, e.campos); else aviso(mensagemDe(e));
+        if (e instanceof ErroApi && e.dados?.campos) mostrarErros({ assunto: mAssunto, corpo: mCorpo }, e.dados.campos); else aviso(mensagemDe(e));
       } finally { btnModeloSalvar.disabled = false; }
     } },
     h('h2', {}, 'Texto do e-mail'),
@@ -417,7 +417,7 @@ export async function configurar(_params, query = {}) {
       aviso('E-mail configurado.');
       if (voltar) ir(voltar, { substituir: true });
     } catch (e) {
-      if (e instanceof ErroApi && e.campos) { mostrarErros(campos, e.campos); if (e.campos.host || e.campos.porta || e.campos.seguranca) servidor.open = true; }
+      if (e instanceof ErroApi && e.dados?.campos) { mostrarErros(campos, e.dados.campos); if (e.dados.campos.host || e.dados.campos.porta || e.dados.campos.seguranca) servidor.open = true; }
       estadoSmtp.textContent = e instanceof ErroApi && e.status === 502 ? `Salvo, mas o teste falhou: ${e.message}` : mensagemDe(e);
     } finally { btnSalvar.disabled = false; }
   }

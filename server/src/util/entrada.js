@@ -39,6 +39,22 @@ export function obra(o) {
   };
 }
 
+// NFS-e que esta nota substitui (grupo subst da DPS). A chave é conferida no servidor antes de emitir.
+export const MOTIVOS_SUBSTITUICAO = {
+  '01': 'Desenquadramento do Simples Nacional', '02': 'Enquadramento no Simples Nacional', '03': 'Inclusão retroativa de imunidade/isenção',
+  '04': 'Exclusão retroativa de imunidade/isenção', '05': 'Rejeição da NFS-e pelo tomador ou intermediário', '99': 'Outros',
+};
+export function substituicao(x) {
+  if (!x || typeof x !== 'object' || !/^\d{50}$/.test(String(x.chave || ''))) return null;
+  return {
+    notaId: /^[0-9a-f-]{36}$/i.test(String(x.notaId || '')) ? String(x.notaId) : null,
+    chave: String(x.chave),
+    nNfse: texto(x.nNfse, 15) || null,
+    cMotivo: MOTIVOS_SUBSTITUICAO[x.cMotivo] ? x.cMotivo : '99',
+    xMotivo: texto(x.xMotivo, 255) || null,
+  };
+}
+
 export function cliente(b) {
   const doc = lerDocumento(b.documento);
   const erros = {};
@@ -90,6 +106,7 @@ export function rascunho(b = {}) {
     valor: valorDecimal(b.valor),
     localPrestacaoIbge: somenteDigitos(b.localPrestacaoIbge).slice(0, 7) || null,
     obra: obra(b.obra),
+    substituicao: substituicao(b.substituicao),
     // Tributação (ME/EPP). Vazio = usa o valor do perfil.
     issRetido: b.issRetido === true,
     pAliq: percentualTexto(b.pAliq),

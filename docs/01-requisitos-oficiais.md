@@ -33,7 +33,9 @@ Fonte: *Manual de Contribuintes – Emissor Público*, seções 1.3 a 1.5.
 | `GET /nfse/{chaveAcesso}` | Consulta a NFS-e pela chave de acesso | Obter o XML oficial |
 | `GET /dps/{id}` | Devolve a chave de acesso gerada a partir de uma DPS. **Só responde se o certificado da conexão for de um ator da nota** (prestador, tomador ou intermediário) | Consulta **antes** de reenviar um envio com resposta incerta |
 | `HEAD /dps/{id}` | Informa se a DPS gerou NFS-e (qualquer certificado válido) | Alternativa para a consulta |
-| `POST/GET /nfse/{chave}/eventos` | Eventos (cancelamento, substituição…) | Versão futura |
+| `POST /nfse/{chave}/eventos` | Cancelamento (pedido de evento e101101 assinado: `pedRegEvento`, Id `PRE` + chave + `101101`, autor = CNPJ/CPF do emitente; validado no `pedRegEvento_v1.01.xsd`) | "Corrigir esta nota › Cancelar nota" |
+| `GET /nfse/{chave}/eventos/101101/1` | Confirma o cancelamento quando a resposta se perde (repetir o pedido é seguro) | Automático |
+| DPS com grupo `subst` (`chSubstda`, `cMotivo`, `xMotivo`) | Substituição: a nova NFS-e cancela a original (evento 105102 gerado pela Receita) | "Corrigir esta nota › Substituir nota" |
 | `GET /parametros_municipais/...` | Alíquotas, benefícios e retenções municipais | Necessário para atender ME/EPP (futuro) |
 
 Ambientes (página *APIs – Prod. Restrita e Produção*):

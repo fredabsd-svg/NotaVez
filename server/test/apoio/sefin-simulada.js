@@ -40,6 +40,12 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     distribuicao: [],
     consultasDistribuicao: [],
     falharDistribuicao: false,
+    // Eventos (cancelamento): chave → XML do evento registrado; fila de comportamentos: 'ok' | 'recusar' | 'timeout_apos_registrar'.
+    eventos: new Map(),
+    eventosRecebidos: [],
+    cenarioEvento: [],
+    // NFS-e substituídas: chave da original → chave da substituta.
+    substituidas: new Map(),
   };
   let seq = 0;
   const { key, cert } = certServidor(caPem, caChavePem);
@@ -207,7 +213,12 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
         if (estado.geradas.has(idDps)) return responder(res, 400, { ...base, erros: [{ Codigo: 'E0014', Descricao: 'Conjunto de Série, Número, Código do Município Emissor e CNPJ/CPF informado nesta DPS já existe em uma NFS-e gerada a partir de uma DPS enviada anteriormente.' }] });
         const erros = cenario === 'rejeitar' ? [{ Codigo: 'E0082', Descricao: 'CNPJ do emitente prestador não encontrado no cadastro CNPJ na data de competência.' }] : regras(xml);
         if (erros.length) return responder(res, 400, { ...base, erros });
+        const chSubstda = tag(xml, 'chSubstda');
+        if (chSubstda && (![...estado.geradas.values()].some((g) => g.chave === chSubstda) || estado.eventos.has(chSubstda) || estado.substituidas.has(chSubstda))) {
+          return responder(res, 400, { ...base, erros: [{ Codigo: 'E0030', Descricao: 'A NFS-e a ser substituída não existe ou já foi cancelada/substituída.' }] });
+        }
         const { chave, xml: nfse } = gerarNfse(idDps, xml);
+        if (chSubstda) estado.substituidas.set(chSubstda, chave);
         if (cenario === 'timeout_apos_processar') return; // processou, mas a resposta "se perdeu"
         return responder(res, 201, { ...base, chaveAcesso: chave, nfseXmlGZipB64: gzipSync(Buffer.from(nfse)).toString('base64'), alertas: [] });
       }
@@ -234,6 +245,29 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
       if (req.method === 'GET' && mDps) {
         const g = estado.geradas.get(decodeURIComponent(mDps[1]));
         return g ? responder(res, 200, { tipoAmbiente: 2, idDps: mDps[1], chaveAcesso: g.chave }) : responder(res, 404, { erro: { codigo: 'E404', descricao: 'Não encontrado' } });
+      }
+      const mEvento = caminho.match(/^\/nfse\/(\d{50})\/eventos$/);
+      if (req.method === 'POST' && mEvento) {
+        const chave = mEvento[1];
+        const corpo = JSON.parse(Buffer.concat(partes).toString('utf8'));
+        const xml = gunzipSync(Buffer.from(corpo.pedidoRegistroEventoXmlGZipB64, 'base64')).toString('utf8');
+        estado.eventosRecebidos.push(xml);
+        const cenario = estado.cenarioEvento.shift() || 'ok';
+        if (!conferirAssinatura(xml, certClientePem)) return responder(res, 400, { erros: [{ Codigo: 'E0714', Descricao: 'Arquivo enviado com erro na assinatura.' }] });
+        const xsd = await validarXsd(xml, 'pedRegEvento_v1.01.xsd');
+        if (!xsd.valido) return responder(res, 400, { erros: [{ Codigo: 'E1235', Descricao: 'Falha no esquema XML do DF-e.', Complemento: xsd.erros[0] }] });
+        if (tag(xml, 'chNFSe') !== chave || ![...estado.geradas.values()].some((g) => g.chave === chave)) return responder(res, 404, { erros: [{ Codigo: 'E0011', Descricao: 'NFS-e não encontrada.' }] });
+        if (estado.eventos.has(chave) || estado.substituidas.has(chave)) return responder(res, 400, { erros: [{ Codigo: 'E0840', Descricao: 'Já existe evento de cancelamento para esta NFS-e.' }] });
+        if (cenario === 'recusar') return responder(res, 400, { erros: [{ Codigo: 'E0827', Descricao: 'Cancelamento não permitido: há evento de tributos recolhidos vinculado à NFS-e.' }] });
+        const evento = `<evento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infEvento Id="EVT${chave}101101001"><verAplic>SIMULADOR</verAplic><ambGer>2</ambGer><nSeqEvento>1</nSeqEvento><dhProc>${new Date().toISOString()}</dhProc><nDFe>1</nDFe>${xml.replace(/^<\?xml[^>]*>/, '')}</infEvento></evento>`;
+        estado.eventos.set(chave, evento);
+        if (cenario === 'timeout_apos_registrar') return; // registrou, mas a resposta se perdeu
+        return responder(res, 201, { tipoAmbiente: 2, versaoAplicativo: 'SIMULADOR', dataHoraProcessamento: new Date().toISOString(), eventoXmlGZipB64: gzipSync(Buffer.from(evento)).toString('base64') });
+      }
+      const mConsEvento = caminho.match(/^\/nfse\/(\d{50})\/eventos\/(\d{6})\/(\d+)$/);
+      if (req.method === 'GET' && mConsEvento) {
+        const ev = mConsEvento[2] === '101101' ? estado.eventos.get(mConsEvento[1]) : null;
+        return ev ? responder(res, 200, { eventoXmlGZipB64: gzipSync(Buffer.from(ev)).toString('base64') }) : responder(res, 404, {});
       }
       const mNfse = caminho.match(/^\/nfse\/(\d{50})$/);
       if (req.method === 'GET' && mNfse) {

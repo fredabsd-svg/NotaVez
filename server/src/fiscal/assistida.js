@@ -89,13 +89,17 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
   } else if (ex.aliquota?.modo === 'proibida') valores.push(campo('Alíquota do ISSQN', 'Não informar', { copiar: false, ajuda: ex.aliquota.motivo }));
 
   const pc = trib.tribFed?.piscofins;
-  if (pc) {
+  // Simples (CST 00): só o tipo de retenção; a apuração própria de PIS/COFINS fica no DAS.
+  if (pc && pc.CST !== '00') {
     valores.push(campo('PIS/COFINS — situação tributária', CST_PIS_COFINS[pc.CST] || pc.CST, { copiar: pc.CST }));
     if (pc.vBCPisCofins) {
       valores.push(campo('Base de cálculo PIS/COFINS', `R$ ${moedaBr(pc.vBCPisCofins)}`, { copiar: numeroBr(pc.vBCPisCofins) }),
         campo('Alíquota do PIS (%)', numeroBr(pc.pAliqPis)), campo('Alíquota da COFINS (%)', numeroBr(pc.pAliqCofins)),
         campo('Valor do PIS', `R$ ${moedaBr(pc.vPis)}`, { copiar: numeroBr(pc.vPis) }), campo('Valor da COFINS', `R$ ${moedaBr(pc.vCofins)}`, { copiar: numeroBr(pc.vCofins) }));
     }
+  }
+  // Retenções federais feitas pelo cliente (Presumido/Real e ME/EPP do Simples).
+  if (trib.tribFed) {
     const rf = r.retencoesFederais || {};
     const retidos = ['pis', 'cofins', 'csll'].filter((k) => rf[k]).map((k) => k.toUpperCase());
     valores.push(campo('PIS/COFINS/CSLL retidos pelo tomador', retidos.length ? retidos.join(', ') : 'Nenhum', { copiar: false }));

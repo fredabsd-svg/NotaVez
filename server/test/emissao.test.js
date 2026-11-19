@@ -575,3 +575,128 @@ test('CEP: endereço e município (código IBGE) pelo ViaCEP; BrasilAPI se falha
   const foraDoAr = criarConsultaCep({ buscar: async () => { throw new Error('sem rede'); } });
   await assert.rejects(foraDoAr('77660000'), (e) => e.status === 503 && /preencha o endereço à mão/i.test(e.message));
 });
+
+test('ME/EPP do Simples: retenções federais (INSS da construção, IRRF, PIS/COFINS/CSLL) vão no tribFed; só com cliente CNPJ', async () => {
+  const u = await usuarioPronto('construtora-ret@exemplo.com', { opSimpNac: '3', simples: SIMPLES });
+  const clienteId = await clienteEmpresa(u);
+  const hojeBr = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const obra = { tipo: 'endereco', endereco: { cep: '01001000', municipioIbge: '3550308', logradouro: 'Praça da Sé', numero: '100', bairro: 'Sé' } };
+  const base = { clienteId, cTribNac: '070202', descricao: 'Medição nº 4', valor: '66525.71', competencia: hojeBr, localPrestacaoIbge: '3550308', obra };
+
+  // Só INSS (11% sobre a mão de obra): tribFed sem o grupo de PIS/COFINS.
+  const n1 = (await u.api('POST', '/api/notas', { rascunho: { ...base, retencoesFederais: { cp: '7317,83' } } })).body.nota;
+  const v1 = await u.api('POST', `/api/notas/${n1.id}/validar`);
+  assert.deepEqual(v1.body.erros, [], JSON.stringify(v1.body.erros));
+  assert.equal(v1.body.exigencias.retencoesFederais, 7317.83);
+  const e1 = await u.api('POST', `/api/notas/${n1.id}/emitir`);
+  assert.equal(e1.body.nota?.situacao, 'emitida', JSON.stringify(e1.body));
+  assert.match(sefin.estado.recebidas.at(-1), /<\/tribMun><tribFed><vRetCP>7317\.83<\/vRetCP><\/tribFed><totTrib><pTotTribSN>6\.00<\/pTotTribSN><\/totTrib>/);
+  // Roteiro do Emissor Nacional mostra a retenção também para o Simples.
+  const n1b = (await u.api('POST', '/api/notas', { rascunho: { ...base, retencoesFederais: { cp: '7317,83' } } })).body.nota;
+  assert.ok(JSON.stringify((await u.api('GET', `/api/notas/${n1b.id}/assistida`)).body.roteiro).includes('Contribuição previdenciária retida'));
+
+  // Todas: INSS, IRRF e PIS+COFINS+CSLL (somados, tipo 3) com CST 00 (o Simples não apura PIS/COFINS na nota).
+  const todas = { cp: '7317.83', irrf: '997.89', pis: true, cofins: true, csll: true, valorContribuicoes: '3093.45' };
+  const n2 = (await u.api('POST', '/api/notas', { rascunho: { ...base, retencoesFederais: todas } })).body.nota;
+  const e2 = await u.api('POST', `/api/notas/${n2.id}/emitir`);
+  assert.equal(e2.body.nota?.situacao, 'emitida', JSON.stringify(e2.body));
+  assert.match(sefin.estado.recebidas.at(-1), /<tribFed><piscofins><CST>00<\/CST><tpRetPisCofins>3<\/tpRetPisCofins><\/piscofins><vRetCP>7317\.83<\/vRetCP><vRetIRRF>997\.89<\/vRetIRRF><vRetCSLL>3093\.45<\/vRetCSLL><\/tribFed>/);
+
+  // Regras: cliente pessoa física não retém; contribuições marcadas sem valor; valor maior que o serviço.
+  for (const [ret, cliente, regra] of [
+    [{ cp: '100' }, { clienteId: u.clienteId }, 'Regra'],
+    [{ pis: true }, {}, 'E0724'],
+    [{ valorContribuicoes: '10' }, {}, 'E0720'],
+    [{ irrf: '70000' }, {}, 'E0700'],
+  ]) {
+    const n = (await u.api('POST', '/api/notas', { rascunho: { ...base, ...cliente, retencoesFederais: ret } })).body.nota;
+    const v = await u.api('POST', `/api/notas/${n.id}/validar`);
+    assert.ok(v.body.erros.some((e) => e.campo === 'retencoes' && e.regra === regra), `${JSON.stringify(ret)} → ${JSON.stringify(v.body.erros)}`);
+  }
+});
+
+test('cancelar: pedido de evento assinado e no leiaute; recusa explicada; resposta perdida é conferida antes; nada cancelado duas vezes', async () => {
+  const u = await usuarioPronto('cancela@exemplo.com');
+  const emitir = async () => {
+    const n = await novoRascunho(u);
+    const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+    assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+    return e.body.nota;
+  };
+  const n = await emitir();
+  // Confirmação e motivo obrigatórios.
+  assert.equal((await u.api('POST', `/api/notas/${n.id}/cancelar`, { cMotivo: '1', xMotivo: 'Valor do serviço informado errado' })).status, 422);
+  const semMotivo = await u.api('POST', `/api/notas/${n.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '7', xMotivo: 'curto' });
+  assert.equal(semMotivo.status, 422);
+  assert.deepEqual(Object.keys(semMotivo.body.campos).sort(), ['cMotivo', 'xMotivo']);
+
+  const c = await u.api('POST', `/api/notas/${n.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '1', xMotivo: 'Valor do serviço informado errado' });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.equal(c.body.nota.situacao, 'cancelada');
+  assert.equal(c.body.nota.cancelamento.motivo, 'Erro na emissão');
+  assert.match(c.body.nota.aviso, /cancelada pelo app \(Erro na emissão\)/);
+  const pedido = sefin.estado.eventosRecebidos.at(-1);
+  assert.match(pedido, new RegExp(`^<\\?xml version="1.0" encoding="UTF-8"\\?><pedRegEvento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infPedReg Id="PRE${n.chaveAcesso}101101"><tpAmb>2</tpAmb>`));
+  assert.match(pedido, new RegExp(`<CNPJAutor>11222333000181</CNPJAutor><chNFSe>${n.chaveAcesso}</chNFSe><e101101><xDesc>Cancelamento de NFS-e</xDesc><cMotivo>1</cMotivo><xMotivo>Valor do serviço informado errado</xMotivo></e101101></infPedReg><Signature`));
+  // A nota cancelada continua no histórico, com o DANFSe marcado, e não pode ser cancelada de novo.
+  assert.equal((await u.api('GET', `/api/notas/${n.id}/danfse`)).status, 200);
+  assert.equal((await u.api('POST', `/api/notas/${n.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '1', xMotivo: 'Valor do serviço informado errado' })).status, 409);
+
+  // Recusa da Receita: a nota continua emitida e o motivo aparece.
+  const n2 = await emitir();
+  sefin.estado.cenarioEvento.push('recusar');
+  const recusa = await u.api('POST', `/api/notas/${n2.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '2', xMotivo: 'Serviço não foi prestado ao cliente' });
+  assert.equal(recusa.status, 422);
+  assert.ok(recusa.body.erros.some((e) => e.codigo === 'E0827'), JSON.stringify(recusa.body));
+  assert.equal((await u.api('GET', `/api/notas/${n2.id}`)).body.nota.situacao, 'emitida');
+
+  // Resposta perdida depois de registrar: o app consulta o evento e conclui sem pedir de novo.
+  sefin.estado.cenarioEvento.push('timeout_apos_registrar');
+  const antes = sefin.estado.eventosRecebidos.length;
+  const perdida = await u.api('POST', `/api/notas/${n2.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '2', xMotivo: 'Serviço não foi prestado ao cliente' });
+  assert.equal(perdida.status, 200, JSON.stringify(perdida.body));
+  assert.equal(perdida.body.nota.situacao, 'cancelada');
+  assert.equal(sefin.estado.eventosRecebidos.length, antes + 1, 'um pedido só');
+});
+
+test('substituir: rascunho igual ligado à original; a substituta leva o grupo subst na DPS e a original vira "Substituída"', async () => {
+  const u = await usuarioPronto('substitui@exemplo.com');
+  const n0 = await novoRascunho(u, { valor: '350.00', descricao: 'Criação de site — etapa 1' });
+  const orig = (await u.api('POST', `/api/notas/${n0.id}/emitir`)).body.nota;
+  assert.equal(orig.situacao, 'emitida');
+
+  const sem = await u.api('POST', `/api/notas/${orig.id}/substituir`, { cMotivo: '99', xMotivo: '' });
+  assert.equal(sem.status, 422, 'motivo "Outros" exige a descrição');
+  const s1 = await u.api('POST', `/api/notas/${orig.id}/substituir`, { cMotivo: '99', xMotivo: 'Valor corrigido conforme medição aprovada' });
+  assert.equal(s1.status, 200, JSON.stringify(s1.body));
+  const rasc = s1.body.nota;
+  assert.equal(rasc.situacao, 'rascunho');
+  assert.deepEqual(rasc.substitui, { notaId: orig.id, nNfse: orig.nNfse, motivo: 'Outros' });
+  assert.equal(rasc.rascunho.descricao, 'Criação de site — etapa 1');
+  assert.equal(rasc.rascunho.competencia, orig.competencia);
+  // Pedir de novo reaproveita o mesmo rascunho.
+  const s2 = await u.api('POST', `/api/notas/${orig.id}/substituir`, { cMotivo: '99', xMotivo: 'Valor corrigido conforme medição aprovada' });
+  assert.equal(s2.body.nota.id, rasc.id);
+  assert.equal(s2.body.reaproveitado, true);
+
+  // Corrige o valor e emite: a DPS leva a chave da original; a original fica "Substituída".
+  const atual = (await u.api('PUT', `/api/notas/${rasc.id}`, { versao: s2.body.nota.versao, rascunho: { ...s2.body.nota.rascunho, valor: '380.00' } })).body.nota;
+  const e = await u.api('POST', `/api/notas/${atual.id}/emitir`);
+  assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+  assert.match(sefin.estado.recebidas.at(-1), new RegExp(`</cLocEmi><subst><chSubstda>${orig.chaveAcesso}</chSubstda><cMotivo>99</cMotivo><xMotivo>Valor corrigido conforme medição aprovada</xMotivo></subst><prest>`));
+  const original = (await u.api('GET', `/api/notas/${orig.id}`)).body.nota;
+  assert.equal(original.situacao, 'cancelada');
+  assert.equal(original.rotulo, 'Substituída');
+  assert.match(original.aviso, new RegExp(`substituída pela NFS-e nº ${e.body.nota.nNfse}`));
+  assert.equal(original.cancelamento.substituta.id, atual.id);
+  assert.equal(e.body.nota.substitui.nNfse, orig.nNfse);
+
+  // Nota já substituída não pode ser substituída nem cancelada de novo.
+  assert.equal((await u.api('POST', `/api/notas/${orig.id}/substituir`, { cMotivo: '99', xMotivo: 'Valor corrigido conforme medição aprovada' })).status, 409);
+  assert.equal((await u.api('POST', `/api/notas/${orig.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: '1', xMotivo: 'Valor do serviço informado errado' })).status, 409);
+  // Chave de outra empresa no grupo de substituição: barrada antes do envio.
+  const forjada = await novoRascunho(u, { substituicao: { chave: '1'.repeat(50), cMotivo: '99', xMotivo: 'Tentativa de substituir nota alheia' } });
+  const f = await u.api('POST', `/api/notas/${forjada.id}/emitir`);
+  assert.equal(f.status, 422);
+  assert.match(f.body.erro, /não foi encontrada nesta empresa/);
+});

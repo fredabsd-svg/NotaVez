@@ -12,6 +12,7 @@
 // IBS/CBS:        grupo informado sempre (permitido desde 01/01/2026, E0850; exigido pelo
 //                 Ato Conjunto RFB/CGIBS nº 4/2026 a partir de 01/10 ou 01/12/2026).
 import { validarComum, validarConvenioEmissor, tomadorIdentificado, percentual, arredondarBancario } from './comum.js';
+import { retencoes, camposRetencao, validarRetencoes, totalRetido } from './retencoes.js';
 import { resolverIbsCbs } from '../ibscbs.js';
 import { municipio } from '../tabelas.js';
 
@@ -24,21 +25,7 @@ export const CSTS_PIS_COFINS = {
   '09': 'Operação com suspensão da contribuição',
 };
 
-// tpRetPisCofins a partir do que foi retido (NT 007: códigos 0 e 3 a 9; 1 e 2 serão suprimidos).
-export function tipoRetencaoPisCofins({ pis, cofins, csll }) {
-  const k = `${pis ? 1 : 0}${cofins ? 1 : 0}${csll ? 1 : 0}`;
-  return { '000': '0', '111': '3', '110': '4', '100': '5', '010': '6', '011': '7', '001': '8', '101': '9' }[k];
-}
-
-function retencoes(nota) {
-  const r = nota.retencoesFederais || {};
-  return {
-    pis: !!r.pis, cofins: !!r.cofins, csll: !!r.csll,
-    valorContribuicoes: percentual(r.valorContribuicoes),
-    irrf: percentual(r.irrf),
-    cp: percentual(r.cp),
-  };
-}
+export { tipoRetencaoPisCofins } from './retencoes.js';
 
 function pisCofins(prestador, nota) {
   const cst = String(prestador.cstPisCofins || '01');
@@ -77,9 +64,8 @@ export const pacote = {
     const { prestador, nota } = ctx;
     const ex = exigenciaAliquota(ctx);
     const aliq = percentual(nota.pAliq ?? prestador.aliqIss);
-    const ret = retencoes(nota);
     const pc = pisCofins(prestador, nota);
-    const tpRet = tipoRetencaoPisCofins(ret);
+    const { tpRetPisCofins: tpRet, ...retidos } = camposRetencao(retencoes(nota));
     return {
       tribISSQN: '1',
       tpRetISSQN: nota.issRetido ? '2' : '1',
@@ -93,9 +79,7 @@ export const pacote = {
           } : {}),
           tpRetPisCofins: tpRet,
         },
-        vRetCP: ret.cp ? fmt2(ret.cp) : undefined,
-        vRetIRRF: ret.irrf ? fmt2(ret.irrf) : undefined,
-        vRetCSLL: tpRet !== '0' && ret.valorContribuicoes ? fmt2(ret.valorContribuicoes) : undefined,
+        ...retidos,
       },
       totTrib: {
         pTotTrib: {
@@ -111,8 +95,7 @@ export const pacote = {
 
   exigencias(ctx) {
     const pc = pisCofins(ctx.prestador, ctx.nota);
-    const ret = retencoes(ctx.nota);
-    const retidos = (ret.valorContribuicoes || 0) + (ret.irrf || 0) + (ret.cp || 0);
+    const retidos = totalRetido(retencoes(ctx.nota));
     return {
       retencaoPermitida: true,
       retencoesFederaisPermitidas: true,
@@ -156,15 +139,7 @@ export const pacote = {
     }
 
     // Retenções federais (feitas por clientes pessoa jurídica).
-    const ret = retencoes(nota);
-    const algumaContribuicao = ret.pis || ret.cofins || ret.csll;
-    if ((algumaContribuicao || ret.irrf || ret.cp) && nota.tomador?.tipo !== 'CNPJ') add('retencoes', 'Retenções federais só podem ser informadas para cliente com CNPJ.', 'Regra');
-    if (algumaContribuicao && !ret.valorContribuicoes) add('retencoes', 'Informe o valor total retido de PIS/COFINS/CSLL (somados, como pede a NT 007).', 'E0724');
-    if (!algumaContribuicao && ret.valorContribuicoes) add('retencoes', 'Marque quais contribuições foram retidas ou apague o valor.', 'E0720');
-    for (const [k, regra, nome] of [['valorContribuicoes', 'E0701', 'PIS/COFINS/CSLL'], ['irrf', 'E0700', 'IRRF'], ['cp', 'E0699', 'INSS (CP)']]) {
-      if (ret[k] !== null && (ret[k] <= 0 || ret[k] >= vServ)) add('retencoes', `O valor retido de ${nome} deve ser maior que zero e menor que o valor do serviço.`, regra);
-    }
-    if (vServ && (ret.valorContribuicoes || 0) + (ret.irrf || 0) + (ret.cp || 0) > vServ) add('retencoes', 'A soma das retenções não pode passar do valor do serviço.', 'Anexo I #392');
+    validarRetencoes(nota, add);
 
     // IBS/CBS
     for (const x of resolverIbsCbs(nota).erros) e.push(x);
