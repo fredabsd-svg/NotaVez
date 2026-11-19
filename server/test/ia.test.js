@@ -16,7 +16,7 @@ const { chamarModelo } = await import('../src/ia/adaptadores.js');
 const { validarBaseUrl } = await import('../src/ia/provedores.js');
 const { SISTEMA_FIXO } = await import('../src/ia/prompt.js');
 const { DEFINICOES } = await import('../src/ia/ferramentas.js');
-const { recortar } = await import('../src/ia/servico.js');
+const { recortar, contextoParaGuardar } = await import('../src/ia/servico.js');
 const { chamarModelo: _c, listarModelos } = await import('../src/ia/adaptadores.js');
 const { extrairAnexo } = await import('../src/ia/anexos.js');
 const { zipSync, strToU8 } = await import('fflate');
@@ -294,10 +294,12 @@ test('dialeto Anthropic: SDK oficial, cache no prompt fixo, raciocínio devolvid
   assert.ok(headers['x-api-key'] === 'sk-ant-x' || headers.authorization === 'Bearer sk-ant-x', 'chave enviada pelo SDK');
   assert.ok(headers['anthropic-version']);
   assert.match(headers['anthropic-beta'] || '', /server-side-fallback-2026-07-01/);
+  assert.match(headers['anthropic-beta'] || '', /thinking-binding-controls-2026-08-01/);
   assert.equal(corpo.fallbacks, 'default');
   assert.equal(corpo.model, 'claude-opus-5-5');
   assert.deepEqual(corpo.output_config, { effort: 'high' });
-  assert.equal(corpo.thinking, undefined, 'Opus 5.5: raciocínio sempre ligado, sem parâmetro');
+  // Opus 5.5 (raciocínio sempre ligado): bloco de raciocínio que não valer mais é descartado, não derruba o pedido.
+  assert.deepEqual(corpo.thinking, { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } });
   assert.equal(corpo.temperature, undefined);
   assert.deepEqual(corpo.system[0], { type: 'text', text: 'FIXO', cache_control: { type: 'ephemeral' } });
   assert.equal(corpo.system[1].text, 'VAR');
@@ -318,9 +320,96 @@ test('dialeto Anthropic: SDK oficial, cache no prompt fixo, raciocínio devolvid
     fetch: fetchFalso([{ corpo: { id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'oi' }], usage: { input_tokens: 1, output_tokens: 1 } } }], cap2) });
   assert.equal(cap2[0].corpo.fallbacks, undefined);
 
+  // Modelo anterior à família 5 (raciocínio desligado por padrão): nada de raciocínio nem do cabeçalho de vínculo.
+  for (const modelo of ['claude-opus-4-8', 'claude-haiku-4-5', 'claude-sonnet-4-6']) {
+    const cap3 = [];
+    await chamarModelo({ provedor: 'anthropic', modelo, chave: 'k', sistemaFixo: 'F', sistemaVariavel: 'V', historico: [{ papel: 'usuario', texto: 'oi' }], ferramentas: [],
+      fetch: fetchFalso([{ corpo: { id: 'm', type: 'message', role: 'assistant', model: modelo, stop_reason: 'end_turn', content: [{ type: 'text', text: 'oi' }], usage: { input_tokens: 1, output_tokens: 1 } } }], cap3) });
+    assert.equal(cap3[0].corpo.thinking, undefined, modelo);
+    assert.doesNotMatch(cap3[0].headers['anthropic-beta'] || '', /thinking-binding/, modelo);
+  }
+
   // Chave recusada: mensagem em português, sem detalhes internos.
   await assert.rejects(chamarModelo({ provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'ruim', sistemaFixo: 'F', sistemaVariavel: 'V', historico: [{ papel: 'usuario', texto: 'oi' }], ferramentas: [],
     fetch: fetchFalso([{ status: 401, corpo: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } }], []) }), /recusou a chave/);
+});
+
+test('Anthropic recusa um bloco de raciocínio do histórico (outra conversa): repete uma vez sem os blocos de raciocínio', async () => {
+  const cap = [];
+  const erro = 'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to "drop_block".';
+  const r = await chamarModelo({ provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'k', sistemaFixo: 'F', sistemaVariavel: 'V', historico: HIST, ferramentas: FERR,
+    fetch: fetchFalso([{ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: erro } } },
+      { corpo: { id: 'm', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Pronto.' }], usage: { input_tokens: 1, output_tokens: 1 } } }], cap) });
+  assert.equal(r.texto, 'Pronto.');
+  assert.equal(cap.length, 2);
+  assert.equal(cap[0].corpo.messages[1].content[0].type, 'thinking');
+  assert.deepEqual(cap[1].corpo.messages[1].content.map((b) => b.type), ['tool_use'], 'sem o raciocínio; a chamada de ferramenta continua');
+  // Outros 400 não são repetidos.
+  const cap2 = [];
+  await assert.rejects(chamarModelo({ provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'k', sistemaFixo: 'F', sistemaVariavel: 'V', historico: HIST, ferramentas: FERR,
+    fetch: fetchFalso([{ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: too large' } } }], cap2) }), /recusou o pedido/);
+  assert.equal(cap2.length, 1);
+});
+
+test('conversa só cresce: a cada chamada à Anthropic o começo (system, ferramentas e mensagens anteriores) é idêntico', async () => {
+  // Respostas roteirizadas da API: 1ª mensagem = raciocínio + ferramenta, depois raciocínio + texto; 2ª mensagem = texto.
+  const roteiro = [
+    { stop_reason: 'tool_use', content: [{ type: 'thinking', thinking: '', signature: 'sig-1' }, { type: 'tool_use', id: 'toolu_a', name: 'listar_empresas', input: {} }] },
+    { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'sig-2' }, { type: 'text', text: 'Você tem 1 empresa.' }] },
+    { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'sig-3' }, { type: 'text', text: 'Certo.' }] },
+  ];
+  const cap = [];
+  const fetch = fetchFalso(roteiro.map((x, i) => ({ corpo: { id: `msg_${i}`, type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_sequence: null,
+    usage: { input_tokens: 10, output_tokens: 5 }, input_transformations: [], ...x } })), cap);
+  const app2 = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, chamarIa: (op) => chamarModelo({ ...op, fetch }) });
+  try {
+    let cookie = '';
+    const api = async (method, url, payload) => {
+      const r = await app2.inject({ method, url, payload, remoteAddress: '198.51.100.77', headers: { cookie, ...(method !== 'GET' ? { 'x-notavez': '1' } : {}) } });
+      if (r.headers['set-cookie']) cookie = [r.headers['set-cookie']].flat().map((c) => c.split(';')[0]).join('; ');
+      return { status: r.statusCode, body: r.json() };
+    };
+    await api('POST', '/api/conta/cadastrar', { email: 'prefixo@exemplo.com', senha: 'senha-segura-1' });
+    await api('PUT', '/api/perfil', { documento: '11.222.333/0001-81', nome: 'Empresa Teste', municipioIbge: '3550308', opSimpNac: '2' });
+    assert.equal((await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-teste-123456' })).status, 200);
+    const conv = (await api('POST', '/api/ia/conversas', {})).body.conversa;
+    const m1 = await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'Quantas empresas tenho?' });
+    assert.equal(m1.body.erro, null, JSON.stringify(m1.body.erro));
+    const m2 = await api('POST', `/api/ia/conversas/${conv.id}/mensagens`, { texto: 'Obrigado' });
+    assert.equal(m2.body.erro, null);
+  } finally { await app2.close(); }
+  assert.equal(cap.length, 3);
+  const corpos = cap.map((c) => c.corpo);
+  for (const [i, c] of corpos.entries()) {
+    assert.deepEqual(c.system, corpos[0].system, `system idêntico na chamada ${i + 1}`);
+    assert.deepEqual(c.tools, corpos[0].tools, `ferramentas idênticas na chamada ${i + 1}`);
+    assert.deepEqual(c.thinking, { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } });
+    if (i) assert.deepEqual(c.messages.slice(0, corpos[i - 1].messages.length), corpos[i - 1].messages, `chamada ${i + 1} só acrescenta mensagens no fim`);
+  }
+  assert.equal(corpos[0].system.length, 1, 'o contexto do emissor não fica mais no system (que mudava a cada chamada)');
+  // O contexto vai junto com a mensagem do usuário e volta igual; na 2ª mensagem, sem mudanças, vai resumido.
+  const primeira = corpos[0].messages[0].content;
+  assert.match(primeira[0].text, /Contexto do emissor lido pelo aplicativo[\s\S]*Modelo em uso: claude-opus-5-5/);
+  assert.equal(primeira[1].text, 'Quantas empresas tenho?');
+  assert.deepEqual(corpos[2].messages[0], corpos[0].messages[0]);
+  const segunda = corpos[2].messages.at(-1).content;
+  assert.match(segunda[0].text, /iguais aos do último contexto completo/);
+  assert.equal(segunda[1].text, 'Obrigado');
+  // Os blocos de raciocínio voltam intactos.
+  assert.equal(corpos[1].messages[1].content[0].signature, 'sig-1');
+  assert.equal(corpos[2].messages[3].content[0].signature, 'sig-2');
+});
+
+test('contexto guardado: completo quando muda ou quando o último completo está longe; resumido quando é o mesmo', () => {
+  const ctx = (hora, notas) => `# CONTEXTO\n- Agora (Brasília): quinta-feira, 19/11/2026 às ${hora} (2026-11-19)\n- Notas: ${notas}`;
+  const h = [{ papel: 'usuario', texto: 'a', contexto: ctx('10:00', 'emitida 1') }, { papel: 'assistente', texto: 'ok' }];
+  const igual = contextoParaGuardar(h, ctx('10:05', 'emitida 1'));
+  assert.equal(igual.contextoResumido, true);
+  assert.match(igual.contexto, /às 10:05/);
+  assert.equal(contextoParaGuardar(h, ctx('10:05', 'emitida 2')).contextoResumido, undefined, 'mudou: completo');
+  // O resumido não serve de referência; e um completo muito antigo (fora da metade da janela) não é reaproveitado.
+  const longe = [h[0], ...Array.from({ length: 90 }, () => ({ papel: 'assistente', texto: 'x' }))];
+  assert.equal(contextoParaGuardar(longe, ctx('11:00', 'emitida 1')).contextoResumido, undefined);
 });
 
 test('dialeto OpenAI (OpenAI, Grok, OpenRouter, provedores chineses): funções, tool_calls e mensagens de ferramenta', async () => {

@@ -54,6 +54,7 @@
 | **Pronto para imprimir e enviar** | **DANFSe em PDF no modelo da NT 008**, com QR Code da Consulta Pública, gerado a partir do XML oficial. "Enviar ao cliente" manda o PDF e o XML pelo WhatsApp ou e-mail. |
 | **Funciona sem internet** | Prepara a nota offline como rascunho e avisa que ela **ainda não foi emitida**. |
 | **Assistente fiscal com IA** | Um chat que já conhece os parâmetros do emissor (empresa, regime, alíquotas, certificado, clientes, serviços, faturamento) e tem no System Prompt as regras da NFS-e Nacional, ISS, Simples, MEI, Presumido/Real, retenções e IBS/CBS. Ele **emite a nota sozinho** pelas mesmas regras e máquina de estados das telas: por padrão mostra o resumo com o botão "Emitir agora"; o modo autônomo envia direto. Funciona com Anthropic, OpenAI, xAI (Grok), OpenRouter, DeepSeek, Qwen, Kimi, GLM, MiniMax, Doubao, ERNIE, StepFun e qualquer API compatível com OpenAI. [Detalhes](#assistente-de-ia) |
+| **Backup e restauração** | Conta › Backup e Restauração: um arquivo `.nsbackup` cifrado com a sua senha (AES-256-GCM) com tudo da conta, conferido pelo servidor e pelo aparelho antes de dizer "pronto". A restauração confere o arquivo, guarda um backup de segurança do estado atual e troca os dados numa operação única que se desfaz sozinha se algo falhar. [Detalhes](docs/10-backup-e-restauracao.md) |
 | **Dados protegidos** | Não pede nem guarda a senha gov.br. Certificado A1, CPF, CNPJ e dados dos clientes ficam cifrados (AES-256-GCM), e toda operação fica registrada. |
 
 ## Para quem
@@ -168,6 +169,7 @@ Teste no ambiente oficial: `npm run homologacao` ([roteiro](docs/05-testes-homol
 | 7 | Operação, backup e critérios de liberação | [docs/07](docs/07-operacao-e-release.md) |
 | 8 | Conta, recuperação, exclusão e privacidade | [docs/08](docs/08-conta-e-privacidade.md) |
 | 9 | Estado da preparação para a Google Play | [docs/09](docs/09-preparacao-play.md) |
+| 10 | Backup e restauração de dados (formato, garantias, testes e limitações) | [docs/10](docs/10-backup-e-restauracao.md) |
 | Android | Gerador TWA e roteiro de build | [android-twa](android-twa/README.md) |
 
 A página de apresentação estática fica em [`docs/index.html`](docs/index.html) e pode ser publicada pelo GitHub Pages (Settings › Pages › branch `main`, pasta `/docs`).

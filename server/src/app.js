@@ -20,6 +20,7 @@ import { rotasTabelas } from './routes/tabelas.js';
 import { rotasEmpresas } from './routes/empresas.js';
 import { rotasTomadas } from './routes/tomadas.js';
 import { rotasIa } from './routes/ia.js';
+import { rotasBackup } from './routes/backup.js';
 import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
 import { criarServicoTomadas } from './fiscal/tomadas.js';
 import { auditar } from './security/auditoria.js';
@@ -29,7 +30,7 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa } = {}) {
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup } = {}) {
   const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -162,6 +163,7 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   await app.register(rotasEmpresas, { prefix: '/api' });
   await app.register(rotasTomadas, { prefix: '/api/tomadas' });
   await app.register(rotasIa, { prefix: '/api/ia', chamarIa, listarModelosIa });
+  await app.register(rotasBackup, { prefix: '/api/backup', sondasBackup });
 
   if (servirWeb) {
     // Carregado só aqui: na Vercel o PWA é estático e a função não precisa (nem consegue) carregar este plugin.

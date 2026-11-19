@@ -7,7 +7,7 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
-const ignorar = new Set(['limites_requisicoes', 'limites_conta']); // dados temporários
+const ignorar = new Set(['limites_requisicoes', 'limites_conta', 'backup_operacoes']); // dados temporários
 
 async function tabelas(db) {
   return (await db.all("SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"))

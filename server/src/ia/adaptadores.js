@@ -39,15 +39,29 @@ function mensagemDeErro(status, corpo, nomeProvedor) {
 // ---------------------------------------------------------------- Anthropic (SDK oficial)
 // Modelos que aceitam o fallback do servidor quando uma recusa de segurança acontece.
 const COM_FALLBACK = /^claude-(opus-5-5|opus-5|sonnet-5-5|fable-5-[12])$/;
+// Modelos com raciocínio ligado por padrão (família 5 em diante, Fable, Mythos). Neles o bloco de raciocínio fica
+// preso ao começo exato da conversa (system, ferramentas e mensagens anteriores: "preserved thinking"). Pedimos à API
+// para DESCARTAR o bloco que não valer mais, em vez de recusar o pedido inteiro (conversa cortada por tamanho,
+// prompt ou ferramentas que mudaram numa versão nova do app, troca de modelo, conversas de antes desta correção).
+const RACIOCINIO_PADRAO = /^claude-(fable|mythos)-|^claude-(opus|sonnet|haiku)-[5-9](-|$)/;
+const BETA_VINCULO = 'thinking-binding-controls-2026-08-01';
+// Contexto do emissor guardado com a mensagem do usuário: volta igual em todas as chamadas seguintes.
+const CONTEXTO = (c) => `[Contexto do emissor lido pelo aplicativo no momento desta mensagem; não foi digitado pelo usuário]\n${c}`;
+const semRaciocinio = (conteudo) => conteudo.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking');
 
-function historicoAnthropic(historico) {
+function historicoAnthropic(historico, { contextoNasMensagens = false, removerRaciocinio = false } = {}) {
   const msgs = [];
   for (const m of historico) {
-    if (m.papel === 'usuario') msgs.push({ role: 'user', content: textoDoUsuario(m) });
+    if (m.papel === 'usuario') {
+      msgs.push({ role: 'user', content: contextoNasMensagens && m.contexto
+        ? [{ type: 'text', text: CONTEXTO(m.contexto) }, { type: 'text', text: textoDoUsuario(m) }]
+        : textoDoUsuario(m) });
+    }
     else if (m.papel === 'aviso') msgs.push({ role: 'user', content: AVISO(m.texto) });
     else if (m.papel === 'assistente') {
-      if (m.nativo?.dialeto === 'anthropic' && Array.isArray(m.nativo.conteudo) && m.nativo.conteudo.length) {
-        msgs.push({ role: 'assistant', content: m.nativo.conteudo }); // intacto: blocos de raciocínio voltam como vieram
+      const nativo = m.nativo?.dialeto === 'anthropic' && Array.isArray(m.nativo.conteudo) ? (removerRaciocinio ? semRaciocinio(m.nativo.conteudo) : m.nativo.conteudo) : [];
+      if (nativo.length) {
+        msgs.push({ role: 'assistant', content: nativo }); // intacto: blocos de raciocínio voltam como vieram
       } else {
         const conteudo = [];
         if (m.texto) conteudo.push({ type: 'text', text: m.texto });
@@ -62,30 +76,47 @@ function historicoAnthropic(historico) {
   return msgs;
 }
 
-async function chamarAnthropic({ modelo, chave, baseUrl, esforco, sistemaFixo, sistemaVariavel, historico, ferramentas, fetch }) {
+async function chamarAnthropic({ modelo, chave, baseUrl, esforco, sistemaFixo, sistemaVariavel, historico, ferramentas, contextoNasMensagens = false, fetch, log }) {
   const client = new Anthropic({ apiKey: chave, ...(baseUrl ? { baseURL: baseUrl } : {}), timeout: TEMPO_MS, maxRetries: 2, ...(fetch ? { fetch } : {}) });
   const fallback = COM_FALLBACK.test(modelo);
+  const vinculo = RACIOCINIO_PADRAO.test(modelo);
+  const betas = [...(fallback ? ['server-side-fallback-2026-07-01'] : []), ...(vinculo ? [BETA_VINCULO] : [])];
+  const pedido = (removerRaciocinio) => client.beta.messages.create({
+    model: modelo,
+    max_tokens: LIMITE_SAIDA,
+    // Ordem estável para o cache: ferramentas → instruções fixas (com marca de cache) → conversa.
+    // Com o contexto nas mensagens, o system não muda entre chamadas: a conversa só cresce (append-only).
+    system: [
+      { type: 'text', text: sistemaFixo, cache_control: { type: 'ephemeral' } },
+      ...(contextoNasMensagens || !sistemaVariavel ? [] : [{ type: 'text', text: sistemaVariavel }]),
+    ],
+    cache_control: { type: 'ephemeral' },
+    ...(ferramentas.length ? { tools: ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.parametros })), tool_choice: { type: 'auto' } } : {}),
+    messages: historicoAnthropic(historico, { contextoNasMensagens, removerRaciocinio }),
+    ...(esforco ? { output_config: { effort: esforco } } : {}),
+    ...(vinculo ? { thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } } } : {}),
+    ...(betas.length ? { betas } : {}),
+    ...(fallback ? { fallbacks: 'default' } : {}),
+  });
   let r;
   try {
-    r = await client.beta.messages.create({
-      model: modelo,
-      max_tokens: LIMITE_SAIDA,
-      // Ordem estável para o cache: ferramentas → instruções fixas (com marca de cache) → contexto da empresa → conversa.
-      system: [
-        { type: 'text', text: sistemaFixo, cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: sistemaVariavel },
-      ],
-      cache_control: { type: 'ephemeral' },
-      ...(ferramentas.length ? { tools: ferramentas.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.parametros })), tool_choice: { type: 'auto' } } : {}),
-      messages: historicoAnthropic(historico),
-      ...(esforco ? { output_config: { effort: esforco } } : {}),
-      ...(fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : {}),
-    });
+    try {
+      r = await pedido(false);
+    } catch (e) {
+      // Último recurso: o provedor ainda recusou um bloco de raciocínio do histórico. Repete UMA vez sem os blocos
+      // de raciocínio (texto e chamadas de ferramenta continuam); a resposta sai sem aquele raciocínio anterior.
+      if (!(e instanceof Anthropic.BadRequestError && /thinking/i.test(e.message) && /signature/i.test(e.message))) throw e;
+      log?.warn?.({ modelo }, 'IA: blocos de raciocínio recusados pela Anthropic; repetindo sem eles');
+      r = await pedido(true);
+    }
   } catch (e) {
     if (e instanceof Anthropic.APIConnectionError) throw new ErroIA('Sem resposta do provedor Anthropic (rede ou tempo esgotado). Tente de novo.');
     if (e instanceof Anthropic.APIError) throw new ErroIA(mensagemDeErro(e.status, e.error, 'Anthropic'));
     throw e;
   }
+  // Monitoramento: blocos de raciocínio que a API descartou (só contagem e motivo, nunca conteúdo).
+  const descartes = (r.input_transformations || []).filter((t) => t?.type === 'thinking_dropped');
+  if (descartes.length) log?.info?.({ modelo, descartados: descartes.length, motivos: [...new Set(descartes.map((t) => t.reason))] }, 'IA: raciocínio anterior descartado pela API');
   const texto = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   const chamadas = r.content.filter((b) => b.type === 'tool_use').map((b) => ({ id: b.id, nome: b.name, args: b.input && typeof b.input === 'object' ? b.input : {} }));
   const fim = r.stop_reason === 'tool_use' && chamadas.length ? 'ferramentas'
