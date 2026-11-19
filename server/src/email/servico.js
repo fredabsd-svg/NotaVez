@@ -9,7 +9,8 @@ import { config, ambientesSefin } from '../config.js';
 import { enviarEmail, enderecoValido, ErroSmtp, PORTAS_SMTP } from '../security/smtp.js';
 import { gerarDanfse, lerXmlNfse } from '../fiscal/danfse/index.js';
 import { xmlOficial, marcaDaguaDanfse } from '../routes/notas.js';
-import { fatosDaNota, emailsDoCliente, textoModelo, SISTEMA_EMAIL, pedidoRedacao, lerRedacao, faltasNoTexto } from './nota.js';
+import { fatosDaNota, emailsDoCliente, MODELO_PADRAO, CAMPOS_MODELO, camposDesconhecidos, valoresDoModelo, preencherModelo,
+  SISTEMA_SERVICOS, pedidoServicos, lerServicos, SISTEMA_AJUSTE, pedidoAjuste, lerRedacao, faltasNoTexto } from './nota.js';
 import { PROVEDORES_OAUTH } from './oauth.js';
 
 export const MAX_DESTINATARIOS = 10;
@@ -31,11 +32,16 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     ON CONFLICT (usuario_id) DO UPDATE SET dados_cifrados = excluded.dados_cifrados, atualizado_em = excluded.atualizado_em`, usuarioId, cifrar(dados), agora());
   const semDataDeAtualizacao = ({ atualizadoEm, ...c }) => c;
 
+  // Modelo do texto da conta (vazio = o padrão).
+  const modeloDe = (c) => ({ modeloAssunto: c?.modeloAssunto || MODELO_PADRAO.assunto, modeloCorpo: c?.modeloCorpo || MODELO_PADRAO.corpo,
+    modeloProprio: !!(c?.modeloAssunto || c?.modeloCorpo) });
+  const guardarModelo = (c) => ({ modeloAssunto: c?.modeloAssunto || '', modeloCorpo: c?.modeloCorpo || '' });
+
   async function configPublica(usuarioId) {
     const c = await configBruta(usuarioId);
     if (!c) return { configurado: false };
     const comum = { configurado: true, tipo: c.tipo, remetenteEmail: c.remetenteEmail, remetenteNome: c.remetenteNome || '', responderPara: c.responderPara || '',
-      copiaParaMim: c.copiaParaMim !== false, atualizadoEm: c.atualizadoEm };
+      copiaParaMim: c.copiaParaMim !== false, atualizadoEm: c.atualizadoEm, ...modeloDe(c) };
     if (ehOAuth(c)) return { ...comum, provedorNome: PROVEDORES_OAUTH[c.tipo].nome, conta: c.conta, nomeConta: c.nomeConta || '', conectadoEm: c.conectadoEm || null };
     return { ...comum, host: c.host, porta: c.porta, seguranca: c.seguranca, usuario: c.usuario || '', temSenha: !!c.senha };
   }
@@ -59,7 +65,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     const responderPara = minusculo(b.responderPara);
     if (responderPara && !enderecoValido(responderPara)) erros.responderPara = 'E-mail inválido.';
     if (Object.keys(erros).length) throw invalido('Confira a configuração de e-mail.', erros);
-    const dados = { tipo: 'smtp', host, porta, seguranca, usuario, senha, remetenteEmail, remetenteNome, responderPara, copiaParaMim: b.copiaParaMim !== false };
+    const dados = { tipo: 'smtp', host, porta, seguranca, usuario, senha, remetenteEmail, remetenteNome, responderPara, copiaParaMim: b.copiaParaMim !== false, ...guardarModelo(atual) };
     await gravar(usuarioId, dados);
     // Trocou a conta Google conectada por usuário e senha: desfaz a autorização antiga.
     if (ehOAuth(atual)) await oauth?.revogar(atual);
@@ -71,7 +77,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
   async function conectarOAuth(usuarioId, { provedor, conta, nome, refreshToken }, ip = null) {
     const atual = await configBruta(usuarioId);
     await gravar(usuarioId, { tipo: provedor, conta, nomeConta: nome || '', refreshToken, remetenteEmail: conta, conectadoEm: agora(),
-      remetenteNome: atual?.remetenteNome || '', responderPara: atual?.responderPara || '', copiaParaMim: atual ? atual.copiaParaMim !== false : true });
+      remetenteNome: atual?.remetenteNome || '', responderPara: atual?.responderPara || '', copiaParaMim: atual ? atual.copiaParaMim !== false : true, ...guardarModelo(atual) });
     if (ehOAuth(atual) && atual.refreshToken !== refreshToken) await oauth?.revogar(atual);
     await auditar(db, { usuarioId, acao: 'email.conta_conectada', detalhes: { provedor }, ip });
     return await configPublica(usuarioId);
@@ -84,6 +90,28 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     if (responderPara && !enderecoValido(responderPara)) throw invalido('Confira a configuração de e-mail.', { responderPara: 'E-mail inválido.' });
     await gravar(usuarioId, { ...semDataDeAtualizacao(atual), remetenteNome: umaLinha(b.remetenteNome, 80), responderPara, copiaParaMim: b.copiaParaMim !== false });
     await auditar(db, { usuarioId, acao: 'email.preferencias_salvas', ip });
+    return await configPublica(usuarioId);
+  }
+
+  // Modelo do e-mail: assunto e mensagem com campos entre chaves. Igual ao padrão (ou padrao: true) = volta ao padrão.
+  async function salvarModelo(usuarioId, b = {}, ip = null) {
+    const atual = await exigirConfig(usuarioId);
+    let assunto = b.padrao === true ? '' : umaLinha(b.assunto, 200);
+    let corpo = b.padrao === true ? '' : String(b.corpo ?? '').replace(/\r\n/g, '\n').trim().slice(0, 4000);
+    const erros = {};
+    if (b.padrao !== true) {
+      if (!assunto) erros.assunto = 'Escreva o assunto do modelo.';
+      if (!corpo) erros.corpo = 'Escreva a mensagem do modelo.';
+      for (const [campo, texto] of [['assunto', assunto], ['corpo', corpo]]) {
+        const ruins = camposDesconhecidos(texto);
+        if (ruins.length) erros[campo] = `Campo desconhecido: ${ruins.map((c) => `{${c}}`).join(', ')}. Use: ${Object.keys(CAMPOS_MODELO).map((c) => `{${c}}`).join(', ')}.`;
+      }
+      if (Object.keys(erros).length) throw invalido('Confira o modelo do e-mail.', erros);
+      if (assunto === MODELO_PADRAO.assunto) assunto = '';
+      if (corpo === MODELO_PADRAO.corpo) corpo = '';
+    }
+    await gravar(usuarioId, { ...semDataDeAtualizacao(atual), modeloAssunto: assunto, modeloCorpo: corpo });
+    await auditar(db, { usuarioId, acao: 'email.modelo_salvo', detalhes: { padrao: !assunto && !corpo }, ip });
     return await configPublica(usuarioId);
   }
 
@@ -165,27 +193,46 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     };
   }
 
-  // Assunto e mensagem: escritos pela IA da conta; sem IA (ou se ela falhar), pelo modelo simples.
-  async function texto(usuarioId, p, notaId, { instrucao = '', anterior = null, anexos = ['pdf', 'xml'] } = {}) {
+  // Assunto e mensagem: o modelo da conta preenchido com os dados do XML oficial. A IA da conta (se houver) só escreve
+  // o tipo do serviço ({servicos}) e, quando a pessoa pede, ajusta o texto atual (ex.: "mencione o boleto").
+  async function texto(usuarioId, p, notaId, { instrucao = '', atual = null, anexos = ['pdf', 'xml'] } = {}) {
     const { n, xml, consultaPublica } = await notaEmitida(p, notaId);
     const lista = ['pdf', 'xml'].filter((a) => (Array.isArray(anexos) ? anexos : ['pdf', 'xml']).includes(a));
     const f = fatos(p, n, xml, consultaPublica, lista);
-    const modelo = textoModelo(f);
-    let resultado = { ...modelo, origem: 'modelo' };
-    if ((await appCtx.ia.configPublica(usuarioId)).configurado) {
+    const modelo = modeloDe(await configBruta(usuarioId));
+    const iaCfg = await appCtx.ia.configPublica(usuarioId);
+    const pedido = umaLinha(instrucao, 500);
+    const atualValido = atual && typeof atual === 'object' && String(atual.corpo || '').trim() ? { assunto: String(atual.assunto || ''), corpo: String(atual.corpo) } : null;
+    const avisos = [];
+    let ia = null;
+
+    let servicos = 'serviços';
+    const precisaServicos = /\{servicos\}/.test(modelo.modeloAssunto + modelo.modeloCorpo) && !(pedido && atualValido);
+    if (precisaServicos && iaCfg.configurado) {
       try {
-        const hoje = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'full', timeStyle: 'short' });
-        const r = await appCtx.ia.gerarTexto(usuarioId, { sistema: SISTEMA_EMAIL, contexto: `Agora (Brasília): ${hoje}.`,
-          texto: pedidoRedacao(f, { instrucao: umaLinha(instrucao, 500), anterior: anterior && typeof anterior === 'object' ? { corpo: String(anterior.corpo || '') } : null }) });
-        const lido = lerRedacao(r.texto);
-        resultado = lido ? { ...lido, origem: 'ia', modelo: r.modelo, provedorNome: r.provedorNome }
-          : { ...modelo, origem: 'modelo', aviso: 'A IA respondeu fora do formato esperado; usei o modelo padrão. Você pode editar ou pedir de novo.' };
-      } catch (e) {
-        resultado = { ...modelo, origem: 'modelo', aviso: `A IA não conseguiu escrever agora (${e instanceof ErroApp ? e.message : 'falha no provedor'}). Usei o modelo padrão; você pode editar.` };
+        const r = await appCtx.ia.gerarTexto(usuarioId, { sistema: SISTEMA_SERVICOS, texto: pedidoServicos(f) });
+        const lido = lerServicos(r.texto);
+        if (lido) { servicos = lido; ia = r; }
+      } catch { /* sem a IA, fica "serviços" */ }
+    }
+    let resultado = { ...preencherModelo({ assunto: modelo.modeloAssunto, corpo: modelo.modeloCorpo }, valoresDoModelo(f, { servicos, anexos: lista }), { teste: f.teste }),
+      origem: 'modelo', modeloProprio: modelo.modeloProprio, servicos: ia ? servicos : null };
+
+    if (pedido) {
+      if (!iaCfg.configurado) avisos.push('Para ajustar o texto com um pedido, configure o assistente de IA (Assistente › Configurar). Você também pode editar o texto à mão.');
+      else {
+        try {
+          const r = await appCtx.ia.gerarTexto(usuarioId, { sistema: SISTEMA_AJUSTE, texto: pedidoAjuste(f, atualValido || resultado, pedido) });
+          const lido = lerRedacao(r.texto);
+          if (lido) { resultado = { ...resultado, ...lido, origem: 'ia' }; ia = r; } else avisos.push('A IA respondeu fora do formato esperado; o texto ficou como estava. Tente pedir de outro jeito.');
+        } catch (e) {
+          avisos.push(`A IA não conseguiu ajustar agora (${e instanceof ErroApp ? e.message : 'falha no provedor'}). O texto ficou como estava.`);
+        }
+        if (resultado.origem !== 'ia' && atualValido) resultado = { ...resultado, ...atualValido };
       }
     }
-    await auditar(db, { usuarioId, prestadorId: p.id, acao: 'nota.email_redigido', entidade: 'nota', entidadeId: n.id, detalhes: { origem: resultado.origem } });
-    return { ...resultado, faltas: faltasNoTexto(f, resultado.corpo) };
+    await auditar(db, { usuarioId, prestadorId: p.id, acao: 'nota.email_redigido', entidade: 'nota', entidadeId: n.id, detalhes: { origem: resultado.origem, ajuste: !!pedido } });
+    return { ...resultado, ...(ia ? { modelo: ia.modelo, provedorNome: ia.provedorNome } : {}), ...(avisos.length ? { aviso: avisos.join(' ') } : {}), faltas: faltasNoTexto(f, resultado.corpo) };
   }
 
   async function enviarNota(usuarioId, p, notaId, b = {}, ip = null) {
@@ -226,7 +273,7 @@ export function criarServicoEmail(appCtx, { enviar = enviarEmail, permitirRedeLo
     return { ok: true, enviadoEm: envio.enviadoEm, para, copia, clienteAtualizado, envios: await repo.enviosEmail(p.id, n.id) };
   }
 
-  return { configPublica, salvarConfig, conectarOAuth, salvarPreferencias, removerConfig, testar, preparar, texto, enviarNota };
+  return { configPublica, salvarConfig, conectarOAuth, salvarPreferencias, salvarModelo, removerConfig, testar, preparar, texto, enviarNota, camposModelo: CAMPOS_MODELO, modeloPadrao: MODELO_PADRAO };
 }
 
 // E-mail do tomador que veio na própria NFS-e (quando a nota foi emitida fora do app ou sem cliente salvo).

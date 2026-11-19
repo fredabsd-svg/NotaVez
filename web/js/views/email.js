@@ -59,35 +59,62 @@ export async function enviar({ id }) {
   const ajustarAltura = () => { const t = cCorpo.entrada; t.style.height = 'auto'; t.style.height = `${t.scrollHeight + 2}px`; };
   cCorpo.entrada.addEventListener('input', () => { conferir(); ajustarAltura(); });
 
-  // Texto: pedido à IA da conta (ou modelo padrão). "Escrever outro" manda a versão atual para vir diferente.
-  let anterior = null;
-  const cInstrucao = campo({ rotulo: 'Como você quer o texto? (opcional)', valor: '', atributos: { maxlength: 300, autocomplete: 'off', placeholder: 'ex.: mais formal, mais curto, agradecer pelo projeto novo' } });
-  const btnOutro = h('button', { class: 'btn btn-pequeno', type: 'button', onclick: () => escrever() }, icone(ICONES.atualizar), dados.iaConfigurada ? 'Escrever outro texto com a IA' : 'Refazer com o modelo padrão');
-  const blocoIa = h('details', { class: 'em-ia' }, h('summary', {}, 'Pedir outro texto'), cInstrucao, btnOutro);
+  // Texto: o modelo da conta preenchido com os dados da nota (a IA, se configurada, escreve o tipo do serviço).
+  // "Ajustar com a IA" muda o texto atual conforme o pedido, mantendo o jeito de escrever do modelo.
+  const cInstrucao = campo({ rotulo: 'O que você quer mudar no texto?', valor: '', atributos: { maxlength: 300, autocomplete: 'off', placeholder: 'ex.: mencione que o boleto vai em outro e-mail' } });
+  const btnAjustar = h('button', { class: 'btn btn-pequeno', type: 'button', onclick: () => {
+    if (!cInstrucao.entrada.value.trim()) { cInstrucao.erro('Diga o que mudar no texto.'); cInstrucao.entrada.focus(); return; }
+    cInstrucao.erro('');
+    escrever({ ajuste: true });
+  } }, icone(ICONES.atualizar), 'Ajustar com a IA');
+  const btnModelo = h('button', { class: 'btn btn-pequeno btn-texto', type: 'button', onclick: () => escrever() }, 'Voltar ao texto do modelo');
+  const blocoIa = h('details', { class: 'em-ia' }, h('summary', {}, dados.iaConfigurada ? 'Ajustar o texto com a IA' : 'Refazer o texto'),
+    dados.iaConfigurada ? [cInstrucao, btnAjustar] : h('p', { class: 'suave' }, 'Para pedir ajustes à IA (ex.: "mencione o boleto"), configure o assistente em Assistente › Configurar. Você também pode editar o texto à mão.'),
+    btnModelo);
   let pedindo = 0;
-  async function escrever() {
+  async function escrever({ ajuste = false } = {}) {
     const meu = ++pedindo;
-    btnOutro.disabled = true;
+    btnAjustar.disabled = true; btnModelo.disabled = true;
     cCorpo.entrada.disabled = true; cAssunto.entrada.disabled = true;
-    origem.textContent = dados.iaConfigurada ? 'A IA está escrevendo o e-mail com os dados da nota…' : 'Montando o texto…';
+    origem.textContent = ajuste ? 'A IA está ajustando o texto…' : dados.iaConfigurada ? 'Montando o texto do seu modelo com os dados da nota…' : 'Montando o texto…';
     try {
-      const r = await api('POST', `/api/notas/${id}/email/texto`, { instrucao: cInstrucao.entrada.value.trim(), anterior,
+      const r = await api('POST', `/api/notas/${id}/email/texto`, {
+        ...(ajuste ? { instrucao: cInstrucao.entrada.value.trim(), atual: { assunto: cAssunto.entrada.value, corpo: cCorpo.entrada.value } } : {}),
         anexos: Object.entries(anexoMarcado).filter(([, c]) => c.checked).map(([k]) => k) });
       if (meu !== pedindo) return;
       cAssunto.entrada.value = r.assunto;
       cCorpo.entrada.value = r.corpo;
-      anterior = { corpo: r.corpo };
       requestAnimationFrame(ajustarAltura);
-      origem.textContent = r.aviso || (r.origem === 'ia' ? `Escrito pela IA · ${[r.provedorNome, r.modelo].filter(Boolean).join(' · ') || 'assistente'}. Leia e ajuste o que quiser antes de enviar.`
-        : 'Texto padrão. Para a IA escrever um texto sob medida, configure o assistente em Assistente › Configurar.');
+      const base = r.origem === 'ia' ? `Ajustado pela IA · ${[r.provedorNome, r.modelo].filter(Boolean).join(' · ') || 'assistente'}. Confira antes de enviar.`
+        : `Texto do ${r.modeloProprio ? 'seu modelo' : 'modelo padrão'}${r.servicos ? ` (tipo de serviço escrito pela IA: "${r.servicos}")` : ''}. Pode editar à vontade; o modelo fica em Conta › E-mail para enviar notas.`;
+      origem.textContent = r.aviso ? `${r.aviso} ${base}` : base;
+      if (ajuste && r.origem === 'ia') cInstrucao.entrada.value = '';
       conferir();
     } catch (e) {
       if (meu !== pedindo) return;
-      origem.textContent = `Não foi possível escrever o texto: ${mensagemDe(e)} Escreva a mensagem ou tente de novo.`;
+      origem.textContent = `Não foi possível montar o texto: ${mensagemDe(e)} Escreva a mensagem ou tente de novo.`;
     } finally {
-      if (meu === pedindo) { btnOutro.disabled = false; cCorpo.entrada.disabled = false; cAssunto.entrada.disabled = false; }
+      if (meu === pedindo) { btnAjustar.disabled = false; btnModelo.disabled = false; cCorpo.entrada.disabled = false; cAssunto.entrada.disabled = false; }
     }
   }
+
+  // Marcou ou desmarcou um anexo: a frase dos anexos no texto acompanha.
+  const FRASES_ANEXOS = {
+    pdfxml: 'Os arquivos em PDF (DANFSe) e XML da NFS-e acompanham este e-mail.',
+    pdf: 'O arquivo em PDF (DANFSe) da NFS-e acompanha este e-mail.',
+    xml: 'O arquivo XML da NFS-e acompanha este e-mail.',
+  };
+  const trocarFraseAnexos = () => {
+    const chave = ['pdf', 'xml'].filter((k) => anexoMarcado[k]?.checked).join('');
+    const nova = FRASES_ANEXOS[chave] || '';
+    let t = cCorpo.entrada.value;
+    const atual = Object.values(FRASES_ANEXOS).find((f) => t.includes(f));
+    if (!atual) return;
+    t = nova ? t.replace(atual, nova) : t.replace(new RegExp(`\\n*${atual.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), '');
+    cCorpo.entrada.value = t;
+    ajustarAltura();
+  };
+  for (const c of Object.values(anexoMarcado)) c.addEventListener('change', trocarFraseAnexos);
 
   const erroEnvio = h('p', { class: 'cartao cartao-erro', role: 'alert', hidden: true });
   const btnEnviar = h('button', { class: 'btn btn-primario btn-grande', type: 'submit', disabled: !configurado }, icone(ICONES.email), 'Enviar e-mail');
@@ -213,7 +240,7 @@ const MOTIVOS = {
 };
 
 export async function configurar(_params, query = {}) {
-  const { config, oauth = {} } = await api('GET', '/api/email/config');
+  const { config, oauth = {}, modelo: infoModelo = null } = await api('GET', '/api/email/config');
   const voltar = /^\/notas\/[\w-]+\/email$/.test(query.voltar || '') ? query.voltar : null;
   const atual = config.configurado ? config : {};
   const conectada = atual.tipo === 'google' || atual.tipo === 'microsoft';
@@ -285,6 +312,52 @@ export async function configurar(_params, query = {}) {
     pResponder,
     h('label', { class: 'caixa', for: 'em-pref-copia' }, pCopia, h('span', {}, 'Por padrão, receber uma cópia de cada nota enviada')),
     btnPref, btnTeste, estado, btnDesconectar);
+  }
+
+  // ---------- Texto do e-mail (modelo da conta, com campos entre chaves)
+  let blocoModelo = null;
+  if (config.configurado && infoModelo) {
+    const mAssunto = campo({ rotulo: 'Assunto', valor: config.modeloAssunto, atributos: { maxlength: 200, autocomplete: 'off', spellcheck: 'true' } });
+    const mCorpo = campo({ rotulo: 'Mensagem', area: true, valor: config.modeloCorpo, atributos: { rows: 10, maxlength: 4000, class: 'em-mensagem' } });
+    // A caixa cresce com o texto (o modelo inteiro à vista, sem rolagem dentro dela).
+    const crescer = () => { const t = mCorpo.entrada; t.style.height = 'auto'; t.style.height = `${t.scrollHeight + 2}px`; };
+    mCorpo.entrada.addEventListener('input', crescer);
+    requestAnimationFrame(crescer);
+    const inserir = (c) => {
+      const t = mCorpo.entrada;
+      const [a, b] = [t.selectionStart ?? t.value.length, t.selectionEnd ?? t.value.length];
+      t.value = `${t.value.slice(0, a)}{${c}}${t.value.slice(b)}`;
+      t.focus(); t.selectionStart = t.selectionEnd = a + c.length + 2;
+      crescer();
+    };
+    const btnModeloSalvar = h('button', { class: 'btn', type: 'submit' }, 'Salvar modelo');
+    const btnPadrao = h('button', { class: 'btn btn-texto', type: 'button', onclick: async () => {
+      if (!confirm('Voltar ao modelo padrão do app? O seu modelo atual será substituído.')) return;
+      try {
+        const r = await api('PUT', '/api/email/config/modelo', { padrao: true });
+        mAssunto.entrada.value = r.config.modeloAssunto; mCorpo.entrada.value = r.config.modeloCorpo; crescer();
+        mostrarErros({ assunto: mAssunto, corpo: mCorpo }, {});
+        aviso('Modelo padrão restaurado.');
+      } catch (e) { aviso(mensagemDe(e)); }
+    } }, 'Voltar ao modelo padrão');
+    blocoModelo = h('form', { class: 'cartao em-bloco', novalidate: true, onsubmit: async (ev) => {
+      ev.preventDefault();
+      btnModeloSalvar.disabled = true;
+      try {
+        await api('PUT', '/api/email/config/modelo', { assunto: mAssunto.entrada.value, corpo: mCorpo.entrada.value });
+        mostrarErros({ assunto: mAssunto, corpo: mCorpo }, {});
+        aviso('Modelo do e-mail salvo. Vale para as próximas notas.');
+      } catch (e) {
+        if (e instanceof ErroApi && e.campos) mostrarErros({ assunto: mAssunto, corpo: mCorpo }, e.campos); else aviso(mensagemDe(e));
+      } finally { btnModeloSalvar.disabled = false; }
+    } },
+    h('h2', {}, 'Texto do e-mail'),
+    h('p', { class: 'suave' }, 'O app monta cada e-mail com este modelo, trocando os campos entre chaves pelos dados da nota. Você ainda pode editar o texto de cada envio antes de mandar.'),
+    mAssunto, mCorpo,
+    h('details', { class: 'em-campos' }, h('summary', {}, 'Campos que você pode usar (toque para inserir na mensagem)'),
+      h('ul', { class: 'lista-simples' }, Object.entries(infoModelo.campos).map(([c, desc]) => h('li', {},
+        h('button', { class: 'btn btn-pequeno btn-texto em-campo', type: 'button', onclick: () => inserir(c) }, `{${c}}`), ' ', h('span', { class: 'suave' }, desc))))),
+    btnModeloSalvar, btnPadrao);
   }
 
   // ---------- Usuário e senha (SMTP)
@@ -369,7 +442,7 @@ export async function configurar(_params, query = {}) {
 
   const node = h('div', { class: 'form-estreito em-config' },
     h('p', {}, 'O app manda as notas aos clientes pelo seu próprio e-mail, com o PDF (DANFSe) e o XML em anexo. Configure uma vez: vale para todas as empresas da conta.'),
-    resultado, blocoConectar, blocoPreferencias, blocoSmtp,
+    resultado, blocoConectar, blocoPreferencias, blocoModelo, blocoSmtp,
     conectada ? null : estado,
     voltar ? h('a', { class: 'btn btn-texto', href: `#${voltar}` }, 'Voltar ao envio da nota') : null);
   return { titulo: 'E-mail para enviar notas', aba: 'conta', voltar: true, node };

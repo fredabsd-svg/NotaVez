@@ -17,7 +17,8 @@ const { criarApp } = await import('../src/app.js');
 const { criarClienteSefin } = await import('../src/fiscal/sefin/cliente.js');
 const { ambientesSefin } = await import('../src/config.js');
 const smtp = await import('../src/security/smtp.js');
-const { lerRedacao, faltasNoTexto, nomeNatural, emailsDoCliente, SISTEMA_EMAIL } = await import('../src/email/nota.js');
+const { lerRedacao, faltasNoTexto, nomeNatural, emailsDoCliente, SISTEMA_SERVICOS, SISTEMA_AJUSTE, lerServicos, saudacaoPelaHora, MODELO_PADRAO,
+  valoresDoModelo, preencherModelo, camposDesconhecidos } = await import('../src/email/nota.js');
 
 const cert = gerarCertificadoTeste({ cnpj: '11222333000181' });
 
@@ -114,7 +115,7 @@ before(async () => {
   sslSrv = servidorSmtp();
   portaSsl = await sslSrv.iniciar();
   app = await criarApp({ banco: ':memory:', logger: false, servirWeb: false, fabricaCliente: (o) => criarClienteSefin({ ...o, ca: sefin.ca, timeoutMs: 1500 }),
-    chamarIa: async (o) => { ia.chamadas.push(o); if (ia.erro) throw ia.erro; return { texto: ia.resposta, chamadas: [], fim: 'fim', nativo: null, modeloUsado: 'modelo-teste' }; },
+    chamarIa: async (o) => { ia.chamadas.push(o); if (ia.erro) throw ia.erro; return { texto: typeof ia.resposta === 'function' ? ia.resposta(o) : ia.resposta, chamadas: [], fim: 'fim', nativo: null, modeloUsado: 'modelo-teste' }; },
     enviarEmail: (o) => smtp.enviarEmail({ ...o, ca: certTls }) });
 });
 after(async () => { await app.close(); await sefin.fechar(); await sslSrv.fechar(); });
@@ -206,25 +207,45 @@ test('conexão: prefere IPv4 e, se um endereço não responde, tenta o próximo 
   await assert.rejects(smtp.enviarEmail({ ...base, resolver: async () => [{ address: '127.0.0.2', family: 4 }] }), /Não consegui conectar/);
 });
 
-test('texto: leitura da resposta da IA, nomes naturais e conferência do que precisa estar no e-mail', () => {
+test('texto: modelo do usuário preenchido com os dados, saudação pela hora, retenções e anexos por extenso', () => {
   assert.equal(nomeNatural('ESTUDIO WEB LTDA'), 'Estudio Web Ltda');
   assert.equal(nomeNatural('PADARIA DO JOAO E FILHOS ME'), 'Padaria do Joao e Filhos ME');
   assert.equal(nomeNatural('Estúdio Web'), 'Estúdio Web');
   assert.deepEqual(emailsDoCliente('A@x.test; b@y.test', null, 'a@x.test', 'ruim'), ['a@x.test', 'b@y.test']);
-  const r = lerRedacao('Aqui está:\n```json\n{"assunto": "Nota fiscal nº 7 — outubro/2026", "corpo": "Olá, tudo bem?\\n\\n**Segue** a nota."}\n```');
-  assert.deepEqual(r, { assunto: 'Nota fiscal nº 7 - outubro/2026', corpo: 'Olá, tudo bem?\n\nSegue a nota.' });
+  // Saudação pela hora de Brasília.
+  assert.equal(saudacaoPelaHora(new Date('2026-11-19T12:00:00Z')), 'Bom dia');   // 9h
+  assert.equal(saudacaoPelaHora(new Date('2026-11-19T17:30:00Z')), 'Boa tarde'); // 14h30
+  assert.equal(saudacaoPelaHora(new Date('2026-11-19T22:00:00Z')), 'Boa noite'); // 19h
+  // O exemplo do usuário sai igual, trocando só os dados.
+  const f = { nota: { numero: '15', competencia: '11/2026', competenciaPorExtenso: 'novembro de 2026', valorServico: 'R$ 400,00' },
+    retencao: { houve: false, itens: [], totalRetido: 'R$ 0,00', valorLiquido: 'R$ 400,00' }, cliente: { nomeNatural: 'Padaria Central Ltda' }, empresa: { nomeNatural: 'Estudio Web Ltda' } };
+  const r = preencherModelo(MODELO_PADRAO, valoresDoModelo(f, { servicos: 'serviços contábeis', agora: new Date('2026-11-19T12:00:00Z') }));
+  assert.equal(r.assunto, 'Nota fiscal nº 15 - novembro de 2026');
+  assert.equal(r.corpo, 'Bom dia,\n\nA nota fiscal nº 15, referente aos serviços contábeis de novembro de 2026, segue emitida. O valor do serviço é de R$ 400,00, sem retenção de impostos.'
+    + '\n\nOs arquivos em PDF (DANFSe) e XML da NFS-e acompanham este e-mail.\n\nAgradeço pela confiança e pela parceria.');
+  // Com retenções e só o PDF; sem anexos, a linha some.
+  const f2 = { ...f, retencao: { houve: true, itens: [{ tributo: 'ISS', valor: 'R$ 30,00' }, { tributo: 'IRRF', valor: 'R$ 22,50' }], valorLiquido: 'R$ 347,50' } };
+  assert.match(preencherModelo(MODELO_PADRAO, valoresDoModelo(f2, { anexos: ['pdf'] })).corpo,
+    /O valor do serviço é de R\$ 400,00, com retenção de ISS de R\$ 30,00 e IRRF de R\$ 22,50, ficando o valor líquido em R\$ 347,50\.\n\nO arquivo em PDF \(DANFSe\) da NFS-e acompanha este e-mail\.\n\nAgradeço/);
+  assert.match(preencherModelo(MODELO_PADRAO, valoresDoModelo(f, { anexos: [] })).corpo, /sem retenção de impostos\.\n\nAgradeço/);
+  assert.deepEqual(camposDesconhecidos('{numero} {valr} {cliente} {Numero}'), ['valr']);
+  // Tipo de serviço escrito pela IA: só uma expressão curta que começa por "serviços".
+  assert.equal(lerServicos('{"servicos": "Serviços contábeis."}'), 'serviços contábeis');
+  assert.equal(lerServicos('```json\n{"servicos": "serviços de desenvolvimento de site"}\n```'), 'serviços de desenvolvimento de site');
+  for (const ruim of ['{"servicos": "consultoria"}', '{"servicos": "serviços de R$ 400"}', '{"servicos": "serviços de novembro de 2026"}', 'texto solto', '{"servicos": "serviços {x}"}']) assert.equal(lerServicos(ruim), null, ruim);
+  // Ajuste pela IA: resposta em JSON, sem marcas de IA.
+  const a = lerRedacao('Aqui está:\n```json\n{"assunto": "Nota fiscal nº 7 — outubro/2026", "corpo": "Bom dia,\\n\\n**Segue** a nota."}\n```');
+  assert.deepEqual(a, { assunto: 'Nota fiscal nº 7 - outubro/2026', corpo: 'Bom dia,\n\nSegue a nota.' });
   assert.equal(lerRedacao('não é json'), null);
   const fatos = { nota: { numero: '7', competencia: '10/2026', valorServico: 'R$ 1.500,00' } };
   assert.deepEqual(faltasNoTexto(fatos, 'Segue a nota nº 7 de outubro de 2026, valor R$ 1.500,00. Não houve retenção.'), []);
   assert.deepEqual(faltasNoTexto(fatos, 'Segue a nota 17.'), ['o número da nota', 'a competência', 'o valor do serviço', 'se houve retenção']);
-  // O system prompt pede o essencial e proíbe o jeito de robô.
-  for (const trecho of ['número da nota', 'competência', 'valor do serviço', 'retenção', 'agradecimento', 'Espero que este e-mail o encontre bem', 'emojis', 'invente']) {
-    assert.ok(SISTEMA_EMAIL.includes(trecho), trecho);
-  }
+  for (const trecho of ['começando por "serviços"', 'descrição escrita na nota']) assert.ok(SISTEMA_SERVICOS.includes(trecho), trecho);
+  for (const trecho of ['mantenha todo o resto igual', 'número da nota', 'retenção', 'invente', 'emojis']) assert.ok(SISTEMA_AJUSTE.includes(trecho), trecho);
 });
 
 // ------------------------------------------------------------------ fluxo completo
-test('enviar ao cliente: destinatário do cadastro, texto pela IA com os fatos da nota, envio com PDF e XML e histórico', async () => {
+test('enviar ao cliente: destinatário do cadastro, texto do modelo (tipo de serviço pela IA), ajuste pedido, envio com PDF e XML e histórico', async () => {
   const { api, nota } = await contaComNota('envio@exemplo.test');
 
   // Sem configuração de e-mail: a tela abre (destinatário do cadastro) e avisa; enviar é recusado.
@@ -240,50 +261,65 @@ test('enviar ao cliente: destinatário do cadastro, texto pela IA com os fatos d
   assert.equal(semCfg.status, 409);
   assert.equal(semCfg.body.codigo, 'EMAIL_NAO_CONFIGURADO');
 
-  // Sem IA: modelo simples, com número, competência, valor e retenção.
+  // Sem IA: o modelo padrão (o jeito de escrever pedido pelo usuário) com os dados do XML oficial.
+  const n = nota.nNfse;
+  const esperado = (servicos) => new RegExp(`^(Bom dia|Boa tarde|Boa noite),\\n\\nA nota fiscal nº ${n}, referente aos ${servicos} de outubro de 2026, segue emitida\\. `
+    + 'O valor do serviço é de R\\$ 1\\.500,00, com retenção de ISS de R\\$ 30,00, ficando o valor líquido em R\\$ 1\\.470,00\\.\\n\\n'
+    + 'Os arquivos em PDF \\(DANFSe\\) e XML da NFS-e acompanham este e-mail\\.\\n\\nAgradeço pela confiança e pela parceria\\.'
+    + '\\n\\nObservação: esta é uma nota de teste da Receita \\(homologação\\), sem valor fiscal\\.$');
   const modelo = await api('POST', `/api/notas/${nota.id}/email/texto`, {});
   assert.equal(modelo.status, 200, JSON.stringify(modelo.body));
   assert.equal(modelo.body.origem, 'modelo');
-  assert.match(modelo.body.corpo, new RegExp(`nº ${nota.nNfse}\\b`));
-  assert.match(modelo.body.corpo, /outubro de 2026/);
-  assert.match(modelo.body.corpo, /R\$ 1\.500,00/);
-  assert.match(modelo.body.corpo, /retenção de ISS \(R\$ 30,00\).*R\$ 1\.470,00/);
-  assert.match(modelo.body.corpo, /\nEmpresa Simulada Ltda$/, 'assinado com o nome da empresa na nota, sem caixa alta');
+  assert.equal(modelo.body.assunto, `Nota fiscal nº ${n} - outubro de 2026`);
+  assert.match(modelo.body.corpo, esperado('serviços'));
   assert.deepEqual(modelo.body.faltas, []);
+  assert.equal(ia.chamadas.length, 0, 'sem IA configurada, nada vai a provedor nenhum');
+  // Pedido de ajuste sem IA: avisa e não muda o texto.
+  const semIa = await api('POST', `/api/notas/${nota.id}/email/texto`, { instrucao: 'mencione o boleto', atual: { assunto: 'A', corpo: 'Texto meu, nota 1.' } });
+  assert.match(semIa.body.aviso, /configure o assistente de IA/);
 
-  // Com IA: o modelo recebe o system prompt do e-mail e os fatos do XML oficial; a resposta vira assunto e corpo.
+  // Com IA: ela escreve só o tipo de serviço, a partir da descrição da nota; o resto é o modelo.
   assert.equal((await api('PUT', '/api/ia/config', { provedor: 'anthropic', modelo: 'claude-opus-5-5', chave: 'sk-ant-teste-123456' })).status, 200);
-  ia.resposta = JSON.stringify({ assunto: `Nota fiscal nº ${nota.nNfse} - outubro/2026`,
-    corpo: `Oi, pessoal da Padaria Central, tudo bem?\n\nSegue a nota nº ${nota.nNfse}, do serviço de outubro de 2026, no valor de R$ 1.500,00. Teve retenção de ISS de R$ 30,00, então o líquido fica R$ 1.470,00.\n\nO PDF e o XML vão em anexo. Obrigado pela parceria de sempre!\n\nAbraço,\nEstudio Web Ltda` });
-  const comIa = await api('POST', `/api/notas/${nota.id}/email/texto`, { instrucao: 'mais curto', anexos: ['pdf'] });
+  ia.resposta = (o) => (o.sistemaFixo === SISTEMA_SERVICOS ? '{"servicos": "serviços de criação de sites"}' : 'nada');
+  const comIa = await api('POST', `/api/notas/${nota.id}/email/texto`, {});
   assert.equal(comIa.status, 200, JSON.stringify(comIa.body));
-  assert.equal(comIa.body.origem, 'ia');
-  assert.deepEqual(comIa.body.faltas, []);
+  assert.equal(comIa.body.origem, 'modelo');
+  assert.equal(comIa.body.servicos, 'serviços de criação de sites');
+  assert.match(comIa.body.corpo, esperado('serviços de criação de sites'));
   const chamada = ia.chamadas.at(-1);
-  assert.equal(chamada.sistemaFixo, SISTEMA_EMAIL);
+  assert.equal(chamada.sistemaFixo, SISTEMA_SERVICOS);
   assert.deepEqual(chamada.ferramentas, [], 'sem ferramentas: só escreve');
   const pedido = chamada.historico[0].texto;
-  const fatos = JSON.parse(/<fatos>\n([\s\S]*)\n<\/fatos>/.exec(pedido)[1]);
-  assert.equal(fatos.nota.numero, nota.nNfse);
-  assert.equal(fatos.nota.competencia, '10/2026');
-  assert.equal(fatos.nota.valorServico, 'R$ 1.500,00');
-  assert.deepEqual(fatos.retencao, { houve: true, itens: [{ tributo: 'ISS', valor: 'R$ 30,00', detalhe: 'retido pelo tomador (o cliente recolhe o ISS)' }], totalRetido: 'R$ 30,00', valorLiquido: 'R$ 1.470,00' });
-  assert.deepEqual(fatos.anexos, ['PDF (DANFSe)']);
-  assert.equal(fatos.cliente.nomeNatural, 'Padaria Central Ltda');
-  assert.equal(fatos.teste, 'nota de teste da Receita (homologação), sem valor fiscal');
-  assert.match(pedido, /<preferencias>\nmais curto\n<\/preferencias>/);
-  assert.ok(!pedido.includes('financeiro@padaria.test'), 'o e-mail do cliente não vai para a IA');
-
-  // IA fora do ar ou fora do formato: modelo simples, com aviso.
-  ia.resposta = 'Claro! Aqui vai o e-mail: Olá...';
-  const torto = await api('POST', `/api/notas/${nota.id}/email/texto`, {});
-  assert.equal(torto.body.origem, 'modelo');
-  assert.match(torto.body.aviso, /fora do formato/);
+  assert.match(pedido, /"descricaoNaNota": "Criação e manutenção de site"/);
+  for (const fora of ['financeiro@padaria.test', 'R$', 'PADARIA']) assert.ok(!pedido.includes(fora), `só a descrição do serviço vai para a IA (${fora})`);
+  // Resposta inválida ou IA fora do ar: fica "serviços", sem travar.
+  ia.resposta = () => '{"servicos": "R$ 1.500,00"}';
+  assert.match((await api('POST', `/api/notas/${nota.id}/email/texto`, {})).body.corpo, esperado('serviços'));
   ia.erro = new Error('caiu');
   const caiu = await api('POST', `/api/notas/${nota.id}/email/texto`, {});
-  assert.equal(caiu.body.origem, 'modelo');
-  assert.match(caiu.body.aviso, /não conseguiu escrever/);
+  assert.equal(caiu.status, 200);
+  assert.match(caiu.body.corpo, esperado('serviços'));
   ia.erro = null;
+
+  // Ajuste pedido: a IA recebe o texto atual (editado pela pessoa) e o pedido; devolve o texto ajustado.
+  const editado = comIa.body.corpo.replace('Agradeço pela confiança e pela parceria.', 'Agradeço pela confiança.');
+  ia.resposta = (o) => (o.sistemaFixo === SISTEMA_AJUSTE ? JSON.stringify({ assunto: comIa.body.assunto,
+    corpo: editado.replace('acompanham este e-mail.', 'acompanham este e-mail. O boleto segue em outro e-mail.') }) : '{"servicos": "serviços"}');
+  const chamadasAntes = ia.chamadas.length;
+  const ajuste = await api('POST', `/api/notas/${nota.id}/email/texto`, { instrucao: 'mencione que o boleto vai em outro e-mail', atual: { assunto: comIa.body.assunto, corpo: editado } });
+  assert.equal(ajuste.status, 200, JSON.stringify(ajuste.body));
+  assert.equal(ajuste.body.origem, 'ia');
+  assert.match(ajuste.body.corpo, /O boleto segue em outro e-mail\.\n\nAgradeço pela confiança\.\n/);
+  assert.deepEqual(ajuste.body.faltas, []);
+  assert.equal(ia.chamadas.length, chamadasAntes + 1, 'ajuste: uma chamada só (o tipo de serviço já está no texto atual)');
+  const pedidoAjuste = ia.chamadas.at(-1).historico[0].texto;
+  assert.equal(ia.chamadas.at(-1).sistemaFixo, SISTEMA_AJUSTE);
+  assert.ok(pedidoAjuste.includes(`<email_atual>\nAssunto: ${comIa.body.assunto}\n\n${editado}\n</email_atual>`));
+  assert.match(pedidoAjuste, /<pedido>\nmencione que o boleto vai em outro e-mail\n<\/pedido>/);
+  ia.resposta = () => 'Claro! Aqui vai: Bom dia...';
+  const torto = await api('POST', `/api/notas/${nota.id}/email/texto`, { instrucao: 'mais formal', atual: { assunto: 'Meu assunto', corpo: editado } });
+  assert.match(torto.body.aviso, /fora do formato/);
+  assert.equal(torto.body.corpo, editado, 'sem ajuste válido, o texto da pessoa fica como estava');
 
   // Configuração: validada, senha nunca volta para a tela.
   const ruim = await api('PUT', '/api/email/config', { host: 'smtp', porta: 22, seguranca: 'x', remetenteEmail: 'nada' });
@@ -296,6 +332,29 @@ test('enviar ao cliente: destinatário do cadastro, texto pela IA com os fatos d
   assert.ok(!JSON.stringify(cfg.body).includes('s3nh@'), 'a senha não volta');
   // Editar sem informar a senha mantém a guardada.
   assert.equal((await api('PUT', '/api/email/config', { ...CONFIG(portaSsl), senha: '' })).body.config.temSenha, true);
+
+  // Modelo próprio: campos conferidos; vale para os próximos textos; sobrevive a salvar o SMTP de novo; volta ao padrão.
+  const cfgModelo = await api('GET', '/api/email/config');
+  assert.equal(cfgModelo.body.config.modeloProprio, false);
+  assert.equal(cfgModelo.body.config.modeloCorpo, cfgModelo.body.modelo.padrao.corpo);
+  assert.ok(cfgModelo.body.modelo.campos.retencao);
+  const errado = await api('PUT', '/api/email/config/modelo', { assunto: 'NFS-e {numero}', corpo: 'Prezados, segue a nota {numero} de {valr}.' });
+  assert.equal(errado.status, 422);
+  assert.match(errado.body.campos.corpo, /\{valr\}/);
+  const proprio = await api('PUT', '/api/email/config/modelo', { assunto: 'NFS-e {numero} - {mes_ano}',
+    corpo: 'Prezados da {cliente},\n\nSegue a NFS-e {numero}, competência {mes_ano}, no valor de {valor}, {retencao}.\n\n{anexos}\n\nAtenciosamente,\n{empresa}' });
+  assert.equal(proprio.status, 200, JSON.stringify(proprio.body));
+  assert.equal(proprio.body.config.modeloProprio, true);
+  assert.equal((await api('PUT', '/api/email/config', { ...CONFIG(portaSsl), senha: '' })).body.config.modeloProprio, true, 'salvar o SMTP não apaga o modelo');
+  ia.resposta = () => '{"servicos": "serviços"}';
+  const doModelo = await api('POST', `/api/notas/${nota.id}/email/texto`, {});
+  assert.equal(doModelo.body.assunto, `NFS-e ${n} - 10/2026`);
+  assert.match(doModelo.body.corpo, new RegExp(`^Prezados da Padaria Central Ltda,\\n\\nSegue a NFS-e ${n}, competência 10/2026, no valor de R\\$ 1\\.500,00, com retenção de ISS de R\\$ 30,00, ficando o valor líquido em R\\$ 1\\.470,00\\.`));
+  assert.match(doModelo.body.corpo, /\n\nAtenciosamente,\nEmpresa Simulada Ltda\n\nObservação: esta é uma nota de teste/);
+  assert.equal(doModelo.body.modeloProprio, true);
+  const padrao = await api('PUT', '/api/email/config/modelo', { padrao: true });
+  assert.equal(padrao.body.config.modeloProprio, false);
+  assert.equal(padrao.body.config.modeloAssunto, MODELO_PADRAO.assunto);
 
   // E-mail de teste para o próprio remetente.
   const teste = await api('POST', '/api/email/config/testar', {});

@@ -810,3 +810,8 @@ body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: 
 .em-smtp > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 .em-smtp[open] > summary { margin-bottom: var(--esp-2); }
 .em-estado { margin-top: var(--esp-2); }
+.em-campos { margin: var(--esp-2) 0 var(--esp-3); }
+.em-campos summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; color: var(--azul); }
+.em-campos li { margin: var(--esp-2) 0; display: grid; grid-template-columns: minmax(8.5rem, auto) 1fr; gap: var(--esp-2); align-items: baseline; }
+.em-campos li .em-campo { justify-self: start; }
+.em-campo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 36px; margin: 0; padding-inline: var(--esp-2); }
