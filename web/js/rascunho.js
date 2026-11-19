@@ -5,7 +5,7 @@ import { hoje } from './ui.js';
 
 export const rascunhoVazio = () => ({
   clienteId: null, tomador: null, servicoId: null, cTribNac: '', cTribMun: null, cNBS: null,
-  descricao: '', competencia: hoje(), valor: '', localPrestacaoIbge: null, revisar: [],
+  descricao: '', competencia: hoje(), valor: '', localPrestacaoIbge: null, obra: null, revisar: [],
   issRetido: false, pAliq: null, pTotTribSN: null,
 });
 

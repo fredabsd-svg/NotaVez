@@ -8,10 +8,19 @@ import { pendenciasCartao } from './inicio.js';
 const CAMPO_TELA = {
   competencia: 'Competência', valor: 'Valor', descricao: 'Descrição', tributacao: 'Tributação', servico: 'Serviço',
   tomador: 'Cliente', 'tomador.documento': 'Cliente', 'tomador.nome': 'Cliente', 'tomador.endereco': 'Endereço do cliente',
-  'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação',
+  'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação', obra: 'Dados da obra',
   'perfil.cnpj': 'Dados da empresa', 'perfil.municipio': 'Dados da empresa', 'perfil.regime': 'Dados da empresa', 'perfil.federais': 'Dados da empresa', regime: 'Regime',
   retencoes: 'Retenções federais', ibscbs: 'IBS/CBS', 'ibscbs.nbs': 'IBS/CBS (NBS)', 'ibscbs.cIndOp': 'IBS/CBS (forma de prestação)', 'ibscbs.cClassTrib': 'IBS/CBS (classificação)', cTribMun: 'Código municipal', cNBS: 'Código NBS',
 };
+
+// Dados da obra (construção civil) em uma linha: endereço, CIB ou CNO, e a inscrição imobiliária.
+function textoObra(o) {
+  if (!o) return 'Falta informar';
+  const e = o.endereco || {};
+  const id = o.tipo === 'cib' ? `CIB ${o.cib || '—'}` : o.tipo === 'cno' ? `CNO/CEI ${o.cno || '—'}`
+    : [e.logradouro, e.numero].filter(Boolean).join(', ') + (e.complemento ? ` ${e.complemento}` : '') + (e.bairro ? ` · ${e.bairro}` : '') + (e.cep ? ` · CEP ${cep(e.cep)}` : '');
+  return `${id || 'Endereço incompleto'}${o.inscImobFisc ? ` · Inscrição imobiliária ${o.inscImobFisc}` : ''}`;
+}
 
 function textoNaoOptante(p, r, ex, valor) {
   const pct = (v) => `${Number(v).toFixed(2).replace('.', ',')}%`;
@@ -126,6 +135,7 @@ export async function tela({ id }) {
       linha('Descrição na nota', h('span', { style: 'white-space:pre-wrap;font-weight:400' }, r.descricao || '—')),
       linha('Competência', data(r.competencia)),
       linha('Local da prestação', nota.localPrestacao ? `${nota.localPrestacao.nome} - ${nota.localPrestacao.uf}` : '—'),
+      nota.servicoNacional?.grupoExigido === 'obra' ? linha('Obra', textoObra(r.obra)) : null,
       linha('Tributação', ...textoTributacao(perfil.perfil, r, validacao.exigencias, nota.valor)),
       r.cTribMun ? linha('Código municipal', r.cTribMun) : null,
       r.cNBS ? linha('Código NBS', r.cNBS) : null)),

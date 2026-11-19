@@ -79,7 +79,8 @@ Leiaute da DPS v1.01 (`DPS_v1.01.xsd`). O produto aplica estas regras **antes do
 | E0080 / E0188 / E0206 | Dígitos verificadores de CNPJ/CPF (emitente e cliente) | Validação local, inclusive do **CNPJ alfanumérico** (em produção desde 10/08/2026) |
 | E0235 | Cliente identificado por CNPJ ⇒ endereço nacional obrigatório | Exige o endereço |
 | Anexo I (MUN.INCID) | Serviços cujo ISS é devido no local da prestação ou no endereço do cliente | Mostra o "local da prestação" ou exige endereço só quando necessário |
-| Anexo I (grupos obra/atvEvento) | 32 serviços exigem dados de obra ou de evento | Bloqueia esses serviços e indica o Emissor Nacional |
+| Anexo I (grupo obra, E0370/E0372/E0380) | 13 serviços de construção civil exigem os dados da obra | Seção "Dados da obra" na nota: endereço da obra no Brasil (com busca do CEP, que define o local da prestação), CIB ou CNO/CEI, e a inscrição imobiliária (opcional); vai no grupo `serv/obra` da DPS |
+| Anexo I (grupo atvEvento) | 19 serviços exigem dados de evento | Bloqueia esses serviços e indica o Emissor Nacional |
 | Leiaute | `xDescServ` com até 1.000 caracteres | Conta os caracteres e bloqueia o excesso |
 | E1228 / E1229 / E1225 | Sem prefixo de namespace, UTF-8, GZip + Base64 | Garantido pelo gerador |
 | IBS/CBS | "Para optantes dos Simples Nacional, os grupos IBSCBS só serão obrigatórios a partir de 2027" (Anexo I, leiaute) | Omite os grupos até 31/12/2026; **competências de 2027 em diante ficam bloqueadas** até a atualização das regras |
@@ -147,7 +148,7 @@ No leiaute da NFS-e, Presumido e Real são o mesmo regime ("Não Optante"); as d
 | **ME/EPP do Simples com e-CNPJ A1**, em município **conveniado** ao Sistema Nacional | **Sim** | Regras 1.4.1; convênio consultado na API de Parâmetros Municipais | Emite; retenção de ISS só com cliente CNPJ |
 | ME/EPP em município **não** conveniado | Não | E0037–E0039: fora do MEI, o sistema nacional só atende municípios conveniados | Rascunhos + orientação para o sistema da prefeitura |
 | **Lucro Presumido / Lucro Real** (não optante) com e-CNPJ A1, em município conveniado | **Sim** | Regras 1.4.2 e 1.4.3 | Emite com PIS/COFINS, retenções federais e grupo IBS/CBS |
-| Não optante com serviço que exige dados de imóvel, obra ou evento | Não | Grupos ainda não suportados | Rascunho + orientação para o Emissor Nacional |
+| Não optante com serviço que exige dados de imóvel (IBS/CBS) ou evento | Não | Grupos ainda não suportados | Rascunho + orientação para o Emissor Nacional |
 
 ## 1.7 Impedimentos encontrados (na data de hoje)
 

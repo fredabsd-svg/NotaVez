@@ -1,5 +1,5 @@
 // Montagem do XML da DPS conforme DPS_v1.01.xsd (ordem dos elementos importa).
-import { municipio } from './tabelas.js';
+import { municipio, servicoNacional } from './tabelas.js';
 
 export const NS_NFSE = 'http://www.sped.fazenda.gov.br/nfse';
 export const VERSAO_LEIAUTE = '1.01';
@@ -27,6 +27,17 @@ export function dataHoraBrasilia(d = new Date(), recuoMs = 60_000) {
 export const hojeBrasilia = (d = new Date()) => new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
 
 export const formatarValor = (v) => Number(v).toFixed(2);
+
+// Grupo da obra (TCInfoObra): inscImobFisc? e um entre cObra (CNO/CEI), cCIB ou end (CEP, logradouro, número,
+// complemento, bairro). Só nos serviços de construção civil (E0370/E0372).
+function obraXml(nota) {
+  const o = nota.obra;
+  if (!o || servicoNacional(nota.cTribNac)?.grupoExigido !== 'obra') return '';
+  const e = o.endereco || {};
+  const id = o.tipo === 'cno' ? el('cObra', o.cno) : o.tipo === 'cib' ? el('cCIB', o.cib)
+    : `<end>${el('CEP', e.cep)}${el('xLgr', e.logradouro)}${el('nro', e.numero)}${el('xCpl', e.complemento)}${el('xBairro', e.bairro)}</end>`;
+  return `<obra>${el('inscImobFisc', o.inscImobFisc)}${id}</obra>`;
+}
 
 function enderecoXml(en) {
   if (!en) return '';
@@ -66,7 +77,8 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
   const cNBS = nota.cNBS || ibs?.cNBS;
 
   const serv = `<serv><locPrest>${el('cLocPrestacao', localPrest)}</locPrest>`
-    + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', cNBS)}</cServ></serv>`;
+    + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', cNBS)}</cServ>`
+    + `${obraXml(nota)}</serv>`;
 
   // totTrib é um choice: indTotTrib (MEI), pTotTribSN (ME/EPP) ou pTotTrib (não optante) — E0710/E0712/E0713.
   const tt = trib.totTrib;

@@ -26,6 +26,7 @@ import { criarServicoIa } from './ia/servico.js';
 import { criarServicoEmail } from './email/servico.js';
 import { criarOAuthEmail } from './email/oauth.js';
 import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
+import { criarConsultaCep } from './cadastro/consulta-cep.js';
 import { criarServicoTomadas } from './fiscal/tomadas.js';
 import { auditar } from './security/auditoria.js';
 import { criarGovBr } from './security/govbr.js';
@@ -34,7 +35,7 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup,
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), consultarCep = criarConsultaCep(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup,
   enviarEmail, emailRedeLocal, emailOAuth = config.emailOAuth, fetchEmailOAuth } = {}) {
   const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
@@ -165,6 +166,11 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
     // Só contagens no log (nada de CNPJ ou nome).
     console.log(`[sincronização automática] ${JSON.stringify(r)}`);
     return { ok: true, ...r };
+  });
+  // Endereço pelo CEP (ex.: endereço da obra). Só com login, com teto por conta: não vira um repassador aberto.
+  app.get('/api/cep/:cep', async (req) => {
+    await limites.consumir(`cep:${req.usuario.id}`, 120, 3600_000);
+    return { endereco: await consultarCep(req.params.cep) };
   });
   await app.register(rotasConta, { prefix: '/api/conta' });
   await app.register(rotasPerfil, { prefix: '/api' });

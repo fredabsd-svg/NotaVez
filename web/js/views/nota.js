@@ -91,11 +91,13 @@ export async function tela({ id }) {
     oninput: (e) => { r.descricao = e.target.value; revisado('descricao'); persistir(); },
   });
   let atualizarIbs = null; // definido na seção de tributação (Lucro Presumido/Real)
+  let blocoObra = null; // dados da obra: só nos serviços de construção civil (definido mais abaixo)
   const mostrarNacional = () => {
     atualizarIbs?.();
     const n = meta.servicoNacional;
     nacionalTexto.replaceChildren(n ? h('span', {}, 'Código nacional: ', h('strong', {}, `${codigoServico(n.codigo)} — ${n.descricao}`)) : 'Escolha um serviço salvo ou busque na lista nacional.');
-    if (n?.grupoExigido) nacionalTexto.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Este serviço exige dados de obra/evento, ainda não suportados. Use o Emissor Nacional para ele.'));
+    if (n?.grupoExigido === 'atvEvento') nacionalTexto.append(h('span', { class: 'erro-campo', style: 'display:block' }, 'Este serviço exige dados do evento, ainda não suportados. Use o Emissor Nacional para ele.'));
+    if (blocoObra) blocoObra.hidden = n?.grupoExigido !== 'obra';
     blocoLocal.open = n?.incidencia === 'LP';
     avisoLocal.replaceChildren(n?.incidencia === 'LP'
       ? h('p', { class: 'cartao cartao-alerta' }, 'Para este serviço, o ISS é devido na cidade onde ele foi prestado. Confirme a cidade abaixo.')
@@ -318,6 +320,76 @@ export async function tela({ id }) {
   const blocoLocal = h('details', {}, h('summary', {}, 'Local da prestação e outras opções'), avisoLocal, local,
     campo({ rotulo: 'Código de tributação municipal', ajuda: 'Só se a prefeitura exigir (3 dígitos).', valor: r.cTribMun || '', atributos: { inputmode: 'numeric', maxlength: 3 }, oninput: (e) => { r.cTribMun = e.target.value.replace(/\D/g, '') || null; persistir(); } }),
     campo({ rotulo: 'Código NBS', ajuda: 'Opcional (9 dígitos).', valor: r.cNBS || '', atributos: { inputmode: 'numeric', maxlength: 9 }, oninput: (e) => { r.cNBS = e.target.value.replace(/\D/g, '') || null; persistir(); } }));
+
+  // ----- Dados da obra (construção civil: exigidos pela Receita, regra E0370) -----
+  // Endereço da obra no Brasil (o mais comum), CIB ou CNO/CEI, e a inscrição imobiliária (opcional).
+  const o = r.obra && typeof r.obra === 'object' ? { ...r.obra, endereco: { ...(r.obra.endereco || {}) } } : { tipo: 'endereco', endereco: {} };
+  const gravarObra = () => {
+    r.obra = { tipo: o.tipo, inscImobFisc: o.inscImobFisc || null, cib: o.tipo === 'cib' ? o.cib || '' : null, cno: o.tipo === 'cno' ? o.cno || '' : null,
+      endereco: o.tipo === 'endereco' ? { ...o.endereco } : null };
+    persistir();
+  };
+  const textoObra = (rotulo, chave, extra = {}) => campo({ rotulo, valor: (chave.startsWith('end.') ? o.endereco[chave.slice(4)] : o[chave]) || '', ...extra,
+    oninput: (e) => { if (chave.startsWith('end.')) o.endereco[chave.slice(4)] = e.target.value; else o[chave] = e.target.value; gravarObra(); } });
+  const cepTela = (v) => String(v || '').replace(/\D/g, '').slice(0, 8).replace(/^(\d{5})(\d)/, '$1-$2');
+  const municipioObra = h('p', { class: 'suave', 'aria-live': 'polite' });
+  const oLogradouro = textoObra('Logradouro', 'end.logradouro', { atributos: { maxlength: 255, autocomplete: 'off' } });
+  const oNumero = textoObra('Número', 'end.numero', { ajuda: 'Sem número: escreva S/N.', atributos: { maxlength: 60, autocomplete: 'off' } });
+  const oComplemento = textoObra('Complemento (opcional)', 'end.complemento', { atributos: { maxlength: 156, autocomplete: 'off' } });
+  const oBairro = textoObra('Bairro', 'end.bairro', { atributos: { maxlength: 60, autocomplete: 'off' } });
+  let ultimaBusca = '';
+  const mostrarMunicipioObra = async () => {
+    const m = o.endereco.municipioIbge ? await municipioPorCodigo(o.endereco.municipioIbge) : null;
+    municipioObra.textContent = m ? `Município da obra: ${m.nome} - ${m.uf}. É o local da prestação (onde o ISS da obra é devido).` : '';
+  };
+  async function buscarCep() {
+    const c = String(o.endereco.cep || '').replace(/\D/g, '');
+    if (c.length !== 8 || c === ultimaBusca) return;
+    ultimaBusca = c;
+    municipioObra.textContent = 'Buscando o CEP…';
+    try {
+      const { endereco: e } = await api('GET', `/api/cep/${c}`);
+      if (e.logradouro && !o.endereco.logradouro) { o.endereco.logradouro = e.logradouro; oLogradouro.entrada.value = e.logradouro; }
+      if (e.bairro && !o.endereco.bairro) { o.endereco.bairro = e.bairro; oBairro.entrada.value = e.bairro; }
+      o.endereco.municipioIbge = e.municipioIbge || '';
+      // O CEP da obra precisa ser do município do local da prestação (E0380): o local passa a ser a cidade da obra.
+      if (e.municipioIbge) {
+        r.localPrestacaoIbge = e.municipioIbge;
+        const m = await municipioPorCodigo(e.municipioIbge);
+        if (m) local.entrada.value = `${m.nome} - ${m.uf}`;
+      }
+      gravarObra();
+      await mostrarMunicipioObra();
+      if (!e.municipioIbge) municipioObra.textContent = `CEP de ${e.municipio || 'município não identificado'}${e.uf ? ` - ${e.uf}` : ''}. Confira o local da prestação abaixo: deve ser a cidade da obra.`;
+    } catch (err) {
+      ultimaBusca = '';
+      municipioObra.textContent = err instanceof ErroApi && err.status === 0 ? 'Sem internet: preencha o endereço à mão e confira o local da prestação (cidade da obra).' : err.message;
+    }
+  }
+  const oCep = campo({ rotulo: 'CEP da obra', valor: cepTela(o.endereco.cep), atributos: { inputmode: 'numeric', maxlength: 9, autocomplete: 'off', placeholder: '00000-000' },
+    oninput: (e) => {
+      e.target.value = cepTela(e.target.value);
+      const novo = e.target.value.replace(/\D/g, '');
+      if (novo !== String(o.endereco.cep || '')) o.endereco.municipioIbge = '';
+      o.endereco.cep = novo;
+      gravarObra();
+      if (novo.length === 8) buscarCep();
+    } });
+  const oCib = textoObra('Código CIB', 'cib', { ajuda: 'Cadastro Imobiliário Brasileiro: 8 caracteres.', atributos: { maxlength: 8, autocomplete: 'off', spellcheck: 'false' } });
+  const oCno = textoObra('CNO ou CEI', 'cno', { ajuda: 'Cadastro Nacional de Obras (ou o antigo CEI): 12 números.', atributos: { inputmode: 'numeric', maxlength: 15, autocomplete: 'off' } });
+  const oInsc = textoObra('Inscrição imobiliária fiscal (opcional)', 'inscImobFisc', { ajuda: 'Código do imóvel na prefeitura (o do IPTU), se tiver.', atributos: { maxlength: 30, autocomplete: 'off' } });
+  const partesObra = { endereco: h('div', {}, oCep, municipioObra, oLogradouro, oNumero, oComplemento, oBairro), cib: oCib, cno: oCno };
+  const mostrarTipoObra = () => { for (const [k, el] of Object.entries(partesObra)) el.hidden = k !== o.tipo; };
+  const opcaoObra = (valor, texto) => h('label', { class: 'caixa' }, h('input', { type: 'radio', name: `obra-${id}`, value: valor, checked: o.tipo === valor,
+    onchange: () => { o.tipo = valor; mostrarTipoObra(); gravarObra(); } }), h('span', {}, texto));
+  blocoObra = h('section', { 'aria-labelledby': 'h-obra', class: 'nota-obra' },
+    h('h3', { id: 'h-obra' }, 'Dados da obra'),
+    h('p', { class: 'suave' }, 'Serviço de construção civil: a Receita exige identificar a obra. Escolha uma das opções.'),
+    h('fieldset', { class: 'opcoes-obra' }, h('legend', { class: 'visualmente-oculto' }, 'Como identificar a obra'),
+      opcaoObra('endereco', 'Endereço da obra no Brasil'), opcaoObra('cib', 'Código do Cadastro Imobiliário Brasileiro (CIB)'), opcaoObra('cno', 'CNO ou CEI da obra')),
+    partesObra.endereco, partesObra.cib, partesObra.cno, oInsc);
+  mostrarTipoObra();
+  mostrarMunicipioObra();
   mostrarNacional();
 
   const rejeitada = dados.situacao === 'rejeitada' && dados.nota?.erros?.length
@@ -345,7 +417,7 @@ export async function tela({ id }) {
         } }, 'Usar versão da conta')) : null,
       // "Salvo" no topo: no rodapé ele cobria o campo de descrição.
       h('div', { class: 'cabecalho-acoes' }, h('span', { class: 'suave' }, 'Tudo é salvo automaticamente. Pode sair e continuar depois.'), status),
-      blocoCliente, blocoServico, blocoQuando, blocoTrib, blocoLocal,
+      blocoCliente, blocoServico, blocoObra, blocoQuando, blocoTrib, blocoLocal,
       h('div', { class: 'rodape-fixo' },
         h('button', {
           class: 'btn btn-primario', type: 'button',

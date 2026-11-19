@@ -26,6 +26,19 @@ export function endereco(e) {
   return Object.values(r).some(Boolean) ? r : null;
 }
 
+// Dados da obra (grupo serv/obra da DPS): endereço no Brasil, CIB ou CNO/CEI, e a inscrição imobiliária (opcional).
+export const TIPOS_OBRA = ['endereco', 'cib', 'cno'];
+export function obra(o) {
+  if (!o || typeof o !== 'object' || !TIPOS_OBRA.includes(o.tipo)) return null;
+  return {
+    tipo: o.tipo,
+    inscImobFisc: texto(o.inscImobFisc, 30) || null,
+    cib: o.tipo === 'cib' ? String(o.cib ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 8) : null,
+    cno: o.tipo === 'cno' ? somenteDigitos(o.cno).slice(0, 12) : null,
+    endereco: o.tipo === 'endereco' ? endereco(o.endereco) || {} : null,
+  };
+}
+
 export function cliente(b) {
   const doc = lerDocumento(b.documento);
   const erros = {};
@@ -76,6 +89,7 @@ export function rascunho(b = {}) {
     competencia: /^\d{4}-\d{2}-\d{2}$/.test(b.competencia || '') ? b.competencia : '',
     valor: valorDecimal(b.valor),
     localPrestacaoIbge: somenteDigitos(b.localPrestacaoIbge).slice(0, 7) || null,
+    obra: obra(b.obra),
     // Tributação (ME/EPP). Vazio = usa o valor do perfil.
     issRetido: b.issRetido === true,
     pAliq: percentualTexto(b.pAliq),

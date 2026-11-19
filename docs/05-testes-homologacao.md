@@ -12,7 +12,8 @@ Resultado da última execução: **38 aprovados, 0 falhas**.
 - Valores em formato brasileiro (`1.234,56`).
 - Id da DPS com 45 posições (TSIdDPS), para CNPJ e CPF.
 - **A DPS do MEI passa no XSD oficial** e respeita E0121, E0600, E0583, E0710, E0174 e E0676.
-- As regras MEI barram antes do envio: E0015, E0235, E0206, E0202, E0310, serviço com grupo "obra" e descrição acima de 1.000 caracteres.
+- As regras MEI barram antes do envio: E0015, E0235, E0206, E0202, E0310 e descrição acima de 1.000 caracteres.
+- Construção civil (grupo "obra"): sem os dados da obra, E0370 antes do envio; endereço incompleto e CEP de outro município que não o local da prestação (E0380) também; com endereço, CIB ou CNO, o grupo `serv/obra` vai na DPS (validada no XSD) e volta na importação e no clone.
 - Escolha do pacote de regras: MEI 2026 aceito; ME/EPP e competência de 2027 bloqueados com explicação.
 - Certificado A1: leitura, CNPJ no OID ICP-Brasil, senha errada, certificado vencido, CNPJ diferente do perfil; **assinatura XMLDSig verificada**, adulteração detectada e DPS assinada válida no XSD.
 - Tradução das mensagens da Receita.
