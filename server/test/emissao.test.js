@@ -486,3 +486,92 @@ test('API exige versão no PUT e revisão aprovada no emitir; cadastro posterior
   assert.equal(e.body.nota.rascunho.tomador.nome, 'Maria da Silva');
   assert.match(sefin.estado.recebidas.at(-1), /<xNome>Maria da Silva<\/xNome>/);
 });
+
+// ---------------- Construção civil: dados da obra (Anexo I, E0370/E0380) ----------------
+const { lerNfseImportada } = await import('../src/fiscal/assistida.js');
+const { criarConsultaCep } = await import('../src/cadastro/consulta-cep.js');
+
+test('obra: serviço de construção exige os dados da obra; endereço, CIB ou CNO vão no grupo serv/obra da DPS e voltam na importação e no clone', async () => {
+  const u = await usuarioPronto('construtora@exemplo.com', { opSimpNac: '3', simples: SIMPLES });
+  const clienteId = await clienteEmpresa(u);
+  const base = { clienteId, cTribNac: '070202', descricao: 'Medição nº 3 da obra do galpão', valor: '66.525,71', localPrestacaoIbge: '3550308',
+    competencia: new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10) };
+
+  // Sem os dados da obra: barrado antes do envio, com a regra oficial.
+  const n = (await u.api('POST', '/api/notas', { rascunho: base })).body.nota;
+  const v1 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.ok(v1.body.erros.some((e) => e.campo === 'obra' && e.regra === 'E0370'), JSON.stringify(v1.body.erros));
+  assert.ok(!v1.body.erros.some((e) => /ainda não disponíveis/.test(e.mensagem)), 'o serviço de obra não é mais bloqueado');
+
+  // Endereço incompleto: diz o que falta.
+  let atual = (await u.api('PUT', `/api/notas/${n.id}`, { versao: n.versao, rascunho: { ...base, obra: { tipo: 'endereco', endereco: { cep: '01001-000', logradouro: 'Praça da Sé' } } } })).body.nota;
+  const v2 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.ok(v2.body.erros.some((e) => e.campo === 'obra' && /informe número e bairro/.test(e.mensagem)), JSON.stringify(v2.body.erros));
+
+  // CEP de outro município que não o local da prestação: E0380, explicado.
+  atual = (await u.api('PUT', `/api/notas/${n.id}`, { versao: atual.versao, rascunho: { ...base, obra: { tipo: 'endereco', endereco: { cep: '77001000', municipioIbge: '1721000', logradouro: 'Quadra 104 Norte', numero: '10', bairro: 'Plano Diretor Norte' } } } })).body.nota;
+  const v3 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.ok(v3.body.erros.some((e) => e.regra === 'E0380' && /Palmas - TO/.test(e.mensagem)), JSON.stringify(v3.body.erros));
+
+  // Endereço completo, no município do local da prestação: emite, com o grupo da obra no lugar certo da DPS.
+  const obra = { tipo: 'endereco', inscImobFisc: '012.345.678-9', endereco: { cep: '01001000', municipioIbge: '3550308', logradouro: 'Praça da Sé', numero: '100', complemento: 'Bloco B', bairro: 'Sé' } };
+  atual = (await u.api('PUT', `/api/notas/${n.id}`, { versao: atual.versao, rascunho: { ...base, obra } })).body.nota;
+  assert.deepEqual(atual.rascunho.obra, { ...obra, cib: null, cno: null });
+  const v4 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.deepEqual(v4.body.erros, [], JSON.stringify(v4.body.erros));
+  // Roteiro do Emissor Nacional: os mesmos dados, para preencher "Informações do imóvel".
+  const roteiro = JSON.stringify((await u.api('GET', `/api/notas/${n.id}/assistida`)).body.roteiro);
+  for (const t of ['Endereço no Brasil', 'CEP da obra', '01001-000', 'Logradouro da obra', 'Praça da Sé', 'Bloco B', 'Inscrição imobiliária fiscal', '012.345.678-9']) assert.ok(roteiro.includes(t), t);
+  const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+  assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+  const xml = sefin.estado.recebidas.at(-1);
+  assert.match(xml, /<\/cServ><obra><inscImobFisc>012\.345\.678-9<\/inscImobFisc><end><CEP>01001000<\/CEP><xLgr>Praça da Sé<\/xLgr><nro>100<\/nro><xCpl>Bloco B<\/xCpl><xBairro>Sé<\/xBairro><\/end><\/obra><\/serv>/);
+
+  // A NFS-e oficial traz a obra de volta (importação de nota emitida fora do app) e o clone a mantém (medição seguinte).
+  const oficial = await lerNfseImportada(await app.ctx.repo.xmlNfse(n.id), { exigirAssinatura: false });
+  assert.deepEqual(oficial.rascunho.obra, { tipo: 'endereco', inscImobFisc: '012.345.678-9', cib: null, cno: null,
+    endereco: { cep: '01001000', municipioIbge: '', logradouro: 'Praça da Sé', numero: '100', complemento: 'Bloco B', bairro: 'Sé' } });
+  const clone = (await u.api('POST', `/api/notas/${n.id}/clonar`)).body.nota;
+  assert.deepEqual(clone.rascunho.obra, atual.rascunho.obra);
+
+  // CIB e CNO: conferidos e no elemento certo; códigos com tamanho errado são barrados.
+  for (const [o, esperado, ruim] of [
+    [{ tipo: 'cib', cib: 'ab12-cd34' }, /<obra><cCIB>AB12CD34<\/cCIB><\/obra>/, { tipo: 'cib', cib: '123' }],
+    [{ tipo: 'cno', cno: '51.234.56789/01' }, /<obra><cObra>512345678901<\/cObra><\/obra>/, { tipo: 'cno', cno: '1234' }],
+  ]) {
+    const ra = (await u.api('POST', '/api/notas', { rascunho: { ...base, obra: ruim } })).body.nota;
+    assert.ok((await u.api('POST', `/api/notas/${ra.id}/validar`)).body.erros.some((x) => x.campo === 'obra'), JSON.stringify(ruim));
+    const rb = (await u.api('POST', '/api/notas', { rascunho: { ...base, obra: o } })).body.nota;
+    const eb = await u.api('POST', `/api/notas/${rb.id}/emitir`);
+    assert.equal(eb.body.nota?.situacao, 'emitida', JSON.stringify(eb.body));
+    assert.match(sefin.estado.recebidas.at(-1), esperado);
+  }
+
+  // Serviço que não é de obra: dados de obra que sobraram no rascunho não vão para a DPS (E0372).
+  const outro = (await u.api('POST', '/api/notas', { rascunho: { clienteId, servicoId: u.servicoId, obra } })).body.nota;
+  assert.equal((await u.api('POST', `/api/notas/${outro.id}/emitir`)).body.nota?.situacao, 'emitida');
+  assert.ok(!/<obra>/.test(sefin.estado.recebidas.at(-1)));
+});
+
+test('CEP: endereço e município (código IBGE) pelo ViaCEP; BrasilAPI se falhar; não encontrado e fora do ar explicados', async () => {
+  const chamadas = [];
+  const resposta = (status, corpo) => new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
+  const via = { logradouro: 'Avenida Bernardo Sayão', bairro: 'Centro', localidade: 'Miranorte', uf: 'TO', ibge: '1713304' };
+  const consultar = criarConsultaCep({ buscar: async (url) => {
+    chamadas.push(url);
+    if (url.includes('viacep') && url.includes('77660000')) return resposta(200, via);
+    if (url.includes('viacep') && url.includes('01001000')) throw new Error('fora do ar');
+    if (url.includes('brasilapi') && url.includes('01001000')) return resposta(200, { cep: '01001000', state: 'SP', city: 'São Paulo', neighborhood: 'Sé', street: 'Praça da Sé' });
+    if (url.includes('viacep')) return resposta(200, { erro: true });
+    return resposta(404, { message: 'CEP não encontrado' });
+  } });
+  assert.deepEqual(await consultar('77660-000'), { cep: '77660000', logradouro: 'Avenida Bernardo Sayão', bairro: 'Centro', municipio: 'Miranorte', uf: 'TO', municipioIbge: '1713304' });
+  assert.deepEqual(await consultar('01001000'), { cep: '01001000', logradouro: 'Praça da Sé', bairro: 'Sé', municipio: 'São Paulo', uf: 'SP', municipioIbge: '3550308' }, 'IBGE pelo nome do município');
+  const antes = chamadas.length;
+  await consultar('77660000');
+  assert.equal(chamadas.length, antes, 'resultado guardado em memória');
+  await assert.rejects(consultar('99999999'), (e) => e.status === 404 && /CEP não encontrado/.test(e.message));
+  await assert.rejects(consultar('123'), (e) => e.status === 422);
+  const foraDoAr = criarConsultaCep({ buscar: async () => { throw new Error('sem rede'); } });
+  await assert.rejects(foraDoAr('77660000'), (e) => e.status === 503 && /preencha o endereço à mão/i.test(e.message));
+});

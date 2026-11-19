@@ -71,6 +71,7 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
     r.cTribMun ? campo('Código de tributação municipal', r.cTribMun) : null,
     campo('Descrição do serviço', r.descricao),
     (r.cNBS || ex.ibscbs?.grupo?.cNBS) ? campo('Item da NBS', r.cNBS || ex.ibscbs.grupo.cNBS) : null,
+    ...camposObra(r, nac),
   ]);
 
   const valores = [
@@ -162,6 +163,32 @@ export async function manterVinculos(repo, prestadorId, anterior, rascunhoOficia
  * trazido pela pessoa. Aí o leiaute e a assinatura não barram a leitura (uma versão nova do leiaute
  * não pode fazer a nota sumir do histórico); a chave continua tendo de bater com o conteúdo.
  */
+// Grupo serv/obra da NFS-e → dados da obra do rascunho (nota emitida fora do app, clonada depois).
+function obraDoXml(o) {
+  if (!o || typeof o !== 'object') return null;
+  const inscImobFisc = txt(o.inscImobFisc) || null;
+  if (txt(o.cObra)) return { tipo: 'cno', inscImobFisc, cno: somenteDigitos(txt(o.cObra)), cib: null, endereco: null };
+  if (txt(o.cCIB)) return { tipo: 'cib', inscImobFisc, cib: txt(o.cCIB), cno: null, endereco: null };
+  if (o.end && txt(o.end.CEP)) {
+    return { tipo: 'endereco', inscImobFisc, cib: null, cno: null,
+      endereco: { cep: somenteDigitos(txt(o.end.CEP)), municipioIbge: '', logradouro: txt(o.end.xLgr) || '', numero: txt(o.end.nro) || '', complemento: txt(o.end.xCpl) || '', bairro: txt(o.end.xBairro) || '' } };
+  }
+  return null;
+}
+
+// Dados da obra no roteiro do Emissor Nacional (bloco "Informações do imóvel/obra" da tela do serviço).
+function camposObra(r, nac) {
+  const o = nac?.grupoExigido === 'obra' ? r.obra : null;
+  if (!o) return [];
+  const e = o.endereco || {};
+  const ident = o.tipo === 'cib' ? [campo('Opção', 'Código do Cadastro Imobiliário Brasileiro - CIB', { copiar: false }), campo('CIB', o.cib)]
+    : o.tipo === 'cno' ? [campo('Opção', 'Código da obra (CNO/CEI)', { copiar: false }), campo('CNO/CEI', o.cno)]
+      : [campo('Opção', 'Endereço no Brasil', { copiar: false }),
+        campo('CEP da obra', String(e.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'), { copiar: e.cep, ajuda: 'Toque na lupa ao lado do CEP para o site preencher o município.' }),
+        campo('Logradouro da obra', e.logradouro), campo('Número', e.numero), e.complemento ? campo('Complemento', e.complemento) : null, campo('Bairro', e.bairro)];
+  return [...ident, o.inscImobFisc ? campo('Inscrição imobiliária fiscal', o.inscImobFisc) : null];
+}
+
 export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOficial = false } = {}) {
   if (typeof xml !== 'string' || xml.length < 200 || xml.length > 900_000) throw new ErroApp(422, 'Envie o arquivo XML da NFS-e baixado do Emissor Nacional.');
   let doc;
@@ -216,6 +243,7 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
       competencia: txt(dps.dCompet) || '',
       valor: vServ ? Number(vServ).toFixed(2) : '',
       localPrestacaoIbge: txt(dps.serv?.locPrest?.cLocPrestacao),
+      obra: obraDoXml(dps.serv?.obra),
       issRetido: !!tpRet && tpRet !== '1',
       pAliq: txt(dps.valores?.trib?.tribMun?.pAliq),
       revisar: [],

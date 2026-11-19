@@ -27,6 +27,29 @@ export function percentual(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Grupo da obra (Anexo I): obrigatório nos serviços de construção civil (E0370) — endereço da obra no Brasil, CIB
+// ou CNO/CEI, e a inscrição imobiliária (opcional). O CEP da obra é do município do local da prestação (E0380).
+export function validarObra(nota, add, { localPadrao = null } = {}) {
+  const o = nota.obra;
+  if (!o) {
+    add('obra', 'Serviço de obra: informe os dados da obra (endereço da obra, CIB ou CNO).', 'E0370');
+    return;
+  }
+  if (o.tipo === 'cib' && !/^[0-9A-Z]{8}$/.test(o.cib || '')) add('obra', 'O código CIB (Cadastro Imobiliário Brasileiro) tem 8 caracteres.', 'XSD');
+  if (o.tipo === 'cno' && !/^\d{12}$/.test(o.cno || '')) add('obra', 'O CNO (Cadastro Nacional de Obras) ou CEI tem 12 dígitos.', 'XSD');
+  if (o.tipo === 'endereco') {
+    const e = o.endereco || {};
+    const faltam = [!/^\d{8}$/.test(e.cep || '') && 'CEP', !e.logradouro && 'logradouro', !e.numero && 'número', !e.bairro && 'bairro'].filter(Boolean);
+    if (faltam.length) add('obra', `Endereço da obra: informe ${faltam.join(', ').replace(/, ([^,]*)$/, ' e $1')}.`, 'XSD');
+    // O município vem da consulta do CEP: precisa ser o do local da prestação (onde o ISS da obra é devido).
+    const local = nota.localPrestacaoIbge || localPadrao;
+    if (e.municipioIbge && local && e.municipioIbge !== local) {
+      const m = municipio(e.municipioIbge);
+      add('obra', `O CEP da obra é de ${m ? `${m.nome} - ${m.uf}` : 'outro município'}, mas o local da prestação está em outra cidade. Em obra, o local da prestação é o município da obra: ajuste um dos dois.`, 'E0380');
+    }
+  }
+}
+
 export function validarComum({ prestador, nota, hoje }) {
   const e = [];
   const add = (campo, mensagem, regra) => e.push({ campo, mensagem, regra });
@@ -46,7 +69,7 @@ export function validarComum({ prestador, nota, hoje }) {
   const s = servicoNacional(nota.cTribNac);
   if (!s) add('servico', 'Escolha um código de serviço da lista nacional.', 'E0310');
   else {
-    if (s.grupoExigido === 'obra') add('servico', 'Este serviço exige os dados da obra (CNO/CEI), ainda não disponíveis no Nota Sem Stress. Use o Emissor Nacional para ele.', 'Anexo I');
+    if (s.grupoExigido === 'obra') validarObra(nota, add, { localPadrao: prestador.municipioIbge });
     if (s.grupoExigido === 'atvEvento') add('servico', 'Este serviço exige os dados do evento, ainda não disponíveis no Nota Sem Stress. Use o Emissor Nacional para ele.', 'Anexo I');
     if (!s.incidencia || s.incidencia === 'OUTRO') add('servico', 'Este serviço tem regra de local especial não suportada nesta versão.', 'Anexo I');
   }

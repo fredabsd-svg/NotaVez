@@ -127,6 +127,8 @@ export async function clonarNota({ repo, db }, { usuarioId, prestador: p, origem
     clienteId: o.clienteId, tomador: o.tomador, servicoId: o.servicoId,
     cTribNac: o.cTribNac, cTribMun: o.cTribMun, cNBS: o.cNBS, descricao: o.descricao,
     competencia: hojeBrasilia(), valor: o.valor, localPrestacaoIbge: o.localPrestacaoIbge,
+    // Medições da mesma obra se repetem: os dados da obra seguem para a nova nota.
+    obra: o.obra ?? null,
     // Retenção costuma se repetir com o mesmo cliente; percentuais mudam todo mês → voltam ao valor do perfil.
     issRetido: !!o.issRetido, pAliq: null, pTotTribSN: null,
     // IBS/CBS acompanha o serviço; retenções federais: mantém quais são retidas, valores recalculados pelo usuário.
