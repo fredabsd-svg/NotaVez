@@ -20,6 +20,7 @@ import * as procurador from './views/procurador.js';
 import * as assistente from './views/assistente.js';
 import * as empresasLote from './views/empresas-lote.js';
 import * as backup from './views/backup.js';
+import * as email from './views/email.js';
 
 const rotas = [
   ['/entrar', entrar.tela],
@@ -33,6 +34,7 @@ const rotas = [
   ['/nota/:id/assistida', assistida.tela],
   ['/notas', historico.tela],
   ['/notas/:id', resultado.detalhe],
+  ['/notas/:id/email', email.enviar],
   ['/clientes', clientes.lista],
   ['/clientes/novo', clientes.formulario],
   ['/clientes/:id', clientes.formulario],
@@ -45,6 +47,7 @@ const rotas = [
   ['/empresas/nova', empresas.nova],
   ['/empresas/lote', empresasLote.tela],
   ['/backup', backup.tela],
+  ['/email', email.configurar],
   ['/procurador', procurador.tela],
   ['/tomadas', tomadas.lista],
   ['/tomadas/:id', tomadas.detalhe],
@@ -67,7 +70,7 @@ function lembrarEmpresa(id) {
 }
 
 // Telas que funcionam sem uma empresa escolhida.
-const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/empresas/lote', '/backup', '/procurador', '/assistente', '/assistente/configurar']);
+const SEM_EMPRESA = new Set(['/entrar', '/conta', '/instalar', '/empresas', '/empresas/nova', '/empresas/lote', '/backup', '/email', '/procurador', '/assistente', '/assistente/configurar']);
 
 export const estado = { conta: null, inicio: null };
 

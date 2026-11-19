@@ -2,7 +2,8 @@
 //
 // - Entra tudo o que reconstrói o estado da conta: empresas e parâmetros fiscais, certificados (inclusive o do
 //   escritório), clientes, serviços, notas (rascunhos, XML da DPS e da NFS-e, situação), notas tomadas com o XML,
-//   posição da leitura na Receita (NSU), assistente de IA (configuração e conversas), numeração das DPS e auditoria.
+//   posição da leitura na Receita (NSU), assistente de IA (configuração e conversas), e-mail das notas (configuração
+//   de envio e histórico do que foi enviado), numeração das DPS e auditoria.
 // - Não entra o que é da identidade e da sessão (e-mail, senha, gov.br, sessões, aparelhos), nem caches e limites.
 // - Campos cifrados com a chave mestra do servidor saem DECIFRADOS dentro do arquivo (que é inteiro cifrado com a
 //   senha do backup) e voltam cifrados com a chave do servidor que restaura: o backup serve até para um servidor
@@ -13,7 +14,8 @@ import { formatarDocumento } from '../util/documentos.js';
 import { ErroApp } from '../util/erros.js';
 import { canonico } from './formato.js';
 
-export const ESQUEMA = 1;
+// 2: e-mail das notas (configuração de envio da conta e histórico de envios de cada nota).
+export const ESQUEMA = 2;
 const T = 'texto'; const I = 'inteiro'; const C = 'cifrado'; const CJ = 'cifrado-json'; const CB = 'cifrado-binario';
 const col = (nome, tipo = T, obrigatoria = false, padrao = null) => ({ nome, tipo, obrigatoria, padrao });
 const texto = (v) => (v === null || v === undefined || v === '' ? null : typeof v === 'string' ? v : Buffer.from(v.$b64, 'base64').toString('utf8'));
@@ -45,6 +47,9 @@ export const TABELAS = [
       col('canal'), col('importada_conferida', I, true, 0)],
     indices: { id_dps_indice: (l) => (texto(l.id_dps_cifrado) ? indiceCego(texto(l.id_dps_cifrado)) : null),
       chave_indice: (l) => (texto(l.chave_cifrada) ? indiceCego(texto(l.chave_cifrada)) : null) } },
+  // E-mails enviados com cada nota (depois de notas: aponta para elas).
+  { nome: 'notas_emails', escopo: 'empresa', ordem: 'id', ignorar: [],
+    colunas: [col('id', T, true), col('prestador_id', T, true), col('nota_id', T, true), col('dados_cifrados', CJ, true), col('enviado_em', T, true)] },
   { nome: 'notas_tomadas', escopo: 'empresa', ordem: 'id', ignorar: ['chave_indice'],
     colunas: [col('id', T, true), col('prestador_id', T, true), col('ambiente', T, true), col('nsu', I, true), col('chave_cifrada', C, true),
       col('resumo_cifrado', CJ, true), col('n_nfse'), col('competencia'), col('emitida_em'), col('valor'), col('valor_liquido'),
@@ -63,6 +68,8 @@ export const TABELAS = [
   { nome: 'ia_conversas', escopo: 'conta', ordem: 'id', ignorar: ['usuario_id'],
     colunas: [col('id', T, true), col('prestador_id'), col('titulo_cifrado', C), col('mensagens_cifradas', CJ, true), col('pendentes_cifrados', CJ),
       col('versao', I, true, 1), col('criado_em', T, true), col('atualizado_em', T, true)] },
+  { nome: 'email_config', escopo: 'conta', ordem: 'atualizado_em', ignorar: ['usuario_id'],
+    colunas: [col('dados_cifrados', CJ, true), col('atualizado_em', T, true)] },
   // Numeração das DPS por emitente: na restauração ela só sobe (número já usado na Receita nunca volta).
   { nome: 'contadores_dps', escopo: 'derivada', ordem: 'documento', ignorar: [],
     colunas: [col('documento', T, true), col('ambiente', T, true), col('serie', T, true), col('ultimo', I, true)] },
@@ -99,9 +106,15 @@ async function colunasDoBanco(db, tabela) {
   return (await db.all("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?", tabela)).map((r) => r.c);
 }
 
-// Confere que o backup cobre todas as colunas do banco (coluna nova sem regra = backup incompleto: recusa).
+// Tabelas da conta que ficam de fora de propósito: identidade, sessão e o próprio histórico de backups.
+export const FORA_DO_BACKUP = ['sessoes', 'recuperacoes_senha', 'aparelhos_confiaveis', 'govbr_fluxos', 'backups', 'backup_operacoes'];
+
+// Confere que o backup cobre todas as colunas do banco (coluna nova sem regra = backup incompleto: recusa) e
+// toda tabela com dados de conta ou de empresa (tabela nova esquecida aqui também recusa).
 export async function conferirCobertura(db) {
   const faltando = [];
+  const comDono = await db.all("SELECT DISTINCT table_name AS t FROM information_schema.columns WHERE table_schema = 'public' AND column_name IN ('usuario_id', 'prestador_id')");
+  for (const { t } of comDono) if (!POR_NOME[t] && !FORA_DO_BACKUP.includes(t)) faltando.push(`${t} (tabela inteira)`);
   for (const t of TABELAS.filter((x) => x.escopo !== 'derivada')) {
     const conhecidas = new Set([...t.colunas.map((c) => c.nome), ...t.ignorar]);
     for (const c of await colunasDoBanco(db, t.nome)) if (!conhecidas.has(c)) faltando.push(`${t.nome}.${c}`);
@@ -235,12 +248,15 @@ export function validarConteudo(conteudo, { sentinelaAtual = indiceCego(SENTINEL
       vistos.add(k);
     }
   };
-  for (const t of ['prestadores', 'certificados', 'clientes', 'servicos', 'notas', 'notas_tomadas', 'certificados_procurador', 'ia_conversas']) unicos(t, (l) => l.id);
+  for (const t of ['prestadores', 'certificados', 'clientes', 'servicos', 'notas', 'notas_emails', 'notas_tomadas', 'certificados_procurador', 'ia_conversas']) unicos(t, (l) => l.id);
   if (tb.ia_config.length > 1) throw erro('Backup inválido: mais de uma configuração do assistente.');
+  if (tb.email_config.length > 1) throw erro('Backup inválido: mais de uma configuração de e-mail.');
   const empresas = new Set(tb.prestadores.map((p) => p.id));
-  for (const t of ['certificados', 'clientes', 'servicos', 'notas', 'notas_tomadas', 'distribuicao_dfe']) {
+  for (const t of ['certificados', 'clientes', 'servicos', 'notas', 'notas_emails', 'notas_tomadas', 'distribuicao_dfe']) {
     for (const l of tb[t]) if (!empresas.has(l.prestador_id)) throw erro(`Backup inválido: ${t} aponta para uma empresa que não está no backup.`);
   }
+  const notasDe = new Map(tb.notas.map((n) => [n.id, n.prestador_id]));
+  for (const l of tb.notas_emails) if (notasDe.get(l.nota_id) !== l.prestador_id) throw erro('Backup inválido: e-mail enviado aponta para uma nota que não está no backup.');
   unicos('clientes', (l) => { const d = json(l.dados_cifrados); return d?.documento ? `${l.prestador_id}:${d.documento}` : null; });
   unicos('notas', (l) => (texto(l.chave_cifrada) ? `${l.prestador_id}:${texto(l.chave_cifrada)}` : null));
   unicos('notas', (l) => (texto(l.id_dps_cifrado) ? `${l.ambiente}:${texto(l.id_dps_cifrado)}` : null));
@@ -314,7 +330,7 @@ export async function conflitosComOutrasContas(db, usuarioId, plano) {
     }
   };
   await emPartes(tb.prestadores.map((l) => l.id), (q) => `SELECT 'prestadores' AS t, id FROM prestadores WHERE id IN (${q}) AND usuario_id <> ?`);
-  for (const t of ['certificados', 'clientes', 'servicos', 'notas', 'notas_tomadas']) {
+  for (const t of ['certificados', 'clientes', 'servicos', 'notas', 'notas_emails', 'notas_tomadas']) {
     await emPartes(tb[t].map((l) => l.id), (q) => `SELECT '${t}' AS t, x.id FROM ${t} x JOIN prestadores p ON p.id = x.prestador_id WHERE x.id IN (${q}) AND p.usuario_id <> ?`);
   }
   for (const t of ['certificados_procurador', 'ia_conversas']) {
@@ -363,6 +379,7 @@ export async function aplicarPlano(db, usuarioId, plano, { sondas } = {}) {
   // 1) Apaga só o que é desta conta (as empresas levam em cascata certificados, clientes, serviços, notas, tomadas e NSU).
   await db.run('DELETE FROM ia_conversas WHERE usuario_id = ?', usuarioId);
   await db.run('DELETE FROM ia_config WHERE usuario_id = ?', usuarioId);
+  await db.run('DELETE FROM email_config WHERE usuario_id = ?', usuarioId);
   await db.run('DELETE FROM certificados_procurador WHERE usuario_id = ?', usuarioId);
   await db.run('DELETE FROM prestadores WHERE usuario_id = ?', usuarioId);
   await sondas?.aposApagar?.();

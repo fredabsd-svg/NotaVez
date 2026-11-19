@@ -458,5 +458,15 @@ export function criarRepositorio(db) {
       notaId, operacao, r.http ?? null, r.tipo, r.erros ? r.erros.map((e) => e.codigo).join(',') : (r.motivo || r.detalhe || null), r.ms ?? null, agora(),
     ),
     chamadas: async (notaId) => await db.all('SELECT operacao, http_status, resultado, codigos, criado_em FROM chamadas_api WHERE nota_id = ? ORDER BY id', notaId),
+
+    // E-mails enviados com a nota (mais recentes primeiro).
+    registrarEnvioEmail: async (prestadorId, notaId, dados) => {
+      const id = novoId();
+      const enviadoEm = agora();
+      await db.run('INSERT INTO notas_emails (id, prestador_id, nota_id, dados_cifrados, enviado_em) VALUES (?,?,?,?,?)', id, prestadorId, notaId, cifrar(dados), enviadoEm);
+      return { id, enviadoEm };
+    },
+    enviosEmail: async (prestadorId, notaId) => (await db.all('SELECT id, dados_cifrados, enviado_em FROM notas_emails WHERE prestador_id = ? AND nota_id = ? ORDER BY enviado_em DESC, id', prestadorId, notaId))
+      .map((r) => { const d = decifrarJson(r.dados_cifrados) || {}; return { id: r.id, enviadoEm: r.enviado_em, para: d.para || [], cco: d.cco || [], assunto: d.assunto || '', anexos: d.anexos || [] }; }),
   };
 }

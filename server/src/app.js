@@ -21,6 +21,9 @@ import { rotasEmpresas } from './routes/empresas.js';
 import { rotasTomadas } from './routes/tomadas.js';
 import { rotasIa } from './routes/ia.js';
 import { rotasBackup } from './routes/backup.js';
+import { rotasEmail } from './routes/email.js';
+import { criarServicoIa } from './ia/servico.js';
+import { criarServicoEmail } from './email/servico.js';
 import { criarConsultaCnpj } from './cadastro/consulta-cnpj.js';
 import { criarServicoTomadas } from './fiscal/tomadas.js';
 import { auditar } from './security/auditoria.js';
@@ -30,7 +33,8 @@ import { criarEntregaRecuperacao } from './security/recuperacao-entrega.js';
 
 export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = criarClienteSefin, logger = !config.dev, servirWeb = config.servirWeb,
   entregarRecuperacao = criarEntregaRecuperacao(), contaPublica = config.contaPublica, proxiesConfiaveis = config.proxiesConfiaveis,
-  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup } = {}) {
+  assetlinksArquivo = config.assetlinksArquivo, consultarCnpj = criarConsultaCnpj(), govbr = config.govbr, pausaEntreEmpresasMs, intervaloSincronizacaoMs, chamarIa, listarModelosIa, sondasBackup,
+  enviarEmail, emailRedeLocal } = {}) {
   const db = await abrirBanco(banco);
   const repo = criarRepositorio(db);
   const auth = criarAutenticacao(db, { entregarRecuperacao });
@@ -43,6 +47,9 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   const tomadas = criarServicoTomadas({ repo, emissao, registrar: (evento) => auditar(db, evento), ...(pausaEntreEmpresasMs !== undefined ? { pausaEntreEmpresasMs } : {}),
     ...(intervaloSincronizacaoMs !== undefined ? { intervaloMinimoMs: intervaloSincronizacaoMs } : {}) });
   app.decorate('ctx', { db, repo, auth, emissao, tomadas, limites, consultarCnpj, contaPublica, govbr: criarGovBr(db, govbr) });
+  // Assistente de IA da conta: usado no chat, na revisão do cadastro em lote e no texto do e-mail das notas.
+  app.ctx.ia = criarServicoIa(app.ctx, { ...(chamarIa ? { chamar: chamarIa } : {}), ...(listarModelosIa ? { listar: listarModelosIa } : {}), log: app.log });
+  app.ctx.email = criarServicoEmail(app.ctx, { ...(enviarEmail ? { enviar: enviarEmail } : {}), permitirRedeLocal: emailRedeLocal ?? (config.dev || config.demo) });
 
   // Decide pela rota que o roteador escolheu, não pelo texto da URL: o roteador
   // decodifica o caminho (ex.: "/%61pi/notas" cai em "/api/notas"), então checar
@@ -162,7 +169,8 @@ export async function criarApp({ banco = config.bancoArquivo, fabricaCliente = c
   await app.register(rotasTabelas, { prefix: '/api/tabelas' });
   await app.register(rotasEmpresas, { prefix: '/api' });
   await app.register(rotasTomadas, { prefix: '/api/tomadas' });
-  await app.register(rotasIa, { prefix: '/api/ia', chamarIa, listarModelosIa });
+  await app.register(rotasIa, { prefix: '/api/ia' });
+  await app.register(rotasEmail, { prefix: '/api' });
   await app.register(rotasBackup, { prefix: '/api/backup', sondasBackup });
 
   if (servirWeb) {

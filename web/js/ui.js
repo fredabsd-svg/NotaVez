@@ -92,6 +92,7 @@ export const ICONES = {
   ajustes: 'M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4',
   servico: 'M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
   busca: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5',
+  email: 'M3 5h18v14H3zM3 6l9 7 9-7',
 };
 
 // Campo de formulário com rótulo, ajuda e mensagem de erro associadas (acessível).

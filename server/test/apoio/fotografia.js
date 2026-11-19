@@ -7,6 +7,7 @@ import { decifrarBuffer, indiceCego } from '../../src/security/cripto.js';
 const TABELAS = {
   prestadores: 'conta', certificados: 'empresa', clientes: 'empresa', servicos: 'empresa', notas: 'empresa',
   notas_tomadas: 'empresa', distribuicao_dfe: 'empresa', certificados_procurador: 'conta', ia_config: 'conta', ia_conversas: 'conta',
+  notas_emails: 'empresa', email_config: 'conta',
 };
 const VOLATEIS = new Set(['usuario_id', 'ordem', 'documento_indice', 'id_dps_indice', 'chave_indice']);
 const cifrada = (k) => /_cifrad[oa]s?$/.test(k);

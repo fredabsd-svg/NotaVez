@@ -84,8 +84,22 @@ export async function resumoNota(repo, prestador, n, completo = false) {
       consultaPublica: n.chaveAcesso && amb?.consultaPublica ? `${amb.consultaPublica}${n.chaveAcesso}` : null,
     } : null,
     historicoEnvio: await repo.chamadas(n.id),
+    // E-mails já enviados com esta nota (só a data e os destinatários, para a tela).
+    emails: n.situacao === 'emitida' ? (await repo.enviosEmail(prestador.id, n.id)).map((e) => ({ enviadoEm: e.enviadoEm, para: e.para })) : [],
   };
 }
+
+// XML oficial da NFS-e emitida (busca na Receita se ainda não veio).
+export async function xmlOficial({ repo, emissao }, p, n) {
+  if (!n.temXml) n = await emissao.buscarXml(p, n.id);
+  const xml = await repo.xmlNfse(n.id);
+  if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
+  return { nota: n, xml };
+}
+
+// Marca d'água do DANFSe: simulação (demonstração), cancelada ou XML não conferido com a Receita.
+export const marcaDaguaDanfse = (n) => (config.demo ? 'SIMULAÇÃO' : n.situacao === 'cancelada' ? 'CANCELADA'
+  : n.canal === 'emissor_nacional' && !n.importadaConferida ? 'NÃO CONFERIDA' : null);
 
 // Mantém os dados do tomador iguais ao cadastro atual do cliente.
 export async function comTomadorAtual(repo, prestadorId, r) {
@@ -320,11 +334,9 @@ export async function rotasNotas(app) {
   // XML oficial da NFS-e (como devolvido pela Sefin Nacional).
   app.get('/notas/:id/xml', async (req, reply) => {
     const p = exigirPrestador(req);
-    let n = await repo.nota(p.id, req.params.id);
-    if (!n || !['emitida', 'cancelada'].includes(n.situacao)) throw new ErroApp(404, 'XML disponível apenas para notas emitidas.');
-    if (!n.temXml) n = await emissao.buscarXml(p, n.id);
-    const xml = await repo.xmlNfse(n.id);
-    if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
+    const atual = await repo.nota(p.id, req.params.id);
+    if (!atual || !['emitida', 'cancelada'].includes(atual.situacao)) throw new ErroApp(404, 'XML disponível apenas para notas emitidas.');
+    const { nota: n, xml } = await xmlOficial(app.ctx, p, atual);
     await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.xml_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/xml; charset=utf-8')
       // XML trazido pela pessoa e não conferido com a Receita: o nome do arquivo avisa.
@@ -334,15 +346,12 @@ export async function rotasNotas(app) {
   // DANFSe (NT 008) em PDF, gerado SÓ a partir do XML oficial da NFS-e.
   app.get('/notas/:id/danfse', async (req, reply) => {
     const p = exigirPrestador(req);
-    let n = await repo.nota(p.id, req.params.id);
-    if (!n || !['emitida', 'cancelada'].includes(n.situacao)) throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
-    if (!n.temXml) n = await emissao.buscarXml(p, n.id);
-    const xml = await repo.xmlNfse(n.id);
-    if (!xml) throw new ErroApp(503, 'O XML ainda não foi obtido da Receita. Tente novamente em instantes.');
+    const atual = await repo.nota(p.id, req.params.id);
+    if (!atual || !['emitida', 'cancelada'].includes(atual.situacao)) throw new ErroApp(404, 'O DANFSe só existe para notas emitidas.');
+    const { nota: n, xml } = await xmlOficial(app.ctx, p, atual);
     // No modo demonstração a Receita é simulada: o PDF leva a marca "SIMULAÇÃO".
     // XML que o app não conseguiu conferir com a Receita não vira DANFSe "limpo".
-    const naoConferida = n.canal === 'emissor_nacional' && !n.importadaConferida;
-    const pdf = await gerarDanfse(xml, { marcaDagua: config.demo ? 'SIMULAÇÃO' : n.situacao === 'cancelada' ? 'CANCELADA' : naoConferida ? 'NÃO CONFERIDA' : null });
+    const pdf = await gerarDanfse(xml, { marcaDagua: marcaDaguaDanfse(n) });
     await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.danfse_baixado', entidade: 'nota', entidadeId: n.id, ip: req.ip });
     return reply.header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `${req.query?.baixar === '1' ? 'attachment' : 'inline'}; filename="DANFSe-${n.chaveAcesso}.pdf"`).send(pdf);

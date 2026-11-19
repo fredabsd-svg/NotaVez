@@ -63,6 +63,7 @@ try {
   process.stdout.write(JSON.stringify({
     ok: true, conferido: { mesmaConta: conferido.body.mesmaConta, conteudo: conferido.body.conteudo.contagens },
     restaurado: restaurado.body.contagens, hashFotografia: hash(foto), fotografia: foto,
-    indices: await conferirIndices(app.ctx.db, usuarioId), ia: (await api('GET', '/api/ia/config')).body.config, funcionamento,
+    indices: await conferirIndices(app.ctx.db, usuarioId), ia: (await api('GET', '/api/ia/config')).body.config,
+    email: (await api('GET', '/api/email/config')).body.config, funcionamento,
   }));
 } finally { await app.close(); }
