@@ -4,18 +4,41 @@ Na nota emitida, **Enviar ao cliente** abre a tela de envio por e-mail:
 
 - **Para**: vem do cadastro do cliente (ou do e-mail que veio na própria NFS-e). Dá para trocar ou incluir outros, separados por vírgula (até 10 destinatários). Se o cliente não tem e-mail no cadastro, a tela oferece salvar o e-mail digitado no cadastro dele.
 - **Anexos**: o DANFSe (PDF, gerado do XML oficial, com as mesmas marcas d'água das outras telas) e o XML oficial da NFS-e. Os dois vêm marcados.
-- **Assunto e mensagem**: escritos pela IA configurada na conta (Assistente › Configurar). Os dois campos são editáveis. "Pedir outro texto" gera uma versão diferente, opcionalmente com uma preferência ("mais formal", "mais curto"...). Sem IA configurada, ou se o provedor falhar, entra um modelo simples com os mesmos dados.
+- **Assunto e mensagem**: saem do **modelo da conta** (veja abaixo), preenchido com os dados do XML oficial. A IA configurada na conta escreve só o tipo do serviço (ex.: "serviços contábeis") a partir da descrição da nota. Os dois campos são editáveis, e "Ajustar o texto com a IA" muda o texto atual conforme um pedido ("mencione que o boleto vai em outro e-mail"), mantendo o resto.
 - **Receber uma cópia**: a cópia vai em cópia oculta para o e-mail que envia.
 - Antes de enviar, a tela avisa se a mensagem (talvez editada) deixou de citar o número da nota, a competência, o valor ou a retenção. É só um aviso.
 - Depois do envio, a nota mostra "Enviada por e-mail em ... para ...", e a tela de envio lista os envios anteriores.
 
 Notas canceladas, rascunhos e notas de outra conta não podem ser enviados.
 
-## O texto escrito pela IA
+## O texto do e-mail (modelo)
 
-O modelo recebe **só os fatos tirados do XML oficial** da NFS-e (nunca o que foi digitado no rascunho): número, competência, data de emissão, valor do serviço, descrição, nome da empresa e do cliente, retenções (ISS retido pelo tomador ou pelo intermediário, IRRF, INSS, PIS/COFINS/CSLL conforme `tpRetPisCofins`) com o total retido e o valor líquido, os anexos marcados e o aviso de nota de teste (homologação) ou simulação. O e-mail do cliente não vai para a IA.
+O modelo padrão segue o jeito de escrever pedido pelo usuário:
 
-O system prompt (`server/src/email/nota.js`, `SISTEMA_EMAIL`) pede um e-mail humano, curto e cordial, que traga sempre o número, a competência, o valor, se houve ou não retenção (e quais, com valores e o líquido), os anexos e um agradecimento breve. Ele proíbe inventar informações (vencimento, dados bancários, prazos), expressões de e-mail automático ("Espero que este e-mail o encontre bem", "Prezado cliente", "Não hesite em entrar em contato"...), emojis, markdown e travessão longo. A resposta vem em JSON (`assunto`, `corpo`); o servidor limpa marcas que escapem e, se o formato vier errado, usa o modelo simples com um aviso.
+```
+{saudacao},
+
+A nota fiscal nº {numero}, referente aos {servicos} de {competencia}, segue emitida. O valor do serviço é de {valor}, {retencao}.
+
+{anexos}
+
+Agradeço pela confiança e pela parceria.
+```
+
+Exemplo do resultado: "Bom dia, / A nota fiscal nº 15, referente aos serviços contábeis de novembro de 2026, segue emitida. O valor do serviço é de R$ 400,00, sem retenção de impostos. / Os arquivos em PDF (DANFSe) e XML da NFS-e acompanham este e-mail. / Agradeço pela confiança e pela parceria." O assunto padrão é "Nota fiscal nº {numero} - {competencia}".
+
+Campos disponíveis:
+- `{saudacao}`: Bom dia, Boa tarde ou Boa noite, pela hora de Brasília.
+- `{numero}`, `{competencia}` ("novembro de 2026"), `{mes_ano}` ("11/2026") e `{valor}`.
+- `{retencao}`: "sem retenção de impostos" ou "com retenção de ISS de R$ 30,00 e IRRF de R$ 22,50, ficando o valor líquido em R$ 1.447,50". Vale ISS retido pelo tomador ou intermediário, IRRF, INSS e PIS/COFINS/CSLL conforme `tpRetPisCofins`.
+- `{valor_liquido}`.
+- `{anexos}`: frase dos anexos marcados. Sem anexos, a linha some.
+- `{cliente}` e `{empresa}`, com o nome sem caixa alta.
+- `{servicos}`: escrito pela IA ("serviços contábeis", "serviços de desenvolvimento de site"); sem IA, "serviços".
+
+Cada conta troca o seu em Conta › E-mail para enviar notas › **Texto do e-mail** (campo desconhecido é recusado; "Voltar ao modelo padrão" restaura). Nota de teste (homologação) ganha uma observação no fim.
+
+A IA da conta recebe só a descrição do serviço da nota e a do código de serviço, sem valores, nomes nem e-mails. A resposta é conferida: precisa ser uma expressão curta começando por "serviços", senão fica "serviços". No ajuste pedido pela pessoa (`server/src/email/nota.js`, `SISTEMA_AJUSTE`), a IA recebe o texto atual, o pedido e os fatos da nota. Ela deve mudar só o que foi pedido, sem alterar número, competência, valor, retenção e anexos, e sem inventar dados. Se a resposta vier fora do formato, o texto fica como estava.
 
 ## Configuração (Conta › E-mail para enviar notas)
 

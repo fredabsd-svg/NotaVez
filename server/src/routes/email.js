@@ -24,9 +24,12 @@ export async function rotasEmail(app) {
     return p;
   };
 
-  app.get('/email/config', async (req) => ({ config: await email.configPublica(req.usuario.id), oauth: emailOAuth.disponiveis() }));
+  app.get('/email/config', async (req) => ({ config: await email.configPublica(req.usuario.id), oauth: emailOAuth.disponiveis(),
+    modelo: { padrao: email.modeloPadrao, campos: email.camposModelo } }));
   app.put('/email/config', async (req) => ({ config: await email.salvarConfig(req.usuario.id, req.body || {}, req.ip) }));
   app.put('/email/config/preferencias', async (req) => ({ config: await email.salvarPreferencias(req.usuario.id, req.body || {}, req.ip) }));
+  // Modelo do texto do e-mail (assunto e mensagem com campos entre chaves).
+  app.put('/email/config/modelo', async (req) => ({ config: await email.salvarModelo(req.usuario.id, req.body || {}, req.ip) }));
   app.delete('/email/config', async (req) => ({ config: await email.removerConfig(req.usuario.id, req.ip) }));
   app.post('/email/config/testar', async (req) => {
     await limites.consumir(`email-teste:${req.usuario.id}`, 10, 10 * 60_000);
