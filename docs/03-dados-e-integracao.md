@@ -114,7 +114,7 @@ stateDiagram-v2
   pendente --> pendente: não encontrada e espera < 60 s ou tentativas > 3
   pendente --> enviando: não encontrada → reenvia a MESMA DPS assinada
   [*] --> emitida: sincronização com o ADN (emitida fora do app, XML oficial)
-  emitida --> cancelada: evento de cancelamento visto no ADN
+  emitida --> cancelada: evento de cancelamento visto no ADN, cancelada pelo app (e101101) ou substituída (DPS com subst)
   emitida --> [*]
   cancelada --> [*]
 ```

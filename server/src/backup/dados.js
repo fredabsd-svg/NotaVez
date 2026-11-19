@@ -44,7 +44,7 @@ export const TABELAS = [
       col('proxima_verificacao_em'), col('verificacoes', I, true, 0), col('serie'), col('n_dps'), col('id_dps_cifrado', C), col('dps_xml_cifrado', C),
       col('chave_cifrada', C), col('n_nfse'), col('nfse_xml_cifrado', C), col('erros_json'), col('alertas_json'), col('tentativas', I, true, 0),
       col('ultimo_envio_em'), col('emitida_em'), col('criado_em', T, true), col('atualizado_em', T, true), col('versao', I, true, 1),
-      col('canal'), col('importada_conferida', I, true, 0)],
+      col('canal'), col('importada_conferida', I, true, 0), col('cancelamento_cifrado', CJ)],
     indices: { id_dps_indice: (l) => (texto(l.id_dps_cifrado) ? indiceCego(texto(l.id_dps_cifrado)) : null),
       chave_indice: (l) => (texto(l.chave_cifrada) ? indiceCego(texto(l.chave_cifrada)) : null) } },
   // E-mails enviados com cada nota (depois de notas: aponta para elas).

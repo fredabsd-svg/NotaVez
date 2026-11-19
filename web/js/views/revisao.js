@@ -22,6 +22,16 @@ function textoObra(o) {
   return `${id || 'Endereço incompleto'}${o.inscImobFisc ? ` · Inscrição imobiliária ${o.inscImobFisc}` : ''}`;
 }
 
+// Retenções federais (INSS, IRRF, PIS/COFINS/CSLL) e o líquido estimado.
+function linhasRetencoes(r, valor, bloco) {
+  const rf = r.retencoesFederais || {};
+  const retidas = ['pis', 'cofins', 'csll'].filter((k) => rf[k]).map((k) => k.toUpperCase());
+  const totalRet = Number(rf.valorContribuicoes || 0) + Number(rf.irrf || 0) + Number(rf.cp || 0);
+  if (!totalRet) return [];
+  return [bloco(`Retenções federais: ${[rf.cp ? `INSS ${moeda(rf.cp)}` : null, rf.irrf ? `IRRF ${moeda(rf.irrf)}` : null, retidas.length ? `${retidas.join('/')} ${moeda(rf.valorContribuicoes)}` : null].filter(Boolean).join(' · ')}.`),
+    bloco(h('span', { class: 'suave' }, `Líquido estimado a receber: ${moeda(Number(valor) - totalRet)} (antes do ISS retido, se houver).`))];
+}
+
 function textoNaoOptante(p, r, ex, valor) {
   const pct = (v) => `${Number(v).toFixed(2).replace('.', ',')}%`;
   const bloco = (...x) => h('span', { style: 'display:block;margin-top:4px' }, ...x);
@@ -35,13 +45,7 @@ function textoNaoOptante(p, r, ex, valor) {
     partes.push(bloco(h('span', { class: 'suave' }, `PIS/COFINS: CST ${pc.cst} (${pc.descricao})`,
       pc.vPis !== null && pc.vPis !== undefined ? ` — PIS ${moeda(pc.vPis)}, COFINS ${moeda(pc.vCofins)}` : '')));
   }
-  const rf = r.retencoesFederais || {};
-  const retidas = ['pis', 'cofins', 'csll'].filter((k) => rf[k]).map((k) => k.toUpperCase());
-  const totalRet = Number(rf.valorContribuicoes || 0) + Number(rf.irrf || 0) + Number(rf.cp || 0);
-  if (totalRet) {
-    partes.push(bloco(`Retenções federais: ${[retidas.length ? `${retidas.join('/')} ${moeda(rf.valorContribuicoes)}` : null, rf.irrf ? `IRRF ${moeda(rf.irrf)}` : null, rf.cp ? `INSS ${moeda(rf.cp)}` : null].filter(Boolean).join(' · ')}.`),
-    bloco(h('span', { class: 'suave' }, `Líquido estimado a receber: ${moeda(Number(valor) - totalRet)} (antes do ISS retido, se houver).`)));
-  }
+  partes.push(...linhasRetencoes(r, valor, bloco));
   const ibs = ex?.ibscbs?.grupo;
   partes.push(bloco(h('span', { class: 'suave' }, ibs
     ? `IBS/CBS: NBS ${ibs.cNBS}, classificação ${ibs.cClassTrib} (CST ${ibs.CST}), operação ${ibs.cIndOp}, uso pessoal: ${ibs.indFinal === '1' ? 'sim' : 'não'}. Valores calculados pela Receita.`
@@ -64,6 +68,7 @@ function textoTributacao(p, r, ex, valor) {
   else if (a?.modo === 'opcional') partes.push(r.pAliq ? `Alíquota do ISS na nota: ${pct(r.pAliq)}. ` : `Alíquota não vai na nota. ${a.motivo} `);
   const tot = r.pTotTribSN ?? p.pTotTribSN;
   partes.push(h('span', { class: 'suave', style: 'display:block' }, `Tributos aproximados (Simples): ${tot ? pct(tot) : 'falta informar'}`));
+  partes.push(...linhasRetencoes(r, valor, (...x) => h('span', { style: 'display:block;margin-top:4px' }, ...x)));
   return partes;
 }
 
@@ -131,6 +136,7 @@ export async function tela({ id }) {
       perfil.certificado?.procurador ? linha('Assinatura', 'Por procuração eletrônica', h('br'), h('span', { class: 'suave' }, `Certificado do escritório: ${perfil.certificado.titular || ''}`)) : null,
       linha('Cliente (tomador)', t ? `${t.nome}` : '—', t ? h('br') : null, t ? h('span', { class: 'suave' }, `${t.tipo} ${t.documentoExibicao}`) : null,
         end?.cep ? h('span', { class: 'suave', style: 'display:block' }, `${end.logradouro}, ${end.numero}${end.complemento ? ` ${end.complemento}` : ''} · ${end.bairro} · CEP ${cep(end.cep)}`) : null),
+      r.substituicao?.chave ? linha('Substitui', `NFS-e nº ${r.substituicao.nNfse || '—'}: ao emitir esta, a Receita cancela a original.`) : null,
       linha('Serviço (lista nacional)', nota.servicoNacional ? `${codigoServico(nota.servicoNacional.codigo)} — ${nota.servicoNacional.descricao}` : '—'),
       linha('Descrição na nota', h('span', { style: 'white-space:pre-wrap;font-weight:400' }, r.descricao || '—')),
       linha('Competência', data(r.competencia)),

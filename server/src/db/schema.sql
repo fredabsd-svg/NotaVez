@@ -246,6 +246,7 @@ CREATE INDEX IF NOT EXISTS ix_ia_conversas_usuario ON ia_conversas(usuario_id, a
 ALTER TABLE notas ADD COLUMN IF NOT EXISTS ordem BIGSERIAL;             -- ordem de criação (desempate das listas)
 ALTER TABLE notas ADD COLUMN IF NOT EXISTS canal TEXT;                  -- NULL = API pelo app; 'emissor_nacional' | 'sincronizada'
 ALTER TABLE notas ADD COLUMN IF NOT EXISTS importada_conferida INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE notas ADD COLUMN IF NOT EXISTS cancelamento_cifrado TEXT;  -- {tipo: cancelamento|substituicao, em, cMotivo, xMotivo, eventoXml, substituta}
 ALTER TABLE prestadores ADD COLUMN IF NOT EXISTS usa_procuracao INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS tipo_documento TEXT;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS documento_cifrado TEXT;

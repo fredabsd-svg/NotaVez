@@ -13,6 +13,8 @@ Resultado da última execução: **38 aprovados, 0 falhas**.
 - Id da DPS com 45 posições (TSIdDPS), para CNPJ e CPF.
 - **A DPS do MEI passa no XSD oficial** e respeita E0121, E0600, E0583, E0710, E0174 e E0676.
 - As regras MEI barram antes do envio: E0015, E0235, E0206, E0202, E0310 e descrição acima de 1.000 caracteres.
+- Cancelamento: pedido de evento assinado e validado no XSD, recusa da Receita explicada (nota continua emitida), resposta perdida conferida pela consulta do evento (um pedido só), nota cancelada não cancela de novo. Substituição: rascunho igual ligado à original (reaproveitado se pedir de novo), DPS com `subst` antes de `prest`, original marcada "Substituída" com link para a substituta; chave de outra empresa barrada.
+- Retenções federais na ME/EPP: INSS (11% da construção) sozinho no `tribFed`; com PIS/COFINS/CSLL, `piscofins` com CST 00 e o tipo de retenção; cliente pessoa física, valores fora da faixa e contribuições sem valor barrados (E0699, E0700, E0720, E0724).
 - Construção civil (grupo "obra"): sem os dados da obra, E0370 antes do envio; endereço incompleto e CEP de outro município que não o local da prestação (E0380) também; com endereço, CIB ou CNO, o grupo `serv/obra` vai na DPS (validada no XSD) e volta na importação e no clone.
 - Escolha do pacote de regras: MEI 2026 aceito; ME/EPP e competência de 2027 bloqueados com explicação.
 - Certificado A1: leitura, CNPJ no OID ICP-Brasil, senha errada, certificado vencido, CNPJ diferente do perfil; **assinatura XMLDSig verificada**, adulteração detectada e DPS assinada válida no XSD.

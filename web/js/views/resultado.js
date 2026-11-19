@@ -1,4 +1,4 @@
-import { h, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, situacaoSelo, codigoServico } from '../ui.js';
+import { h, moeda, data, dataHora, chaveFormatada, aviso, icone, ICONES, situacaoSelo, codigoServico, campo } from '../ui.js';
 import { api, ErroApi, cabecalhosIdentidade, comEmpresa } from '../api.js';
 import { ir, estado } from '../app.js';
 
@@ -17,6 +17,61 @@ async function abrirDanfse(e, n) {
     aba?.close();
     aviso(err.message);
   }
+}
+
+const MOTIVOS_SUBST = [['99', 'Outros (correção de valor, descrição, cliente…)'], ['01', 'Desenquadramento do Simples Nacional'], ['02', 'Enquadramento no Simples Nacional'],
+  ['03', 'Inclusão retroativa de imunidade/isenção'], ['04', 'Exclusão retroativa de imunidade/isenção'], ['05', 'Rejeição da NFS-e pelo tomador ou intermediário']];
+const MOTIVOS_CANC = [['1', 'Erro na emissão'], ['2', 'Serviço não prestado'], ['9', 'Outros']];
+const recarregar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+// Corrigir uma NFS-e emitida: substituir (nota nova corrigida; a Receita cancela esta) ou cancelar (definitivo).
+function blocoCorrigir(n) {
+  // Substituir
+  const sMotivo = campo({ rotulo: 'Motivo da substituição', valor: '99', opcoes: MOTIVOS_SUBST });
+  const sDesc = campo({ rotulo: 'O que está sendo corrigido', area: true, valor: '', ajuda: 'De 15 a 255 caracteres (obrigatório em "Outros"). Ex.: valor corrigido conforme medição aprovada.', atributos: { maxlength: 255, rows: 3 } });
+  const btnSubst = h('button', { class: 'btn btn-primario', type: 'submit' }, icone(ICONES.clonar), 'Criar a nota substituta');
+  const formSubst = h('form', { novalidate: true, onsubmit: async (e) => {
+    e.preventDefault();
+    btnSubst.disabled = true;
+    try {
+      const { nota } = await api('POST', `/api/notas/${n.id}/substituir`, { cMotivo: sMotivo.entrada.value, xMotivo: sDesc.entrada.value.trim() });
+      aviso('Nota substituta criada com os mesmos dados. Corrija o que precisar e emita.', 7000);
+      ir(`/nota/${nota.id}`);
+    } catch (err) {
+      if (err instanceof ErroApi && err.dados?.campos) { sMotivo.erro(err.dados.campos.cMotivo); sDesc.erro(err.dados.campos.xMotivo); } else aviso(err.message, 7000);
+    } finally { btnSubst.disabled = false; }
+  } }, sMotivo, sDesc, btnSubst);
+
+  // Cancelar
+  const cMotivo = campo({ rotulo: 'Motivo do cancelamento', valor: '1', opcoes: MOTIVOS_CANC });
+  const cDesc = campo({ rotulo: 'Explique o motivo', area: true, valor: '', ajuda: 'De 15 a 255 caracteres. Vai para a Receita junto com o pedido.', atributos: { maxlength: 255, rows: 3 } });
+  const certeza = h('input', { type: 'checkbox', id: `cancelar-${n.id}` });
+  const erroCanc = h('div', { class: 'cartao cartao-erro', role: 'alert', hidden: true });
+  const btnCanc = h('button', { class: 'btn btn-perigo', type: 'submit' }, 'Cancelar esta NFS-e');
+  const formCanc = h('form', { novalidate: true, onsubmit: async (e) => {
+    e.preventDefault();
+    erroCanc.hidden = true;
+    if (!certeza.checked) { aviso('Marque a confirmação para cancelar.'); return; }
+    btnCanc.disabled = true; btnCanc.textContent = 'Pedindo o cancelamento à Receita…';
+    try {
+      await api('POST', `/api/notas/${n.id}/cancelar`, { confirmacao: 'CANCELAR', cMotivo: cMotivo.entrada.value, xMotivo: cDesc.entrada.value.trim() });
+      aviso('NFS-e cancelada na Receita.', 6000);
+      recarregar();
+    } catch (err) {
+      if (err instanceof ErroApi && err.dados?.campos) { cMotivo.erro(err.dados.campos.cMotivo); cDesc.erro(err.dados.campos.xMotivo); }
+      erroCanc.replaceChildren(h('strong', {}, err.message), err.dados?.erros?.length ? h('ul', {}, err.dados.erros.map((x) => h('li', {}, x.mensagem, x.codigo ? ` (${x.codigo})` : '', x.proximoPasso ? h('span', { class: 'suave', style: 'display:block' }, `O que fazer: ${x.proximoPasso}`) : null))) : null);
+      erroCanc.hidden = false;
+    } finally { btnCanc.disabled = false; btnCanc.textContent = 'Cancelar esta NFS-e'; }
+  } }, cMotivo, cDesc, h('label', { class: 'caixa', for: `cancelar-${n.id}` }, certeza, h('span', {}, 'Entendo que o cancelamento é definitivo: a NFS-e deixa de valer na Receita.')), erroCanc, btnCanc);
+
+  return h('section', { class: 'corrigir-nota' },
+    h('h3', {}, 'Corrigir esta nota'),
+    h('details', {}, h('summary', {}, 'Substituir nota'),
+      h('p', { class: 'suave' }, 'Para corrigir valor, descrição, cliente ou tributos: o app cria uma nota nova com os mesmos dados para você ajustar. Ao emitir a nova, a Receita cancela esta automaticamente (cancelamento por substituição).'),
+      formSubst),
+    h('details', {}, h('summary', {}, 'Cancelar nota'),
+      h('p', { class: 'suave' }, 'Só quando a nota não deveria existir (serviço não prestado, emitida em duplicidade). Se algo só precisa de correção, prefira substituir. O município pode limitar o prazo para cancelar.'),
+      formCanc));
 }
 
 // Depois de emitir, a próxima ação vem primeiro: enviar ao cliente; PDF e XML ao lado; dados depois.
@@ -39,6 +94,8 @@ function blocoEmitida(n, detalhe) {
       h('div', {}, h('dt', {}, 'Chave de acesso'), h('dd', { class: 'chave' }, chaveFormatada(n.chaveAcesso)),
         h('button', { class: 'btn btn-pequeno btn-texto', type: 'button', onclick: async () => { await navigator.clipboard?.writeText(n.chaveAcesso); aviso('Chave copiada.'); } }, icone(ICONES.copiar), 'Copiar chave'))),
     n.documentos?.consultaPublica ? h('a', { class: 'btn btn-texto', href: n.documentos.consultaPublica, target: '_blank', rel: 'noopener' }, icone(ICONES.abrir), 'Conferir na Consulta Pública') : null,
+    n.substitui ? h('p', { class: 'cartao' }, 'Esta nota substitui a ', n.substitui.notaId ? h('a', { href: `#/notas/${n.substitui.notaId}` }, `NFS-e nº ${n.substitui.nNfse || ''}`) : `NFS-e nº ${n.substitui.nNfse || ''}`, ` (${n.substitui.motivo || 'substituição'}).`) : null,
+    detalhe ? blocoCorrigir(n) : null,
   ];
 }
 
@@ -46,7 +103,7 @@ function montar(n, { detalhe = false } = {}) {
   const icones = { emitida: '✓', rejeitada: '✕', pendente: '…', enviando: '…', rascunho: '!', cancelada: '✕' };
   const titulos = {
     emitida: n.canal === 'emissor_nacional' ? 'Emitida no Emissor Nacional' : n.canal === 'sincronizada' ? 'Emitida fora do app' : estado.demo ? 'Emitida (simulação)' : 'Emitida',
-    cancelada: 'Cancelada',
+    cancelada: n.cancelamento?.tipo === 'substituicao' ? 'Substituída' : 'Cancelada',
     rejeitada: 'Rejeitada',
     pendente: 'Pendente de confirmação',
     enviando: 'Pendente de confirmação',
@@ -56,7 +113,7 @@ function montar(n, { detalhe = false } = {}) {
     // XML trazido pela pessoa: o app não falou com a Receita sobre esta nota.
     // XML trazido pela pessoa ou vindo da Receita na sincronização: o app não emitiu esta nota.
     emitida: n.canal === 'emissor_nacional' || n.canal === 'sincronizada' ? n.aviso : 'A Receita confirmou a sua NFS-e. Envie ao cliente por e-mail.',
-    cancelada: 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais. O XML e o DANFSe ficam guardados, com a marca "CANCELADA".',
+    cancelada: `${n.cancelamento ? n.aviso : 'Esta NFS-e foi cancelada na Receita. Ela não vale como nota fiscal e não entra nos totais.'} O XML e o DANFSe ficam guardados, com a marca "CANCELADA".`,
     rejeitada: 'A Receita recusou. Nenhuma nota fiscal foi emitida. Veja o motivo, corrija e envie de novo.',
     pendente: 'A Receita não confirmou a tempo. A nota pode ter sido emitida ou não. NÃO emita de novo: vamos consultar a Receita antes de qualquer reenvio.',
     enviando: 'Aguardando a resposta da Receita. Não emita de novo.',
@@ -66,6 +123,12 @@ function montar(n, { detalhe = false } = {}) {
   if (n.situacao === 'emitida') acoes.push(...blocoEmitida(n, detalhe));
   // Cancelada: os documentos continuam à mão para conferência, sem o atalho de enviar ao cliente.
   if (n.situacao === 'cancelada') {
+    const c = n.cancelamento;
+    if (c?.tipo === 'substituicao' && c.substituta) {
+      acoes.push(h('p', { class: 'cartao' }, 'Substituída pela ', h('a', { href: `#/notas/${c.substituta.id}` }, `NFS-e nº ${c.substituta.nNfse || ''}`), ` em ${dataHora(c.em)}${c.motivo ? ` (${c.motivo})` : ''}.`));
+    } else if (c?.tipo === 'cancelamento') {
+      acoes.push(h('p', { class: 'cartao' }, `Cancelada pelo app em ${dataHora(c.em)}. Motivo: ${c.motivo}${c.descricao ? ` — ${c.descricao}` : ''}.`));
+    }
     acoes.push(h('div', { class: 'acoes-par' },
       h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/danfse`), target: '_blank', rel: 'noopener', onclick: (e) => abrirDanfse(e, n) }, icone(ICONES.documento), 'Ver DANFSe'),
       h('a', { class: 'btn', href: comEmpresa(`/api/notas/${n.id}/xml`), download: `NFSe-${n.chaveAcesso}.xml` }, icone(ICONES.baixar), 'Baixar XML')),

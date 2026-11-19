@@ -12,6 +12,15 @@ const ALG = {
 const certBase64 = (pem) => pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
 
 export function assinarDps(xml, { chavePem, certPem }) {
+  return assinarElemento(xml, 'infDPS', { chavePem, certPem });
+}
+
+// Pedido de registro de evento (cancelamento): mesma assinatura, na referência ao Id de infPedReg.
+export function assinarPedidoEvento(xml, { chavePem, certPem }) {
+  return assinarElemento(xml, 'infPedReg', { chavePem, certPem });
+}
+
+function assinarElemento(xml, elemento, { chavePem, certPem }) {
   const sig = new SignedXml({
     privateKey: chavePem,
     publicCert: certPem,
@@ -20,11 +29,11 @@ export function assinarDps(xml, { chavePem, certPem }) {
     getKeyInfoContent: () => `<X509Data><X509Certificate>${certBase64(certPem)}</X509Certificate></X509Data>`,
   });
   sig.addReference({
-    xpath: "//*[local-name(.)='infDPS']",
+    xpath: `//*[local-name(.)='${elemento}']`,
     transforms: ['http://www.w3.org/2000/09/xmldsig#enveloped-signature', ALG.c14n],
     digestAlgorithm: ALG.digest,
   });
-  sig.computeSignature(xml, { location: { reference: "//*[local-name(.)='infDPS']", action: 'after' } });
+  sig.computeSignature(xml, { location: { reference: `//*[local-name(.)='${elemento}']`, action: 'after' } });
   return sig.getSignedXml();
 }
 

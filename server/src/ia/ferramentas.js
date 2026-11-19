@@ -57,7 +57,7 @@ const camposNota = {
   pAliq: { type: 'string', description: 'Alíquota do ISS em %, ex.: "2.00". Só quando a validação disser que é obrigatória.' },
   pTotTribSN: { type: 'string', description: 'Simples Nacional: % aproximado de tributos desta nota (alíquota efetiva). Vazio = usa o do perfil.' },
   retencoesFederais: {
-    type: 'object', description: 'Lucro Presumido/Real com cliente CNPJ: retenções federais na fonte.',
+    type: 'object', description: 'Retenções federais na fonte feitas pelo cliente CNPJ (Lucro Presumido/Real e ME/EPP do Simples; MEI não tem). Ex.: INSS de 11% sobre a mão de obra em construção civil e cessão de mão de obra (cp).',
     properties: {
       pis: { type: 'boolean' }, cofins: { type: 'boolean' }, csll: { type: 'boolean' },
       valorContribuicoes: { type: 'string', description: 'Soma em R$ do PIS+COFINS+CSLL retidos (NT 007).' },

@@ -820,3 +820,9 @@ body.sem-abas .lote-acoes-finais, body.sem-empresa .lote-acoes-finais { bottom: 
 .opcoes-obra { border: 0; padding: 0; margin: var(--esp-2) 0; }
 .opcoes-obra .caixa { margin: var(--esp-2) 0; }
 .opcoes-obra input[type="radio"] { width: 22px; height: 22px; min-height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--azul); }
+.ret-titulo { margin: var(--esp-3) 0 var(--esp-1); font-size: var(--fs-15); }
+
+/* Corrigir nota emitida: substituir ou cancelar */
+.corrigir-nota { margin-top: var(--esp-4); }
+.corrigir-nota details { border-top: 1px solid var(--borda, #d0d5dd); padding: var(--esp-2) 0; }
+.corrigir-nota summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; color: var(--azul); }

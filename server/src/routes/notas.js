@@ -4,10 +4,12 @@ import { servicoNacional, municipio } from '../fiscal/tabelas.js';
 import { ambientesSefin, config } from '../config.js';
 import { gerarDanfse } from '../fiscal/danfse/index.js';
 import { mascararDocumento, formatarDocumento } from '../util/documentos.js';
-import { ErroApp, naoEncontrado } from '../util/erros.js';
+import { ErroApp, naoEncontrado, invalido } from '../util/erros.js';
 import { auditar } from '../security/auditoria.js';
 import { exigirPrestador, perfilPublico } from './perfil.js';
 import { roteiroEmissor, lerNfseImportada, manterVinculos } from '../fiscal/assistida.js';
+import { MOTIVOS_CANCELAMENTO } from '../fiscal/dps.js';
+import { MOTIVOS_SUBSTITUICAO } from '../util/entrada.js';
 
 const ROTULOS = {
   rascunho: { rotulo: 'Rascunho', aviso: 'Ainda não é nota fiscal.' },
@@ -50,6 +52,11 @@ export async function resumoNota(repo, prestador, n, completo = false) {
     // Emitida fora do app e trazida da própria Receita na sincronização.
     ...(n.situacao === 'emitida' && n.canal === 'sincronizada'
       ? { rotulo: 'Emitida (fora do app)', aviso: 'Emitida fora deste app (no Emissor Nacional ou em outro sistema). O app trouxe a versão oficial da Receita na sincronização.' } : {}),
+    // Cancelada pelo app (evento) ou substituída por outra NFS-e emitida pelo app.
+    ...(n.situacao === 'cancelada' && n.cancelamento?.tipo === 'substituicao'
+      ? { rotulo: 'Substituída', aviso: `Esta NFS-e foi substituída pela NFS-e nº ${n.cancelamento.substituta?.nNfse || ''} e não vale mais como nota fiscal. Ela não entra nos totais.`.replace('nº  e', 'e') } : {}),
+    ...(n.situacao === 'cancelada' && n.cancelamento?.tipo === 'cancelamento'
+      ? { aviso: `Esta NFS-e foi cancelada pelo app (${MOTIVOS_CANCELAMENTO[n.cancelamento.cMotivo] || 'motivo informado'}). Ela não vale como nota fiscal e não entra nos totais.` } : {}),
     importadaConferida: n.canal === 'emissor_nacional' ? n.importadaConferida : undefined,
     canal: n.canal,
     clienteNome: r.tomador?.nome || null,
@@ -84,6 +91,10 @@ export async function resumoNota(repo, prestador, n, completo = false) {
       consultaPublica: n.chaveAcesso && amb?.consultaPublica ? `${amb.consultaPublica}${n.chaveAcesso}` : null,
     } : null,
     historicoEnvio: await repo.chamadas(n.id),
+    cancelamento: n.cancelamento ? { tipo: n.cancelamento.tipo, em: n.cancelamento.em, motivo: n.cancelamento.tipo === 'substituicao' ? MOTIVOS_SUBSTITUICAO[n.cancelamento.cMotivo] : MOTIVOS_CANCELAMENTO[n.cancelamento.cMotivo],
+      descricao: n.cancelamento.xMotivo || null, substituta: n.cancelamento.substituta ? { id: n.cancelamento.substituta.id, nNfse: n.cancelamento.substituta.nNfse } : null } : null,
+    // Esta nota substitui outra (grupo subst da DPS).
+    substitui: r.substituicao ? { notaId: r.substituicao.notaId, nNfse: r.substituicao.nNfse, motivo: MOTIVOS_SUBSTITUICAO[r.substituicao.cMotivo] } : null,
     // E-mails já enviados com esta nota (só a data e os destinatários, para a tela).
     emails: n.situacao === 'emitida' ? (await repo.enviosEmail(prestador.id, n.id)).map((e) => ({ enviadoEm: e.enviadoEm, para: e.para })) : [],
   };
@@ -331,6 +342,46 @@ export async function rotasNotas(app) {
     await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.importada', entidade: 'nota', entidadeId: id, detalhes: { assinada: dados.assinatura?.presente ?? true, conferida }, ip: req.ip });
     if (rascunho.clienteId) await repo.marcarClienteUsado(p.id, rascunho.clienteId);
     return { nota: await resumoNota(repo, p, await repo.nota(p.id, id), true), assinatura: dados.assinatura, conferida };
+  });
+
+  // Cancelamento da NFS-e (evento e101101 na Receita). Definitivo: a tela confirma antes.
+  app.post('/notas/:id/cancelar', async (req) => {
+    const p = exigirPrestador(req);
+    if (req.body?.confirmacao !== 'CANCELAR') throw new ErroApp(422, 'Confirme o cancelamento.');
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'cancelamento.solicitado', entidade: 'nota', entidadeId: req.params.id, ip: req.ip });
+    const n = await emissao.cancelar(p, req.params.id, { cMotivo: String(req.body?.cMotivo ?? ''), xMotivo: req.body?.xMotivo });
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'nota.cancelada', entidade: 'nota', entidadeId: n.id, detalhes: { cMotivo: String(req.body?.cMotivo) }, ip: req.ip });
+    return { nota: await resumoNota(repo, p, n, true) };
+  });
+
+  // Substituição: cria um rascunho igual ao da NFS-e emitida, ligado a ela. Ao emitir esse rascunho, a Receita
+  // gera a nota nova e cancela a original (cancelamento por substituição).
+  app.post('/notas/:id/substituir', async (req) => {
+    const p = exigirPrestador(req);
+    const o = await repo.nota(p.id, req.params.id);
+    if (!o) throw naoEncontrado('Nota');
+    if (o.situacao !== 'emitida' || !o.chaveAcesso) throw new ErroApp(409, 'Só dá para substituir uma NFS-e emitida.');
+    const cMotivo = String(req.body?.cMotivo ?? '');
+    const xMotivo = String(req.body?.xMotivo ?? '').replace(/\s+/g, ' ').trim();
+    const erros = {};
+    if (!MOTIVOS_SUBSTITUICAO[cMotivo]) erros.cMotivo = 'Escolha o motivo da substituição.';
+    if (cMotivo === '99' && xMotivo.length < 15) erros.xMotivo = 'Explique o motivo com pelo menos 15 caracteres.';
+    if (xMotivo && (xMotivo.length < 15 || xMotivo.length > 255)) erros.xMotivo = 'A descrição do motivo tem de 15 a 255 caracteres.';
+    if (Object.keys(erros).length) throw invalido('Confira o pedido de substituição.', erros);
+    const substituicao = { notaId: o.id, chave: o.chaveAcesso, nNfse: o.nNfse || null, cMotivo, xMotivo: xMotivo || null };
+    // Já existe um rascunho substituindo esta nota: reaproveita (atualiza o motivo) em vez de criar outro.
+    for (const situacao of ['rascunho', 'rejeitada']) {
+      for (const x of await repo.listarNotas(p.id, { situacao, limite: 300 })) {
+        if (x.rascunho?.substituicao?.chave === o.chaveAcesso) {
+          await repo.atualizarRascunho(p.id, x.id, { ...x.rascunho, substituicao }, x.versao);
+          return { nota: await resumoNota(repo, p, await repo.nota(p.id, x.id), true), reaproveitado: true };
+        }
+      }
+    }
+    const r = await comTomadorAtual(repo, p.id, { ...lerRascunho(o.rascunho), substituicao, revisar: [] });
+    const id = await repo.criarNota(p.id, r, { origemId: o.id });
+    await auditar(db, { usuarioId: req.usuario.id, prestadorId: p.id, acao: 'substituicao.iniciada', entidade: 'nota', entidadeId: id, detalhes: { substitui: o.id, cMotivo }, ip: req.ip });
+    return { nota: await resumoNota(repo, p, await repo.nota(p.id, id), true) };
   });
 
   // XML oficial da NFS-e (como devolvido pela Sefin Nacional).

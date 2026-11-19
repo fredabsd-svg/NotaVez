@@ -11,6 +11,7 @@
 //                      obrigatória se não estiver (E0640) — por isso consultamos os parâmetros municipais.
 //   Nunca acima de 5% (E0595).
 import { validarComum, validarConvenioEmissor, tomadorIdentificado, percentual, municipioIncidencia } from './comum.js';
+import { retencoes, camposRetencao, validarRetencoes, totalRetido, haRetencaoFederal } from './retencoes.js';
 import { municipio } from '../tabelas.js';
 
 const fmt2 = (n) => Number(n).toFixed(2);
@@ -43,6 +44,16 @@ function exigenciaAliquota(ctx) {
   return { modo: 'indefinida', regra: 'E0166', motivo: 'Informe no perfil o regime de apuração do Simples.' };
 }
 
+// Retenções federais feitas pelo cliente (ex.: INSS de 11% na construção civil e na cessão de mão de obra; IRRF,
+// PIS, COFINS e CSLL quando o cliente reter). O Simples não apura PIS/COFINS na nota: o grupo piscofins só vai
+// quando houver PIS/COFINS/CSLL retidos, com CST 00 ("Nenhum") e o tipo de retenção (NT 007).
+function tribFedSimples(nota) {
+  const ret = retencoes(nota);
+  if (!haRetencaoFederal(ret)) return undefined;
+  const { tpRetPisCofins, ...retidos } = camposRetencao(ret);
+  return { ...(tpRetPisCofins !== '0' ? { piscofins: { CST: '00', tpRetPisCofins } } : {}), ...retidos };
+}
+
 export const pacote = {
   id: 'ME-EPP-2026',
   descricao: 'ME/EPP do Simples Nacional — regime de apuração, alíquota conforme retenção e convênio municipal (DPS v1.01, sem IBS/CBS até 2026)',
@@ -59,10 +70,12 @@ export const pacote = {
       tpRetISSQN: v.retido ? '2' : '1',
       // Convênio não confirmado ('opcional'): só vai a alíquota que a pessoa informou nesta nota.
       pAliq: (ex.modo === 'obrigatoria' || ex.modo === 'opcional') && v.pAliq !== null ? fmt2(v.pAliq) : undefined,
+      tribFed: tribFedSimples(ctx.nota),
       totTrib: { pTotTribSN: v.pTotTribSN !== null ? fmt2(v.pTotTribSN) : undefined }, // E0712: indTotTrib proibido
     };
   },
-  exigencias: (ctx) => ({ retencaoPermitida: true, aliquota: exigenciaAliquota(ctx) }),
+  exigencias: (ctx) => ({ retencaoPermitida: true, retencoesFederaisPermitidas: true, aliquota: exigenciaAliquota(ctx),
+    retencoesFederais: totalRetido(retencoes(ctx.nota)) }),
 
   validar(ctx) {
     const e = validarComum(ctx);
@@ -88,6 +101,9 @@ export const pacote = {
       else if (v.pAliq > ALIQ_MAX) add('tributacao', 'A alíquota do ISS não pode passar de 5%.', 'E0595');
       else if (v.pAliq < ex.minimo || v.pAliq <= 0) add('tributacao', `A alíquota do ISS deve ser de pelo menos ${String(Math.max(ex.minimo, 0.01)).replace('.', ',')}%.`, ex.regra);
     }
+
+    // Retenções federais (INSS, IRRF, PIS, COFINS e CSLL), feitas por cliente pessoa jurídica.
+    validarRetencoes(nota, add);
 
     validarConvenioEmissor(e, parametros);
     return e;

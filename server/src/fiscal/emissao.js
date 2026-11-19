@@ -10,14 +10,14 @@ import { config, ambientesSefin } from '../config.js';
 import { decifrar, decifrarBuffer } from '../security/cripto.js';
 import { escolherPacote } from './regras/index.js';
 import { municipioIncidencia } from './regras/comum.js';
-import { montarDps, dataHoraBrasilia, hojeBrasilia } from './dps.js';
+import { montarDps, dataHoraBrasilia, hojeBrasilia, montarPedidoCancelamento, MOTIVOS_CANCELAMENTO } from './dps.js';
 import { validarXsd } from './xsd.js';
-import { assinarDps } from './assinatura.js';
+import { assinarDps, assinarPedidoEvento } from './assinatura.js';
 import { lerCertificado, verificarParaEmitente, verificarParaProcurador } from './certificado.js';
 import { avaliarElegibilidade } from './elegibilidade.js';
 import { explicar, explicarPorProcuracao, MOTIVOS_NAO_ENVIADA, DPS_DE_OUTRO_SISTEMA } from './mensagens.js';
 import { mesmaDps } from './conferencia.js';
-import { ErroApp } from '../util/erros.js';
+import { ErroApp, invalido } from '../util/erros.js';
 
 const MAX_REENVIOS = 3;
 const travas = new Set(); // evita dois envios simultâneos da mesma nota neste processo
@@ -189,7 +189,77 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     }
     const ok = await repo.transicionar(nota.id, nota.situacao, estado, campos, { versao: nota.versao, token: nota.processamentoToken });
     if (!ok) throw incerto(nota);
-    return await repo.notaPorId(nota.id);
+    const atual = await repo.notaPorId(nota.id);
+    if (estado === 'emitida') await concluirSubstituicao(atual);
+    return atual;
+  }
+
+  // ---------- Substituição: a nota nova leva a chave da original (grupo subst da DPS) ----------
+  // A original precisa ser desta empresa, estar emitida e no mesmo ambiente.
+  async function conferirSubstituicao(prestador, nota) {
+    const s = nota.rascunho?.substituicao;
+    if (!s) return;
+    const original = await repo.notaPorChave(prestador.id, s.chave);
+    if (!original || original.id === nota.id) throw new ErroApp(422, 'A NFS-e a substituir não foi encontrada nesta empresa.', { erros: [{ campo: 'substituicao', mensagem: 'A NFS-e a substituir não foi encontrada nesta empresa.', regra: 'Regra' }] });
+    if (original.situacao !== 'emitida') throw new ErroApp(409, `A NFS-e nº ${original.nNfse || ''} não está mais emitida (situação: ${original.situacao}): não dá para substituí-la.`.replace('nº  ', ''));
+    if ((original.ambiente || prestador.ambiente) !== prestador.ambiente) throw new ErroApp(409, 'A NFS-e a substituir é de outro ambiente da Receita (testes × produção).');
+  }
+  // Emitida a substituta, a Receita cancela a original (evento 105102): o app marca a original como substituída.
+  async function concluirSubstituicao(nota) {
+    const s = nota?.rascunho?.substituicao;
+    if (!s?.chave || !nota.chaveAcesso) return;
+    const original = await repo.notaPorChave(nota.prestadorId, s.chave);
+    if (!original || original.situacao !== 'emitida') return;
+    await repo.transicionar(original.id, 'emitida', 'cancelada', { cancelamento: { tipo: 'substituicao', em: new Date().toISOString(), cMotivo: s.cMotivo, xMotivo: s.xMotivo,
+      substituta: { id: nota.id, chave: nota.chaveAcesso, nNfse: nota.nNfse } } });
+  }
+
+  // ---------- Cancelamento (evento e101101) ----------
+  // Pedido assinado pelo certificado de emissão (da empresa ou do escritório, por procuração), em nome da empresa.
+  // Resultado incerto: consulta o evento antes de dizer qualquer coisa; repetir o pedido é seguro.
+  async function cancelar(prestador, notaId, { cMotivo, xMotivo } = {}) {
+    return comTrava(notaId, async () => {
+      const nota = await repo.nota(prestador.id, notaId);
+      if (!nota) throw new ErroApp(404, 'Nota não encontrada.');
+      if (nota.situacao === 'cancelada') throw new ErroApp(409, 'Esta NFS-e já está cancelada.');
+      if (nota.situacao !== 'emitida' || !nota.chaveAcesso) throw new ErroApp(409, 'Só dá para cancelar uma NFS-e emitida.');
+      const motivo = String(xMotivo ?? '').replace(/\s+/g, ' ').trim();
+      const erros = {};
+      if (!MOTIVOS_CANCELAMENTO[cMotivo]) erros.cMotivo = 'Escolha o motivo do cancelamento.';
+      if (motivo.length < 15 || motivo.length > 255) erros.xMotivo = 'Explique o motivo com 15 a 255 caracteres.';
+      if (Object.keys(erros).length) throw invalido('Confira o pedido de cancelamento.', erros);
+      const certificado = await repo.certificadoEmissao(prestador);
+      if (!certificado) throw new ErroApp(409, 'Para cancelar pelo app, envie o certificado A1 desta empresa (ou use o do escritório, por procuração eletrônica).', { acao: 'certificado' });
+      const ambiente = nota.ambiente || prestador.ambiente;
+      const emitente = { ...prestador, ambiente };
+      const amb = ambientesSefin[ambiente];
+      const { xml } = montarPedidoCancelamento({ tpAmb: amb.tpAmb, prestador, chave: nota.chaveAcesso, cMotivo: String(cMotivo), xMotivo: motivo,
+        dhEvento: dataHoraBrasilia(), verAplic: config.versaoAplicativo });
+      const cliente = await clienteSefin(emitente, certificado);
+      const mat = materialCertificado(certificado);
+      const problemas = problemasCertificado(mat, certificado, prestador);
+      if (problemas.length) throw new ErroApp(403, 'O certificado não pode assinar este cancelamento.', { problemas });
+      const assinado = assinarPedidoEvento(xml, mat);
+      const xsd = await validarXsd(assinado, 'pedRegEvento_v1.01.xsd');
+      if (!xsd.valido) throw new ErroApp(422, 'O pedido de cancelamento não passou na validação do leiaute oficial. Nada foi enviado.', { detalhes: xsd.erros.slice(0, 5) });
+
+      let r = await cliente.registrarEvento(nota.chaveAcesso, assinado);
+      await repo.registrarChamada(nota.id, 'cancelamento', r);
+      if (r.tipo === 'incerto' || r.tipo === 'recusado') {
+        // Resposta perdida, ou recusa por evento repetido: se o cancelamento já está na Receita, ele vale.
+        const c = await cliente.consultarEvento(nota.chaveAcesso, '101101', 1);
+        await repo.registrarChamada(nota.id, 'consulta_cancelamento', c);
+        if (c.tipo === 'encontrado') r = { tipo: 'registrado', eventoXml: c.eventoXml };
+      }
+      if (r.tipo === 'registrado') {
+        await repo.transicionar(nota.id, 'emitida', 'cancelada', { cancelamento: { tipo: 'cancelamento', em: new Date().toISOString(), cMotivo: String(cMotivo), xMotivo: motivo, eventoXml: r.eventoXml || null } });
+        return await repo.notaPorId(nota.id);
+      }
+      const porProcuracao = !!prestador.usaProcuracao;
+      if (r.tipo === 'recusado') throw new ErroApp(422, 'A Receita recusou o cancelamento. A NFS-e continua válida.', { erros: r.erros.map(porProcuracao ? explicarPorProcuracao : explicar) });
+      if (r.tipo === 'nao_enviado') throw new ErroApp(503, `${(MOTIVOS_NAO_ENVIADA[r.motivo] || 'Nada foi enviado.').replace('Nada foi emitido.', 'Nada foi cancelado.')} A NFS-e continua válida.`);
+      throw new ErroApp(503, 'A Receita não confirmou o cancelamento a tempo. Tente de novo em instantes: se ele já tiver sido registrado, o app reconhece e não cancela duas vezes.', { codigo: 'CANCELAMENTO_INCERTO' });
+    });
   }
 
   async function emitir(prestador, notaId, aprovado = {}) {
@@ -214,6 +284,7 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
 
       const v = validarRascunho(prestador, nota.rascunho, hojeBrasilia(), parametros);
       if (!v.ok) throw new ErroApp(422, 'Corrija os campos indicados antes de emitir.', { erros: v.erros });
+      await conferirSubstituicao(prestador, nota);
 
       const amb = ambientesSefin[prestador.ambiente];
       const serie = prestador.serieDps || config.serieDpsPadrao;
@@ -285,10 +356,10 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
           const info = lerNfse(n.nfseXml);
           // Se a pessoa já trouxe o XML desta mesma NFS-e pelo Emissor Nacional, a nota do app a substitui.
           await repo.removerImportadaDuplicada(nota.prestadorId, c.chaveAcesso, nota.id);
-          await repo.transicionar(nota.id, 'pendente', 'emitida', {
+          if (await repo.transicionar(nota.id, 'pendente', 'emitida', {
             chaveAcesso: c.chaveAcesso, nNfse: info?.nNFSe ?? null, emitidaEm: info?.dhProc || new Date().toISOString(),
             nfseXml: n.nfseXml, erros: null, processamentoToken: null, processamentoAte: null,
-          }, { versao: nota.versao, token });
+          }, { versao: nota.versao, token })) await concluirSubstituicao(await repo.notaPorId(nota.id));
         } else if (confere === false) {
           // A numeração é de uma nota de outro sistema: a deste app não foi emitida. Volta a poder ser
           // enviada, com novo número (e a orientação de trocar a série).
@@ -388,5 +459,5 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
     }
   }
 
-  return { emitir, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, distribuirDfe, conferirNfse, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
+  return { emitir, cancelar, verificar, validar, validarNota, fecharClientesDoPrestador, convenioEmissor, buscarXml, verificarPendentes, distribuirDfe, conferirNfse, fecharClientes: () => { for (const c of clientes.values()) c.fechar?.(); clientes.clear(); } };
 }
