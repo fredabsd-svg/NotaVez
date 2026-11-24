@@ -553,6 +553,57 @@ test('obra: serviço de construção exige os dados da obra; endereço, CIB ou C
   assert.ok(!/<obra>/.test(sefin.estado.recebidas.at(-1)));
 });
 
+test('IBS/CBS de serviço sobre imóvel (Presumido): grupo "imovel" com endereço ou CIB; na obra (07.02.02) o imóvel fica só em serv/obra', async () => {
+  const u = await usuarioPronto('imoveis@exemplo.com', { opSimpNac: '1', simples: PRESUMIDO });
+  const clienteId = await clienteEmpresa(u);
+  const competencia = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  // Limpeza de imóveis (07.10.02, NBS 1.1803.10.00): cIndOp 020201 (serviço sobre imóvel) → o IBS/CBS exige o imóvel (E0932).
+  const base = { clienteId, cTribNac: '071002', cNBS: '118031000', descricao: 'Limpeza pós-obra do escritório', valor: '3.200,00', localPrestacaoIbge: '3550308', competencia };
+  const n = (await u.api('POST', '/api/notas', { rascunho: base })).body.nota;
+  const v1 = await u.api('POST', `/api/notas/${n.id}/validar`);
+  assert.ok(v1.body.erros.some((e) => e.campo === 'imovel' && e.regra === 'E0932'), JSON.stringify(v1.body.erros));
+  assert.ok(!v1.body.erros.some((e) => /Emissor Nacional/.test(e.mensagem)), 'não manda mais para o Emissor Nacional');
+  assert.equal(v1.body.exigencias.ibscbs.opcoes[0].cIndOp[0].exigeImovel, true);
+
+  // CNO não identifica imóvel no IBS/CBS.
+  let atual = (await u.api('PUT', `/api/notas/${n.id}`, { versao: n.versao, rascunho: { ...base, obra: { tipo: 'cno', cno: '512345678901' } } })).body.nota;
+  assert.ok((await u.api('POST', `/api/notas/${n.id}/validar`)).body.erros.some((e) => e.campo === 'imovel' && /CNO/.test(e.mensagem)));
+
+  // Endereço completo: emite; o grupo vai depois de indDest, no lugar do leiaute (o XSD é conferido antes do envio).
+  const imovel = { tipo: 'endereco', inscImobFisc: '001.002.0003-4', endereco: { cep: '01001000', municipioIbge: '3550308', logradouro: 'Praça da Sé', numero: '200', complemento: 'Sala 4', bairro: 'Sé' } };
+  atual = (await u.api('PUT', `/api/notas/${n.id}`, { versao: atual.versao, rascunho: { ...base, obra: imovel } })).body.nota;
+  assert.deepEqual((await u.api('POST', `/api/notas/${n.id}/validar`)).body.erros, []);
+  const roteiro = JSON.stringify((await u.api('GET', `/api/notas/${n.id}/assistida`)).body.roteiro);
+  for (const t of ['IBS/CBS — imóvel — CEP do imóvel', '01001-000', 'IBS/CBS — imóvel — Logradouro do imóvel', 'Sala 4', 'IBS/CBS — imóvel — Inscrição imobiliária fiscal']) assert.ok(roteiro.includes(t), t);
+  const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+  assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+  let xml = sefin.estado.recebidas.at(-1);
+  assert.match(xml, /<cIndOp>020201<\/cIndOp><indDest>0<\/indDest><imovel><inscImobFisc>001\.002\.0003-4<\/inscImobFisc><end><CEP>01001000<\/CEP><xLgr>Praça da Sé<\/xLgr><nro>200<\/nro><xCpl>Sala 4<\/xCpl><xBairro>Sé<\/xBairro><\/end><\/imovel><valores>/);
+  assert.ok(!/<obra>/.test(xml), 'não é obra: nada em serv/obra (E0372)');
+  // A NFS-e oficial devolve o imóvel ao rascunho (importação e clone).
+  const oficial = await lerNfseImportada(await app.ctx.repo.xmlNfse(n.id), { exigirAssinatura: false });
+  assert.equal(oficial.rascunho.obra.endereco.logradouro, 'Praça da Sé');
+  assert.deepEqual((await u.api('POST', `/api/notas/${n.id}/clonar`)).body.nota.rascunho.obra, atual.rascunho.obra);
+
+  // CIB: vai em imovel/cCIB.
+  const rc = (await u.api('POST', '/api/notas', { rascunho: { ...base, obra: { tipo: 'cib', cib: 'ab12cd34' } } })).body.nota;
+  assert.equal((await u.api('POST', `/api/notas/${rc.id}/emitir`)).body.nota?.situacao, 'emitida');
+  assert.match(sefin.estado.recebidas.at(-1), /<indDest>0<\/indDest><imovel><cCIB>AB12CD34<\/cCIB><\/imovel><valores>/);
+
+  // Construção civil no Presumido (07.02.02): classificação 200046 "Operações com bens imóveis"; o imóvel vai só nos
+  // dados da obra — o grupo "imovel" do IBS/CBS é proibido nesses subitens (E0931).
+  const obraBase = { clienteId, cTribNac: '070202', cNBS: '101011100', descricao: 'Medição nº 1 da obra', valor: '50.000,00', localPrestacaoIbge: '3550308', competencia, obra: imovel };
+  const ro = (await u.api('POST', '/api/notas', { rascunho: obraBase })).body.nota;
+  assert.ok((await u.api('POST', `/api/notas/${ro.id}/validar`)).body.erros.some((x) => x.campo === 'ibscbs.cClassTrib'), 'duas classificações: precisa escolher');
+  const ro2 = (await u.api('PUT', `/api/notas/${ro.id}`, { versao: ro.versao, rascunho: { ...obraBase, cClassTrib: '200046' } })).body.nota;
+  const eo = await u.api('POST', `/api/notas/${ro2.id}/emitir`);
+  assert.equal(eo.body.nota?.situacao, 'emitida', JSON.stringify(eo.body));
+  xml = sefin.estado.recebidas.at(-1);
+  assert.match(xml, /<\/cServ><obra><inscImobFisc>001\.002\.0003-4<\/inscImobFisc><end><CEP>01001000<\/CEP>/);
+  assert.match(xml, /<cIndOp>020201<\/cIndOp><indDest>0<\/indDest><valores><trib><gIBSCBS><CST>200<\/CST><cClassTrib>200046<\/cClassTrib><\/gIBSCBS>/);
+  assert.ok(!/<imovel>/.test(xml));
+});
+
 test('CEP: endereço e município (código IBGE) pelo ViaCEP; BrasilAPI se falhar; não encontrado e fora do ar explicados', async () => {
   const chamadas = [];
   const resposta = (status, corpo) => new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });

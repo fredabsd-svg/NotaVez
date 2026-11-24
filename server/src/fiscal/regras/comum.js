@@ -29,18 +29,30 @@ export function percentual(v) {
 
 // Grupo da obra (Anexo I): obrigatório nos serviços de construção civil (E0370) — endereço da obra no Brasil, CIB
 // ou CNO/CEI, e a inscrição imobiliária (opcional). O CEP da obra é do município do local da prestação (E0380).
+// Identificação do imóvel, comum à obra (serv/obra) e ao IBS/CBS (IBSCBS/imovel): CIB, CNO (só na obra) ou
+// endereço completo no Brasil. Devolve true quando está tudo certo.
+export function conferirIdentificacaoImovel(o, add, { campo, nome }) {
+  const antes = [];
+  const anotar = (...x) => { antes.push(x); add(...x); };
+  if (o.tipo === 'cib' && !/^[0-9A-Z]{8}$/.test(o.cib || '')) anotar(campo, 'O código CIB (Cadastro Imobiliário Brasileiro) tem 8 caracteres.', 'E0933');
+  if (o.tipo === 'cno' && !/^\d{12}$/.test(o.cno || '')) anotar(campo, 'O CNO (Cadastro Nacional de Obras) ou CEI tem 12 dígitos.', 'XSD');
+  if (o.tipo === 'endereco') {
+    const e = o.endereco || {};
+    const faltam = [!/^\d{8}$/.test(e.cep || '') && 'CEP', !e.logradouro && 'logradouro', !e.numero && 'número', !e.bairro && 'bairro'].filter(Boolean);
+    if (faltam.length) anotar(campo, `Endereço ${nome}: informe ${faltam.join(', ').replace(/, ([^,]*)$/, ' e $1')}.`, 'XSD');
+  }
+  return antes.length === 0;
+}
+
 export function validarObra(nota, add, { localPadrao = null } = {}) {
   const o = nota.obra;
   if (!o) {
     add('obra', 'Serviço de obra: informe os dados da obra (endereço da obra, CIB ou CNO).', 'E0370');
     return;
   }
-  if (o.tipo === 'cib' && !/^[0-9A-Z]{8}$/.test(o.cib || '')) add('obra', 'O código CIB (Cadastro Imobiliário Brasileiro) tem 8 caracteres.', 'XSD');
-  if (o.tipo === 'cno' && !/^\d{12}$/.test(o.cno || '')) add('obra', 'O CNO (Cadastro Nacional de Obras) ou CEI tem 12 dígitos.', 'XSD');
+  conferirIdentificacaoImovel(o, add, { campo: 'obra', nome: 'da obra' });
   if (o.tipo === 'endereco') {
     const e = o.endereco || {};
-    const faltam = [!/^\d{8}$/.test(e.cep || '') && 'CEP', !e.logradouro && 'logradouro', !e.numero && 'número', !e.bairro && 'bairro'].filter(Boolean);
-    if (faltam.length) add('obra', `Endereço da obra: informe ${faltam.join(', ').replace(/, ([^,]*)$/, ' e $1')}.`, 'XSD');
     // O município vem da consulta do CEP: precisa ser o do local da prestação (onde o ISS da obra é devido).
     const local = nota.localPrestacaoIbge || localPadrao;
     if (e.municipioIbge && local && e.municipioIbge !== local) {

@@ -52,14 +52,19 @@ export function montarPedidoCancelamento({ tpAmb, prestador, chave, cMotivo, xMo
 
 // Grupo da obra (TCInfoObra): inscImobFisc? e um entre cObra (CNO/CEI), cCIB ou end (CEP, logradouro, número,
 // complemento, bairro). Só nos serviços de construção civil (E0370/E0372).
+// Endereço do imóvel no Brasil (TCEnderObraEvento), o mesmo na obra e no IBS/CBS.
+const endImovelXml = (e = {}) => `<end>${el('CEP', e.cep)}${el('xLgr', e.logradouro)}${el('nro', e.numero)}${el('xCpl', e.complemento)}${el('xBairro', e.bairro)}</end>`;
+
 function obraXml(nota) {
   const o = nota.obra;
   if (!o || servicoNacional(nota.cTribNac)?.grupoExigido !== 'obra') return '';
-  const e = o.endereco || {};
-  const id = o.tipo === 'cno' ? el('cObra', o.cno) : o.tipo === 'cib' ? el('cCIB', o.cib)
-    : `<end>${el('CEP', e.cep)}${el('xLgr', e.logradouro)}${el('nro', e.numero)}${el('xCpl', e.complemento)}${el('xBairro', e.bairro)}</end>`;
+  const id = o.tipo === 'cno' ? el('cObra', o.cno) : o.tipo === 'cib' ? el('cCIB', o.cib) : endImovelXml(o.endereco);
   return `<obra>${el('inscImobFisc', o.inscImobFisc)}${id}</obra>`;
 }
+
+// Imóvel do IBS/CBS (TCRTCInfoImovel): inscImobFisc? e um entre cCIB ou end. Só nas operações com imóveis fora
+// da construção civil (E0932/E0931); o grupo chega pronto de resolverIbsCbs.
+const imovelXml = (i) => (i ? `<imovel>${el('inscImobFisc', i.inscImobFisc)}${i.cib ? el('cCIB', i.cib) : endImovelXml(i.endereco)}</imovel>` : '');
 
 function enderecoXml(en) {
   if (!en) return '';
@@ -116,7 +121,7 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
     + `<trib><tribMun>${el('tribISSQN', trib.tribISSQN)}${el('tpRetISSQN', trib.tpRetISSQN)}${el('pAliq', trib.pAliq)}</tribMun>`
     + `${tribFed}<totTrib>${totTrib}</totTrib></trib></valores>`;
 
-  const ibscbs = ibs ? `<IBSCBS>${el('finNFSe', ibs.finNFSe)}${el('indFinal', ibs.indFinal)}${el('cIndOp', ibs.cIndOp)}${el('indDest', ibs.indDest)}`
+  const ibscbs = ibs ? `<IBSCBS>${el('finNFSe', ibs.finNFSe)}${el('indFinal', ibs.indFinal)}${el('cIndOp', ibs.cIndOp)}${el('indDest', ibs.indDest)}${imovelXml(ibs.imovel)}`
     + `<valores><trib><gIBSCBS>${el('CST', ibs.CST)}${el('cClassTrib', ibs.cClassTrib)}</gIBSCBS></trib></valores></IBSCBS>` : '';
 
   const xml = '<?xml version="1.0" encoding="UTF-8"?>'

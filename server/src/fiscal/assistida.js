@@ -119,6 +119,8 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
   if (ibs) {
     valores.push(campo('IBS/CBS — indicador da operação', ibs.cIndOp), campo('IBS/CBS — classificação tributária', `${ibs.cClassTrib} (CST ${ibs.CST})`, { copiar: ibs.cClassTrib }),
       campo('Consumidor final (uso pessoal)', ibs.indFinal === '1' ? 'Sim' : 'Não', { copiar: false }));
+    // Operação com imóvel fora da construção civil: o IBS/CBS identifica o imóvel (E0932).
+    if (ibs.imovel) valores.push(...camposImovel(ibs.imovel.cib ? { tipo: 'cib', ...ibs.imovel } : { tipo: 'endereco', ...ibs.imovel }, 'do imóvel', 'IBS/CBS — imóvel — '));
   }
 
   return [pessoas, servico, secao('Valores', 'Terceira tela: valor e tributação. Confira os totais calculados pelo site.', valores),
@@ -167,7 +169,8 @@ export async function manterVinculos(repo, prestadorId, anterior, rascunhoOficia
  * trazido pela pessoa. Aí o leiaute e a assinatura não barram a leitura (uma versão nova do leiaute
  * não pode fazer a nota sumir do histórico); a chave continua tendo de bater com o conteúdo.
  */
-// Grupo serv/obra da NFS-e → dados da obra do rascunho (nota emitida fora do app, clonada depois).
+// Grupo serv/obra (ou IBSCBS/imovel, de mesmos campos) da NFS-e → dados da obra/imóvel do rascunho
+// (nota emitida fora do app, clonada depois).
 function obraDoXml(o) {
   if (!o || typeof o !== 'object') return null;
   const inscImobFisc = txt(o.inscImobFisc) || null;
@@ -182,15 +185,16 @@ function obraDoXml(o) {
 
 // Dados da obra no roteiro do Emissor Nacional (bloco "Informações do imóvel/obra" da tela do serviço).
 function camposObra(r, nac) {
-  const o = nac?.grupoExigido === 'obra' ? r.obra : null;
-  if (!o) return [];
+  return nac?.grupoExigido === 'obra' && r.obra ? camposImovel(r.obra, 'da obra') : [];
+}
+function camposImovel(o, de, prefixo = '') {
   const e = o.endereco || {};
-  const ident = o.tipo === 'cib' ? [campo('Opção', 'Código do Cadastro Imobiliário Brasileiro - CIB', { copiar: false }), campo('CIB', o.cib)]
-    : o.tipo === 'cno' ? [campo('Opção', 'Código da obra (CNO/CEI)', { copiar: false }), campo('CNO/CEI', o.cno)]
-      : [campo('Opção', 'Endereço no Brasil', { copiar: false }),
-        campo('CEP da obra', String(e.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'), { copiar: e.cep, ajuda: 'Toque na lupa ao lado do CEP para o site preencher o município.' }),
-        campo('Logradouro da obra', e.logradouro), campo('Número', e.numero), e.complemento ? campo('Complemento', e.complemento) : null, campo('Bairro', e.bairro)];
-  return [...ident, o.inscImobFisc ? campo('Inscrição imobiliária fiscal', o.inscImobFisc) : null];
+  const ident = o.tipo === 'cib' ? [campo(`${prefixo}Opção`, 'Código do Cadastro Imobiliário Brasileiro - CIB', { copiar: false }), campo(`${prefixo}CIB`, o.cib)]
+    : o.tipo === 'cno' ? [campo(`${prefixo}Opção`, 'Código da obra (CNO/CEI)', { copiar: false }), campo(`${prefixo}CNO/CEI`, o.cno)]
+      : [campo(`${prefixo}Opção`, 'Endereço no Brasil', { copiar: false }),
+        campo(`${prefixo}CEP ${de}`, String(e.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'), { copiar: e.cep, ajuda: 'Toque na lupa ao lado do CEP para o site preencher o município.' }),
+        campo(`${prefixo}Logradouro ${de}`, e.logradouro), campo(`${prefixo}Número`, e.numero), e.complemento ? campo(`${prefixo}Complemento`, e.complemento) : null, campo(`${prefixo}Bairro`, e.bairro)];
+  return [...ident, o.inscImobFisc ? campo(`${prefixo}Inscrição imobiliária fiscal`, o.inscImobFisc) : null];
 }
 
 export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOficial = false } = {}) {
@@ -247,7 +251,8 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
       competencia: txt(dps.dCompet) || '',
       valor: vServ ? Number(vServ).toFixed(2) : '',
       localPrestacaoIbge: txt(dps.serv?.locPrest?.cLocPrestacao),
-      obra: obraDoXml(dps.serv?.obra),
+      // Obra (serv/obra) ou imóvel do IBS/CBS (IBSCBS/imovel): o mesmo bloco do rascunho.
+      obra: obraDoXml(dps.serv?.obra) || obraDoXml(dps.IBSCBS?.imovel),
       issRetido: !!tpRet && tpRet !== '1',
       pAliq: txt(dps.valores?.trib?.tribMun?.pAliq),
       revisar: [],

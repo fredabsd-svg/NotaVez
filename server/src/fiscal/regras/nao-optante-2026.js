@@ -10,7 +10,8 @@
 // Total aprox.:   pTotTrib (federal/estadual/municipal) — indTotTrib e pTotTribSN são
 //                 proibidos para não optante (E0713).
 // IBS/CBS:        grupo informado sempre (permitido desde 01/01/2026, E0850; exigido pelo
-//                 Ato Conjunto RFB/CGIBS nº 4/2026 a partir de 01/10 ou 01/12/2026).
+//                 Ato Conjunto RFB/CGIBS nº 4/2026, alterado pelo nº 7/2026: 01/10/2026 em geral,
+//                 01/01/2027 ou 01/03/2027 em alguns serviços — ver inicioObrigatoriedade).
 import { validarComum, validarConvenioEmissor, tomadorIdentificado, percentual, arredondarBancario } from './comum.js';
 import { retencoes, camposRetencao, validarRetencoes, totalRetido } from './retencoes.js';
 import { resolverIbsCbs } from '../ibscbs.js';
