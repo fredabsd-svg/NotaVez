@@ -751,3 +751,56 @@ test('substituir: rascunho igual ligado à original; a substituta leva o grupo s
   assert.equal(f.status, 422);
   assert.match(f.body.erro, /não foi encontrada nesta empresa/);
 });
+
+test('NT 009: se a Receita trocar o leiaute, a recusa de esquema (E1235) faz a MESMA DPS ir no formato novo; depois o app já envia nele', async () => {
+  const { esquecerLeiautesAceitos } = await import('../src/fiscal/emissao.js');
+  const u = await usuarioPronto('nt009@exemplo.com', { opSimpNac: '1', simples: PRESUMIDO });
+  const clienteId = await clienteEmpresa(u);
+  const competencia = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const imovel = { tipo: 'endereco', inscImobFisc: '77', endereco: { cep: '01001000', municipioIbge: '3550308', logradouro: 'Praça da Sé', numero: '300', bairro: 'Sé' } };
+  const base = { clienteId, cTribNac: '071002', cNBS: '118031000', descricao: 'Limpeza do edifício', valor: '1.500,00', localPrestacaoIbge: '3550308', competencia, obra: imovel };
+  sefin.estado.leiaute = 'nt009';
+  try {
+    const n = (await u.api('POST', '/api/notas', { rascunho: base })).body.nota;
+    const antes = sefin.estado.recebidas.length;
+    const e = await u.api('POST', `/api/notas/${n.id}/emitir`);
+    assert.equal(e.body.nota?.situacao, 'emitida', JSON.stringify(e.body));
+    const [primeira, segunda] = sefin.estado.recebidas.slice(antes);
+    assert.equal(sefin.estado.recebidas.length - antes, 2, 'uma recusa de esquema e um envio no outro leiaute');
+    assert.ok(!/<finNFSe>0<\/finNFSe><cLocEmi>/.test(primeira) && /<IBSCBS><finNFSe>/.test(primeira), 'primeira no leiaute da NT 004');
+    assert.match(segunda, /<tpEmit>1<\/tpEmit><finNFSe>0<\/finNFSe><cLocEmi>/);
+    assert.match(segunda, /<imovel><cMun>3550308<\/cMun><gUnidImob><inscImobFisc>77<\/inscImobFisc>/);
+    assert.equal(primeira.match(/Id="(DPS\d+)"/)[1], segunda.match(/Id="(DPS\d+)"/)[1], 'mesma DPS (mesmo número)');
+    assert.equal(primeira.match(/<dhEmi>([^<]+)</)[1], segunda.match(/<dhEmi>([^<]+)</)[1]);
+    // O XML guardado é o que a Receita aceitou (vale para conferências e reenvios).
+    assert.equal(await app.ctx.repo.xmlDps(n.id), segunda);
+
+    // DANFSe e importação leem a NFS-e no leiaute novo.
+    const c = montarConteudo(lerXmlNfse((await u.api('GET', `/api/notas/${n.id}/xml`)).body));
+    assert.equal(c.ibscbs.cst, '000 / 000001');
+    assert.equal(c.dados.finNFSe, 'NFS-e regular');
+    assert.match(c.informacoes.texto, /Insc\. Imob\.: 77/);
+    // Chamadas registradas: a recusa de esquema e o envio no leiaute novo.
+    assert.deepEqual((await app.ctx.repo.chamadas(n.id)).filter((x) => /envio/.test(x.operacao)).map((x) => [x.operacao, x.resultado, x.codigos]),
+      [['envio', 'rejeitada', 'E1235'], ['envio_outro_leiaute', 'emitida', null]]);
+    const oficial = await lerNfseImportada(await app.ctx.repo.xmlNfse(n.id), { exigirAssinatura: false });
+    assert.equal(oficial.rascunho.obra.endereco.logradouro, 'Praça da Sé');
+    assert.equal(oficial.rascunho.obra.endereco.municipioIbge, '3550308');
+
+    // A próxima nota já sai no leiaute aceito: um envio só.
+    const n2 = (await u.api('POST', '/api/notas', { rascunho: { ...base, valor: '900,00' } })).body.nota;
+    const antes2 = sefin.estado.recebidas.length;
+    assert.equal((await u.api('POST', `/api/notas/${n2.id}/emitir`)).body.nota?.situacao, 'emitida');
+    assert.equal(sefin.estado.recebidas.length - antes2, 1);
+    assert.match(sefin.estado.recebidas.at(-1), /<finNFSe>0<\/finNFSe><cLocEmi>/);
+
+    // E se a Receita voltar ao leiaute anterior, o app volta também (sem perder a nota).
+    sefin.estado.leiaute = 'nt004';
+    const n3 = (await u.api('POST', '/api/notas', { rascunho: { ...base, valor: '800,00' } })).body.nota;
+    assert.equal((await u.api('POST', `/api/notas/${n3.id}/emitir`)).body.nota?.situacao, 'emitida');
+    assert.match(sefin.estado.recebidas.at(-1), /<IBSCBS><finNFSe>0<\/finNFSe>/);
+  } finally {
+    sefin.estado.leiaute = 'nt004';
+    esquecerLeiautesAceitos();
+  }
+});

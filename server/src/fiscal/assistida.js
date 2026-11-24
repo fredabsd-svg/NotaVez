@@ -10,7 +10,7 @@ import forge from 'node-forge';
 import { municipio, servicoNacional } from './tabelas.js';
 import { formatarDocumento, somenteDigitos } from '../util/documentos.js';
 import { ErroApp } from '../util/erros.js';
-import { validarXsd } from './xsd.js';
+import { validarXsdQualquer } from './xsd.js';
 
 const moedaBr = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numeroBr = (v) => Number(v).toFixed(2).replace('.', ',');
@@ -171,14 +171,14 @@ export async function manterVinculos(repo, prestadorId, anterior, rascunhoOficia
  */
 // Grupo serv/obra (ou IBSCBS/imovel, de mesmos campos) da NFS-e → dados da obra/imóvel do rascunho
 // (nota emitida fora do app, clonada depois).
-function obraDoXml(o) {
+function obraDoXml(o, municipioIbge = '') {
   if (!o || typeof o !== 'object') return null;
   const inscImobFisc = txt(o.inscImobFisc) || null;
   if (txt(o.cObra)) return { tipo: 'cno', inscImobFisc, cno: somenteDigitos(txt(o.cObra)), cib: null, endereco: null };
   if (txt(o.cCIB)) return { tipo: 'cib', inscImobFisc, cib: txt(o.cCIB), cno: null, endereco: null };
   if (o.end && txt(o.end.CEP)) {
     return { tipo: 'endereco', inscImobFisc, cib: null, cno: null,
-      endereco: { cep: somenteDigitos(txt(o.end.CEP)), municipioIbge: '', logradouro: txt(o.end.xLgr) || '', numero: txt(o.end.nro) || '', complemento: txt(o.end.xCpl) || '', bairro: txt(o.end.xBairro) || '' } };
+      endereco: { cep: somenteDigitos(txt(o.end.CEP)), municipioIbge: municipioIbge || '', logradouro: txt(o.end.xLgr) || '', numero: txt(o.end.nro) || '', complemento: txt(o.end.xCpl) || '', bairro: txt(o.end.xBairro) || '' } };
   }
   return null;
 }
@@ -209,7 +209,7 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
   // infNFSe ao lado do assinado e ler dados de um nó que a assinatura não cobre.
   const comAssinatura = /<(\w+:)?Signature[\s>]/.test(xml.slice(xml.lastIndexOf('infNFSe>')));
   if (!fonteOficial && (comAssinatura || exigirAssinatura)) {
-    const xsd = await validarXsd(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
+    const xsd = await validarXsdQualquer(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
     if (!xsd.valido) throw new ErroApp(422, 'Este arquivo não segue o leiaute oficial da NFS-e. Baixe o XML da nota emitida no Emissor Nacional.', { detalhes: xsd.erros.slice(0, 3) });
   }
   // A chave carrega o município emissor, a inscrição do emitente e o número da NFS-e:
@@ -252,7 +252,8 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
       valor: vServ ? Number(vServ).toFixed(2) : '',
       localPrestacaoIbge: txt(dps.serv?.locPrest?.cLocPrestacao),
       // Obra (serv/obra) ou imóvel do IBS/CBS (IBSCBS/imovel): o mesmo bloco do rascunho.
-      obra: obraDoXml(dps.serv?.obra) || obraDoXml(dps.IBSCBS?.imovel),
+      // NT 009: o imóvel do IBS/CBS fica em imovel/gUnidImob (com o município em imovel/cMun).
+      obra: obraDoXml(dps.serv?.obra) || obraDoXml(dps.IBSCBS?.imovel) || obraDoXml([].concat(dps.IBSCBS?.imovel?.gUnidImob || [])[0], txt(dps.IBSCBS?.imovel?.cMun)),
       issRetido: !!tpRet && tpRet !== '1',
       pAliq: txt(dps.valores?.trib?.tribMun?.pAliq),
       revisar: [],

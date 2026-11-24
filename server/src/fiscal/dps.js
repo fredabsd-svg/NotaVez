@@ -65,6 +65,19 @@ function obraXml(nota) {
 // Imóvel do IBS/CBS (TCRTCInfoImovel): inscImobFisc? e um entre cCIB ou end. Só nas operações com imóveis fora
 // da construção civil (E0932/E0931); o grupo chega pronto de resolverIbsCbs.
 const imovelXml = (i) => (i ? `<imovel>${el('inscImobFisc', i.inscImobFisc)}${i.cib ? el('cCIB', i.cib) : endImovelXml(i.endereco)}</imovel>` : '');
+// NT 009 (item 2.6): imovel = cMun (município do imóvel) + gUnidImob (inscImobFisc? e CIB ou endereço, xBairro opcional).
+const imovelXmlNt009 = (i, cMun) => (i ? `<imovel>${el('cMun', i.endereco?.municipioIbge || cMun)}<gUnidImob>${el('inscImobFisc', i.inscImobFisc)}`
+  + `${i.cib ? el('cCIB', i.cib) : endImovelXml(i.endereco)}</gUnidImob></imovel>` : '');
+
+// Leiautes da DPS na transição da NT 009 (o XML continua com versao="1.01"):
+// - "nt004": IBSCBS com finNFSe, cIndOp obrigatório e gIBSCBS(CST, cClassTrib) — produção até a troca.
+// - "nt009": finNFSe na raiz do infDPS (depois de tpEmit), CST e cClassTrib em IBSCBS/valores/trib (item 2.16);
+//   cIndOp e gIBSCBS só quando a classificação tem tributação de IBS/CBS (ind_gIBSCBS = 1, E0859/E0860/E0960/E0961).
+export const LEIAUTE_PADRAO = 'nt004';
+// CST sem tributação de IBS/CBS na calculadora (ind_gIBSCBS = 0): isenção (400), imunidade e não incidência (410) e
+// regimes específicos declarados na DeRE (820).
+const CST_SEM_TRIBUTACAO = ['400', '410', '820'];
+export const temTributacaoIbsCbs = (cst) => !CST_SEM_TRIBUTACAO.includes(String(cst || ''));
 
 function enderecoXml(en) {
   if (!en) return '';
@@ -79,7 +92,7 @@ function enderecoXml(en) {
  * @param {object} p.pacote    pacote de regras (tributação/regime)
  * @param {object} [p.contexto] contexto das regras (parâmetros municipais já consultados)
  */
-export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic, contexto = {} }) {
+export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, verAplic, contexto = {}, leiaute = LEIAUTE_PADRAO }) {
   const cLocEmi = prestador.municipioIbge;
   const Id = idDps({ cLocEmi, tipoDocumento: prestador.tipoDocumento, documento: prestador.documento, serie, nDPS });
   const ctx = { prestador, nota, ...contexto };
@@ -103,8 +116,12 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
   const ibs = pacote.ibscbs ? pacote.ibscbs(ctx) : null;
   const cNBS = nota.cNBS || ibs?.cNBS;
 
+  // NT 009 (XSD da produção restrita de 20/10/2026): xDescServ passa para o fim de cServ, depois de cNBS.
+  const nt009 = leiaute === 'nt009';
+  const cServ = nt009 ? `${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('cNBS', cNBS)}${el('xDescServ', nota.descricao)}`
+    : `${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', cNBS)}`;
   const serv = `<serv><locPrest>${el('cLocPrestacao', localPrest)}</locPrest>`
-    + `<cServ>${el('cTribNac', nota.cTribNac)}${el('cTribMun', nota.cTribMun)}${el('xDescServ', nota.descricao)}${el('cNBS', cNBS)}</cServ>`
+    + `<cServ>${cServ}</cServ>`
     + `${obraXml(nota)}</serv>`;
 
   // totTrib é um choice: indTotTrib (MEI), pTotTribSN (ME/EPP) ou pTotTrib (não optante) — E0710/E0712/E0713.
@@ -121,13 +138,17 @@ export function montarDps({ tpAmb, prestador, nota, pacote, serie, nDPS, dhEmi, 
     + `<trib><tribMun>${el('tribISSQN', trib.tribISSQN)}${el('tpRetISSQN', trib.tpRetISSQN)}${el('pAliq', trib.pAliq)}</tribMun>`
     + `${tribFed}<totTrib>${totTrib}</totTrib></trib></valores>`;
 
-  const ibscbs = ibs ? `<IBSCBS>${el('finNFSe', ibs.finNFSe)}${el('indFinal', ibs.indFinal)}${el('cIndOp', ibs.cIndOp)}${el('indDest', ibs.indDest)}${imovelXml(ibs.imovel)}`
-    + `<valores><trib><gIBSCBS>${el('CST', ibs.CST)}${el('cClassTrib', ibs.cClassTrib)}</gIBSCBS></trib></valores></IBSCBS>` : '';
+  const tributa = temTributacaoIbsCbs(ibs?.CST);
+  const ibscbs = !ibs ? '' : nt009
+    ? `<IBSCBS>${el('indFinal', ibs.indFinal)}${tributa ? el('cIndOp', ibs.cIndOp) : ''}${el('indDest', ibs.indDest)}${imovelXmlNt009(ibs.imovel, localPrest)}`
+      + `<valores><trib>${el('CST', ibs.CST)}${el('cClassTrib', ibs.cClassTrib)}${tributa ? '<gIBSCBS></gIBSCBS>' : ''}</trib></valores></IBSCBS>`
+    : `<IBSCBS>${el('finNFSe', ibs.finNFSe)}${el('indFinal', ibs.indFinal)}${el('cIndOp', ibs.cIndOp)}${el('indDest', ibs.indDest)}${imovelXml(ibs.imovel)}`
+      + `<valores><trib><gIBSCBS>${el('CST', ibs.CST)}${el('cClassTrib', ibs.cClassTrib)}</gIBSCBS></trib></valores></IBSCBS>`;
 
   const xml = '<?xml version="1.0" encoding="UTF-8"?>'
     + `<DPS xmlns="${NS_NFSE}" versao="${VERSAO_LEIAUTE}"><infDPS Id="${Id}">`
     + `${el('tpAmb', tpAmb)}${el('dhEmi', dhEmi)}${el('verAplic', verAplic)}${el('serie', serie)}${el('nDPS', nDPS)}`
-    + `${el('dCompet', nota.competencia)}${el('tpEmit', '1')}${el('cLocEmi', cLocEmi)}`
+    + `${el('dCompet', nota.competencia)}${el('tpEmit', '1')}${nt009 ? el('finNFSe', '0') : ''}${el('cLocEmi', cLocEmi)}`
     + substXml(nota)
     + prest + toma + serv + valores + ibscbs
     + '</infDPS></DPS>';

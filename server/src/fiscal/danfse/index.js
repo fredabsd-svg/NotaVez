@@ -115,6 +115,11 @@ export function montarConteudo(inf) {
   const vNfse = inf.valores || {};
   const ibsDps = dps.IBSCBS;
   const ibs = inf.IBSCBS;
+  const finDps = dps.finNFSe ?? ibsDps?.finNFSe;
+  // NT 009 (item 2.16): CST e cClassTrib saem de gIBSCBS e sobem para IBSCBS/valores/trib.
+  const tribIbs = ibsDps?.valores?.trib || {};
+  const cstIbs = tribIbs.CST ?? tribIbs.gIBSCBS?.CST;
+  const classIbs = tribIbs.cClassTrib ?? tribIbs.gIBSCBS?.cClassTrib;
   const emit = inf.emit || {};
   const regTrib = dps.prest?.regTrib || {};
 
@@ -157,7 +162,8 @@ export function montarConteudo(inf) {
       nDPS: t(dps.nDPS), serie: t(dps.serie), dhEmi: dataHora(dps.dhEmi),
       tpEmit: D.tpEmit[dps.tpEmit] || t(dps.tpEmit),
       cStat: reticencias(D.cStat[inf.cStat] || inf.cStat, 37),
-      finNFSe: reticencias(ibsDps ? (D.finNFSe[ibsDps.finNFSe] || ibsDps.finNFSe) : null, 37),
+      // NT 004: IBSCBS/finNFSe; NT 009: infDPS/finNFSe (em todas as notas).
+      finNFSe: reticencias(finDps !== undefined && finDps !== null ? (D.finNFSe[finDps] || finDps) : null, 37),
     },
     prestador: {
       ...pessoa({ ...prest, end: endPrest }),
@@ -204,7 +210,7 @@ export function montarConteudo(inf) {
       descricao: reticencias(D.tpRetPisCofins[pc.tpRetPisCofins], 37),
     },
     ibscbs: {
-      cst: [ibsDps?.valores?.trib?.gIBSCBS?.CST, ibsDps?.valores?.trib?.gIBSCBS?.cClassTrib].filter((x) => !vazio(x)).join(' / ') || '-',
+      cst: [cstIbs, classIbs].filter((x) => !vazio(x)).join(' / ') || '-',
       operacao: [ibsDps?.cIndOp, ibs?.cLocalidadeIncid, ibs?.xLocalidadeIncid, ufIncidIbs].filter((x) => !vazio(x)).join(' / ') || '-',
       exclusoes: ibs ? moeda(somar(vDps.vDescCondIncond?.vDescIncond, ibs.valores?.vCalcReeRepRes, vNfse.vISSQN, pc.vPis, pc.vCofins)) : '-',
       bc: moeda(ibs?.valores?.vBC),
@@ -235,7 +241,7 @@ function informacoesComplementares(inf, dps, totTrib) {
     ['NFS-e Subst.', dps.subst?.chSubstda],
     ['Doc. Ref.', ic.docRef],
     ['Cod. Obra', serv.obra?.cObra],
-    ['Insc. Imob.', serv.obra?.inscImobFisc ?? dps.IBSCBS?.imovel?.inscImobFisc],
+    ['Insc. Imob.', serv.obra?.inscImobFisc ?? dps.IBSCBS?.imovel?.inscImobFisc ?? [].concat(dps.IBSCBS?.imovel?.gUnidImob || []).map((u) => u?.inscImobFisc).filter(Boolean).join(', ')],
     ['Cod. Evt.', serv.atvEvento?.idAtvEvt],
     ['Doc. Tec.', ic.idDocTec],
     ['Núm. Ped.', ic.xPed],

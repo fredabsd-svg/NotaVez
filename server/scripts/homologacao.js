@@ -35,7 +35,7 @@ import { pacote as pacoteMei } from '../src/fiscal/regras/mei-2026.js';
 import { pacote as pacoteMeEpp } from '../src/fiscal/regras/me-epp-2026.js';
 import { pacote as pacoteNaoOptante } from '../src/fiscal/regras/nao-optante-2026.js';
 import { criarClienteSefin } from '../src/fiscal/sefin/cliente.js';
-import { lerNfse } from '../src/fiscal/emissao.js';
+import { lerNfse, leiautesParaEnvio } from '../src/fiscal/emissao.js';
 
 const env = (k, obrig = true) => {
   const v = process.env[k];
@@ -83,12 +83,14 @@ const registrar = (caso, esperado, obtido, ok, extra = '') => {
 let parametros = {};
 async function preparar(n, ajustarXml = (x) => x) {
   numero += 1;
+  // Leiaute do ambiente na data (produção restrita: NT 009 desde 20/10/2026); NOTAVEZ_LEIAUTE_DPS fixa outro.
+  const [leiaute] = leiautesParaEnvio('producao_restrita');
   const { xml, Id } = montarDps({
     tpAmb: amb.tpAmb, prestador, nota: n, pacote, serie, nDPS: numero, dhEmi: dataHoraBrasilia(), verAplic: 'NotaSemStress-hom',
-    contexto: { parametros, municipioIncidencia: prestador.municipioIbge },
+    contexto: { parametros, municipioIncidencia: prestador.municipioIbge }, leiaute,
   });
   const assinado = assinarDps(ajustarXml(xml), info);
-  const xsd = await validarXsd(assinado);
+  const xsd = await validarXsd(assinado, 'DPS_v1.01.xsd', { leiaute });
   if (!xsd.valido) throw new Error(`XSD: ${xsd.erros.join('; ')}`);
   return { Id, assinado };
 }

@@ -152,7 +152,7 @@ Roteiro do escritório, por procuração:
 
 Empresas cadastradas antes, ainda no ambiente de testes, passam para a produção de uma vez em Empresas › "Passar para produção". As notas de teste continuam marcadas como teste.
 
-Sirva atrás de HTTPS (proxy reverso). Variáveis úteis: `PORT`, `NOTAVEZ_TIMEOUT_SEFIN_MS` (30000), `NOTAVEZ_ESPERA_REENVIO_MS` (60000), `NOTAVEZ_C14N`, `NOTAVEZ_SERVIR_WEB=0` (para servir o PWA por uma CDN separada).
+Sirva atrás de HTTPS (proxy reverso). Variáveis úteis: `PORT`, `NOTAVEZ_LEIAUTE_DPS` (`auto`, padrão; ou `nt004`/`nt009` para fixar o leiaute da DPS tentado primeiro na transição da NT 009), `NOTAVEZ_TIMEOUT_SEFIN_MS` (30000), `NOTAVEZ_ESPERA_REENVIO_MS` (60000), `NOTAVEZ_C14N`, `NOTAVEZ_SERVIR_WEB=0` (para servir o PWA por uma CDN separada).
 
 Teste no ambiente oficial: `npm run homologacao` ([roteiro](docs/05-testes-homologacao.md)).
 </details>
