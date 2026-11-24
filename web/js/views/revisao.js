@@ -8,12 +8,12 @@ import { pendenciasCartao } from './inicio.js';
 const CAMPO_TELA = {
   competencia: 'Competência', valor: 'Valor', descricao: 'Descrição', tributacao: 'Tributação', servico: 'Serviço',
   tomador: 'Cliente', 'tomador.documento': 'Cliente', 'tomador.nome': 'Cliente', 'tomador.endereco': 'Endereço do cliente',
-  'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação', obra: 'Dados da obra',
+  'tomador.email': 'E-mail do cliente', 'tomador.fone': 'Telefone do cliente', localPrestacao: 'Local da prestação', obra: 'Dados da obra', imovel: 'Dados do imóvel',
   'perfil.cnpj': 'Dados da empresa', 'perfil.municipio': 'Dados da empresa', 'perfil.regime': 'Dados da empresa', 'perfil.federais': 'Dados da empresa', regime: 'Regime',
   retencoes: 'Retenções federais', ibscbs: 'IBS/CBS', 'ibscbs.nbs': 'IBS/CBS (NBS)', 'ibscbs.cIndOp': 'IBS/CBS (forma de prestação)', 'ibscbs.cClassTrib': 'IBS/CBS (classificação)', cTribMun: 'Código municipal', cNBS: 'Código NBS',
 };
 
-// Dados da obra (construção civil) em uma linha: endereço, CIB ou CNO, e a inscrição imobiliária.
+// Dados da obra (construção civil) ou do imóvel (IBS/CBS) em uma linha: endereço, CIB ou CNO, e a inscrição imobiliária.
 function textoObra(o) {
   if (!o) return 'Falta informar';
   const e = o.endereco || {};
@@ -142,6 +142,8 @@ export async function tela({ id }) {
       linha('Competência', data(r.competencia)),
       linha('Local da prestação', nota.localPrestacao ? `${nota.localPrestacao.nome} - ${nota.localPrestacao.uf}` : '—'),
       nota.servicoNacional?.grupoExigido === 'obra' ? linha('Obra', textoObra(r.obra)) : null,
+      // Serviço sobre imóvel no Presumido/Real: o imóvel vai no grupo IBS/CBS (E0932).
+      validacao.exigencias?.ibscbs?.grupo?.imovel || validacao.erros?.some((e) => e.campo === 'imovel') ? linha('Imóvel (IBS/CBS)', textoObra(r.obra)) : null,
       linha('Tributação', ...textoTributacao(perfil.perfil, r, validacao.exigencias, nota.valor)),
       r.cTribMun ? linha('Código municipal', r.cTribMun) : null,
       r.cNBS ? linha('Código NBS', r.cNBS) : null)),

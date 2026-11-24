@@ -250,11 +250,35 @@ test('IBS/CBS: opções oficiais, padrões seguros e prazos do Ato Conjunto 4/20
   assert.equal(saude2.grupo.cClassTrib, '200029');
   assert.equal(saude2.grupo.CST, '200');
   assert.ok(resolverIbsCbs({ cTribNac: '010101', cNBS: '999999999' }).erros.some((e) => e.regra === 'Anexo VIII'));
-  // Varrição (07.09.01, NBS 1.2406.10.00) usa cIndOp de imóvel (020201): exige grupo "imovel" → bloqueado.
-  assert.ok(resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000' }).erros.some((e) => e.regra === 'Anexo VI #592'));
+  // Varrição (07.09.01, NBS 1.2406.10.00) usa cIndOp de imóvel (020201): o grupo "imovel" é obrigatório (E0932).
+  assert.ok(resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000' }).erros.some((e) => e.campo === 'imovel' && e.regra === 'E0932'));
+  const end = { cep: '01001000', logradouro: 'Praça da Sé', numero: '1', bairro: 'Sé' };
+  const varr = resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000', obra: { tipo: 'endereco', inscImobFisc: '9', endereco: end } });
+  assert.deepEqual(varr.erros, []);
+  assert.deepEqual(varr.grupo.imovel, { inscImobFisc: '9', endereco: end });
+  assert.deepEqual(resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000', obra: { tipo: 'cib', cib: 'AB12CD34' } }).grupo.imovel, { inscImobFisc: null, cib: 'AB12CD34' });
+  for (const [obra, re] of [[{ tipo: 'cno', cno: '512345678901' }, /CNO vale só para obras/], [{ tipo: 'cib', cib: '12' }, /8 caracteres/],
+    [{ tipo: 'endereco', endereco: { cep: '01001000' } }, /Endereço do imóvel: informe logradouro, número e bairro/]]) {
+    const r = resolverIbsCbs({ cTribNac: '070901', cNBS: '124061000', obra });
+    assert.ok(r.erros.some((e) => e.campo === 'imovel' && re.test(e.mensagem)), JSON.stringify(r.erros));
+    assert.equal(r.grupo, null);
+  }
+  // Construção civil (07.02.02): o imóvel vai em serv/obra; no IBS/CBS o grupo é proibido (E0931), mesmo com a obra preenchida.
+  const obra = resolverIbsCbs({ cTribNac: '070202', cNBS: '101011100', cClassTrib: '200046', obra: { tipo: 'endereco', endereco: end } });
+  assert.deepEqual(obra.erros, []);
+  assert.equal(obra.grupo.cIndOp, '020201');
+  assert.equal(obra.grupo.CST, '200');
+  assert.equal(obra.grupo.imovel, undefined);
+  assert.ok(obra.opcoes[0].cIndOp.every((c) => c.exigeImovel === false));
+  // Fora das operações com imóveis o grupo não vai (E0928), ainda que haja dados de obra no rascunho.
+  assert.equal(resolverIbsCbs({ cTribNac: '010101', cNBS: '115021000', obra: { tipo: 'endereco', endereco: end } }).grupo.imovel, undefined);
   assert.equal(inicioObrigatoriedade('010101'), '2026-10-01');
-  assert.equal(inicioObrigatoriedade('010301'), '2026-12-01');
-  assert.equal(inicioObrigatoriedade('160101'), '2026-12-01');
+  // Ato Conjunto RFB/CGIBS nº 7/2026: 1.03, 1.05, 1.09 e 16.01 em 01/03/2027; fora da LC 116 e Simples em 01/01/2027.
+  assert.equal(inicioObrigatoriedade('010301'), '2027-03-01');
+  assert.equal(inicioObrigatoriedade('160101'), '2027-03-01');
+  assert.equal(inicioObrigatoriedade('990101'), '2027-01-01');
+  assert.equal(inicioObrigatoriedade('070202', { simples: true }), '2027-01-01');
+  assert.equal(inicioObrigatoriedade('010501', { simples: true }), '2027-03-01');
 });
 
 // NFS-e sintética com os casos-limite do DANFSe (NT 008).

@@ -95,4 +95,7 @@ export const config = {
   // Tempo mínimo entre um envio incerto e o reenvio (evita corrida com o processamento).
   esperaAntesDeReenviarMs: Number(process.env.NOTAVEZ_ESPERA_REENVIO_MS ?? 60_000),
   timeoutSefinMs: Number(process.env.NOTAVEZ_TIMEOUT_SEFIN_MS ?? 30_000),
+  // Leiaute da DPS na transição da NT 009: "auto" (pela data do ambiente, com troca automática se a Receita recusar
+  // por falha de esquema) ou "nt004"/"nt009" para fixar o primeiro a tentar (a troca automática continua valendo).
+  leiauteDps: ['nt004', 'nt009'].includes(process.env.NOTAVEZ_LEIAUTE_DPS) ? process.env.NOTAVEZ_LEIAUTE_DPS : 'auto',
 };

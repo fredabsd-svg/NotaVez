@@ -20,6 +20,24 @@ import { mesmaDps } from './conferencia.js';
 import { ErroApp, invalido } from '../util/erros.js';
 
 const MAX_REENVIOS = 3;
+
+// Transição da NT 009: dois leiautes com a mesma versão "1.01". O preferido vem da data de troca do ambiente
+// (ambientes.json › leiauteNt009Desde) ou do último que a Receita aceitou neste processo. Se a Receita recusar
+// por falha de esquema, a MESMA DPS (mesmo número e Id) vai uma vez no outro leiaute: recusa de esquema não
+// registra a DPS, então não há risco de duplicidade.
+const CODIGOS_FALHA_ESQUEMA = ['E1235', 'RNG6110'];
+const leiauteAceito = new Map();
+export function leiautesParaEnvio(ambiente, { hoje = hojeBrasilia(), preferencia = config.leiauteDps } = {}) {
+  const desde = ambientesSefin[ambiente]?.leiauteNt009Desde;
+  const porData = desde && hoje >= desde ? 'nt009' : 'nt004';
+  const primeiro = leiauteAceito.get(ambiente) || (preferencia !== 'auto' ? preferencia : porData);
+  return [primeiro, primeiro === 'nt009' ? 'nt004' : 'nt009'];
+}
+const falhaDeEsquema = (r) => r?.tipo === 'rejeitada' && (r.erros || []).some((e) => CODIGOS_FALHA_ESQUEMA.includes(String(e.codigo || '').toUpperCase()));
+function anotarLeiaute(ambiente, leiaute, r) {
+  if (r && (r.tipo === 'emitida' || r.tipo === 'duplicada' || (r.tipo === 'rejeitada' && !falhaDeEsquema(r)))) leiauteAceito.set(ambiente, leiaute);
+}
+export const esquecerLeiautesAceitos = () => leiauteAceito.clear();
 const travas = new Set(); // evita dois envios simultâneos da mesma nota neste processo
 
 export function lerNfse(xml) {
@@ -289,16 +307,23 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       const amb = ambientesSefin[prestador.ambiente];
       const serie = prestador.serieDps || config.serieDpsPadrao;
       const nDPS = await repo.proximoNumeroDps(prestador.documento, prestador.ambiente, serie);
-      const { xml, Id } = montarDps({
-        tpAmb: amb.tpAmb, prestador, nota: nota.rascunho, pacote: v.pacote, serie, nDPS,
-        dhEmi: dataHoraBrasilia(), verAplic: config.versaoAplicativo, contexto: v.contexto,
-      });
+      const dhEmi = dataHoraBrasilia();
       await certificadoCompativel(prestador, certificado);
       const mat = materialCertificado(certificado);
       const problemas = problemasCertificado(mat, certificado, prestador);
       if (problemas.length) throw new ErroApp(403, 'O certificado não pode assinar esta nota.', { problemas });
-      const assinado = assinarDps(xml, mat);
-      const xsd = await validarXsd(assinado);
+      // Monta, assina e confere no XSD do leiaute pedido (mesmo número e mesma data de emissão nos dois).
+      const prepararDps = async (leiaute) => {
+        const { xml, Id } = montarDps({
+          tpAmb: amb.tpAmb, prestador, nota: nota.rascunho, pacote: v.pacote, serie, nDPS,
+          dhEmi, verAplic: config.versaoAplicativo, contexto: v.contexto, leiaute,
+        });
+        const assinado = assinarDps(xml, mat);
+        const xsd = await validarXsd(assinado, 'DPS_v1.01.xsd', { leiaute });
+        return { Id, assinado, xsd, leiaute };
+      };
+      const [leiaute, leiauteAlternativo] = leiautesParaEnvio(prestador.ambiente);
+      const { Id, assinado, xsd } = await prepararDps(leiaute);
       if (!xsd.valido) throw new ErroApp(422, 'A nota não passou na validação do leiaute oficial. Nada foi enviado.', { detalhes: xsd.erros.slice(0, 5) });
 
       const ok = await repo.transicionar(nota.id, ['rascunho', 'rejeitada'], 'enviando', {
@@ -308,10 +333,24 @@ export function criarServicoEmissao({ repo, fabricaCliente }) {
       }, { versao: nota.versao, prestadorVersao: prestador.versao, certificadoId: certificado.id });
       if (!ok) throw new ErroApp(409, 'A nota mudou enquanto era enviada. Atualize a tela.');
 
-      const envio = await repo.notaPorId(nota.id);
+      let envio = await repo.notaPorId(nota.id);
       try {
-        const r = await (await clienteSefin(prestador, certificado)).enviarDps(assinado);
+        const cliente = await clienteSefin(prestador, certificado);
+        let r = await cliente.enviarDps(assinado);
         await repo.registrarChamada(nota.id, 'envio', r);
+        anotarLeiaute(prestador.ambiente, leiaute, r);
+        if (falhaDeEsquema(r)) {
+          // A Receita está noutro leiaute (troca da NT 009): a mesma DPS vai uma vez no outro formato.
+          const alt = await prepararDps(leiauteAlternativo);
+          if (alt.xsd.valido && alt.Id === Id
+            && await repo.transicionar(nota.id, 'enviando', 'enviando', { dpsXml: alt.assinado, tentativas: 2, ultimoEnvioEm: new Date().toISOString() },
+              { versao: envio.versao, token: envio.processamentoToken })) {
+            envio = await repo.notaPorId(nota.id);
+            r = await cliente.enviarDps(alt.assinado);
+            await repo.registrarChamada(nota.id, 'envio_outro_leiaute', r);
+            anotarLeiaute(prestador.ambiente, leiauteAlternativo, r);
+          }
+        }
         const resultado = await aplicarResultadoEnvio(envio, r);
         if (r.tipo === 'duplicada') return reconciliar(nota.id, prestador, certificado, { reenviar: false });
         return resultado;

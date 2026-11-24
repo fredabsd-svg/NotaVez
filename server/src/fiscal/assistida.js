@@ -10,7 +10,7 @@ import forge from 'node-forge';
 import { municipio, servicoNacional } from './tabelas.js';
 import { formatarDocumento, somenteDigitos } from '../util/documentos.js';
 import { ErroApp } from '../util/erros.js';
-import { validarXsd } from './xsd.js';
+import { validarXsdQualquer } from './xsd.js';
 
 const moedaBr = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numeroBr = (v) => Number(v).toFixed(2).replace('.', ',');
@@ -119,6 +119,8 @@ export function roteiroEmissor({ prestador, nota, validacao }) {
   if (ibs) {
     valores.push(campo('IBS/CBS — indicador da operação', ibs.cIndOp), campo('IBS/CBS — classificação tributária', `${ibs.cClassTrib} (CST ${ibs.CST})`, { copiar: ibs.cClassTrib }),
       campo('Consumidor final (uso pessoal)', ibs.indFinal === '1' ? 'Sim' : 'Não', { copiar: false }));
+    // Operação com imóvel fora da construção civil: o IBS/CBS identifica o imóvel (E0932).
+    if (ibs.imovel) valores.push(...camposImovel(ibs.imovel.cib ? { tipo: 'cib', ...ibs.imovel } : { tipo: 'endereco', ...ibs.imovel }, 'do imóvel', 'IBS/CBS — imóvel — '));
   }
 
   return [pessoas, servico, secao('Valores', 'Terceira tela: valor e tributação. Confira os totais calculados pelo site.', valores),
@@ -167,30 +169,32 @@ export async function manterVinculos(repo, prestadorId, anterior, rascunhoOficia
  * trazido pela pessoa. Aí o leiaute e a assinatura não barram a leitura (uma versão nova do leiaute
  * não pode fazer a nota sumir do histórico); a chave continua tendo de bater com o conteúdo.
  */
-// Grupo serv/obra da NFS-e → dados da obra do rascunho (nota emitida fora do app, clonada depois).
-function obraDoXml(o) {
+// Grupo serv/obra (ou IBSCBS/imovel, de mesmos campos) da NFS-e → dados da obra/imóvel do rascunho
+// (nota emitida fora do app, clonada depois).
+function obraDoXml(o, municipioIbge = '') {
   if (!o || typeof o !== 'object') return null;
   const inscImobFisc = txt(o.inscImobFisc) || null;
   if (txt(o.cObra)) return { tipo: 'cno', inscImobFisc, cno: somenteDigitos(txt(o.cObra)), cib: null, endereco: null };
   if (txt(o.cCIB)) return { tipo: 'cib', inscImobFisc, cib: txt(o.cCIB), cno: null, endereco: null };
   if (o.end && txt(o.end.CEP)) {
     return { tipo: 'endereco', inscImobFisc, cib: null, cno: null,
-      endereco: { cep: somenteDigitos(txt(o.end.CEP)), municipioIbge: '', logradouro: txt(o.end.xLgr) || '', numero: txt(o.end.nro) || '', complemento: txt(o.end.xCpl) || '', bairro: txt(o.end.xBairro) || '' } };
+      endereco: { cep: somenteDigitos(txt(o.end.CEP)), municipioIbge: municipioIbge || '', logradouro: txt(o.end.xLgr) || '', numero: txt(o.end.nro) || '', complemento: txt(o.end.xCpl) || '', bairro: txt(o.end.xBairro) || '' } };
   }
   return null;
 }
 
 // Dados da obra no roteiro do Emissor Nacional (bloco "Informações do imóvel/obra" da tela do serviço).
 function camposObra(r, nac) {
-  const o = nac?.grupoExigido === 'obra' ? r.obra : null;
-  if (!o) return [];
+  return nac?.grupoExigido === 'obra' && r.obra ? camposImovel(r.obra, 'da obra') : [];
+}
+function camposImovel(o, de, prefixo = '') {
   const e = o.endereco || {};
-  const ident = o.tipo === 'cib' ? [campo('Opção', 'Código do Cadastro Imobiliário Brasileiro - CIB', { copiar: false }), campo('CIB', o.cib)]
-    : o.tipo === 'cno' ? [campo('Opção', 'Código da obra (CNO/CEI)', { copiar: false }), campo('CNO/CEI', o.cno)]
-      : [campo('Opção', 'Endereço no Brasil', { copiar: false }),
-        campo('CEP da obra', String(e.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'), { copiar: e.cep, ajuda: 'Toque na lupa ao lado do CEP para o site preencher o município.' }),
-        campo('Logradouro da obra', e.logradouro), campo('Número', e.numero), e.complemento ? campo('Complemento', e.complemento) : null, campo('Bairro', e.bairro)];
-  return [...ident, o.inscImobFisc ? campo('Inscrição imobiliária fiscal', o.inscImobFisc) : null];
+  const ident = o.tipo === 'cib' ? [campo(`${prefixo}Opção`, 'Código do Cadastro Imobiliário Brasileiro - CIB', { copiar: false }), campo(`${prefixo}CIB`, o.cib)]
+    : o.tipo === 'cno' ? [campo(`${prefixo}Opção`, 'Código da obra (CNO/CEI)', { copiar: false }), campo(`${prefixo}CNO/CEI`, o.cno)]
+      : [campo(`${prefixo}Opção`, 'Endereço no Brasil', { copiar: false }),
+        campo(`${prefixo}CEP ${de}`, String(e.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'), { copiar: e.cep, ajuda: 'Toque na lupa ao lado do CEP para o site preencher o município.' }),
+        campo(`${prefixo}Logradouro ${de}`, e.logradouro), campo(`${prefixo}Número`, e.numero), e.complemento ? campo(`${prefixo}Complemento`, e.complemento) : null, campo(`${prefixo}Bairro`, e.bairro)];
+  return [...ident, o.inscImobFisc ? campo(`${prefixo}Inscrição imobiliária fiscal`, o.inscImobFisc) : null];
 }
 
 export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOficial = false } = {}) {
@@ -205,7 +209,7 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
   // infNFSe ao lado do assinado e ler dados de um nó que a assinatura não cobre.
   const comAssinatura = /<(\w+:)?Signature[\s>]/.test(xml.slice(xml.lastIndexOf('infNFSe>')));
   if (!fonteOficial && (comAssinatura || exigirAssinatura)) {
-    const xsd = await validarXsd(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
+    const xsd = await validarXsdQualquer(xml.replace(/^\uFEFF/, ''), 'NFSe_v1.01.xsd');
     if (!xsd.valido) throw new ErroApp(422, 'Este arquivo não segue o leiaute oficial da NFS-e. Baixe o XML da nota emitida no Emissor Nacional.', { detalhes: xsd.erros.slice(0, 3) });
   }
   // A chave carrega o município emissor, a inscrição do emitente e o número da NFS-e:
@@ -247,7 +251,9 @@ export async function lerNfseImportada(xml, { exigirAssinatura = true, fonteOfic
       competencia: txt(dps.dCompet) || '',
       valor: vServ ? Number(vServ).toFixed(2) : '',
       localPrestacaoIbge: txt(dps.serv?.locPrest?.cLocPrestacao),
-      obra: obraDoXml(dps.serv?.obra),
+      // Obra (serv/obra) ou imóvel do IBS/CBS (IBSCBS/imovel): o mesmo bloco do rascunho.
+      // NT 009: o imóvel do IBS/CBS fica em imovel/gUnidImob (com o município em imovel/cMun).
+      obra: obraDoXml(dps.serv?.obra) || obraDoXml(dps.IBSCBS?.imovel) || obraDoXml([].concat(dps.IBSCBS?.imovel?.gUnidImob || [])[0], txt(dps.IBSCBS?.imovel?.cMun)),
       issRetido: !!tpRet && tpRet !== '1',
       pAliq: txt(dps.valores?.trib?.tribMun?.pAliq),
       revisar: [],

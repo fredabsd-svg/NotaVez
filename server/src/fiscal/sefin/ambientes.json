@@ -7,7 +7,8 @@
     "adn": "https://adn.producaorestrita.nfse.gov.br",
     "consultaPublica": "https://www.producaorestrita.nfse.gov.br/ConsultaPublica/?tpc=1&chave=",
     "parametros": "https://adn.producaorestrita.nfse.gov.br/parametrizacao",
-    "emissorNacional": "https://www.producaorestrita.nfse.gov.br/EmissorNacional"
+    "emissorNacional": "https://www.producaorestrita.nfse.gov.br/EmissorNacional",
+    "leiauteNt009Desde": "2026-10-20"
   },
   "producao": {
     "tpAmb": "1",
@@ -15,8 +16,10 @@
     "adn": "https://adn.nfse.gov.br",
     "consultaPublica": "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=",
     "parametros": "https://adn.nfse.gov.br/parametrizacao",
-    "emissorNacional": "https://www.nfse.gov.br/EmissorNacional"
+    "emissorNacional": "https://www.nfse.gov.br/EmissorNacional",
+    "leiauteNt009Desde": "2026-12-01"
   },
+  "_nota_leiaute": "Leiaute da DPS preferido a partir da data (horário de Brasília): antes, o da NT 004; desde a data, o da NT 009 (produção restrita desde 20/10/2026; produção prevista para 01/12/2026, comunicado CGNFS-e de 29/10/2026). Se a Receita recusar por falha de esquema (E1235), o app reenvia a mesma DPS no outro leiaute.",
   "_nota_parametros": "API de Parâmetros Municipais: rota oficial GET /parametros_municipais/{codigoMunicipio}/convenio na Sefin Nacional (Manual dos Contribuintes – API do Emissor Público Nacional, v1.2). O cliente tenta também o host de parametrização do ADN.",
   "rotasParametros": {
     "convenio": "/{municipio}/convenio",

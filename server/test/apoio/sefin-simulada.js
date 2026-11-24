@@ -7,6 +7,10 @@ import forge from 'node-forge';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { conferirAssinatura } from '../../src/fiscal/assinatura.js';
 import { validarXsd } from '../../src/fiscal/xsd.js';
+
+// A "Receita" simulada começa no leiaute da NT 004 (estado.leiaute) e o app, nos testes, tenta esse primeiro.
+// Os testes da NT 009 trocam estado.leiaute e conferem a troca automática do app.
+process.env.NOTAVEZ_LEIAUTE_DPS ??= 'nt004';
 import { municipio, servicoNacional } from '../../src/fiscal/tabelas.js';
 
 function certServidor(caPem, caChavePem) {
@@ -46,6 +50,8 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
     cenarioEvento: [],
     // NFS-e substituídas: chave da original → chave da substituta.
     substituidas: new Map(),
+    // Leiaute da DPS aceito pela "Receita" (transição da NT 009): 'nt004' | 'nt009'.
+    leiaute: 'nt004',
   };
   let seq = 0;
   const { key, cert } = certServidor(caPem, caChavePem);
@@ -208,7 +214,7 @@ export async function iniciarSefinSimulada({ caPem, caChavePem, certClientePem }
         if (cenario === 'timeout_sem_processar') return; // nunca responde
         if (cenario === 'erro500') return responder(res, 500, { mensagem: 'erro interno' });
         if (!conferirAssinatura(xml, certClientePem)) return responder(res, 400, { ...base, erros: [{ Codigo: 'E0714', Descricao: 'Arquivo enviado com erro na assinatura.' }] });
-        const xsd = await validarXsd(xml);
+        const xsd = await validarXsd(xml, 'DPS_v1.01.xsd', { leiaute: estado.leiaute });
         if (!xsd.valido) return responder(res, 400, { ...base, erros: [{ Codigo: 'E1235', Descricao: 'Falha no esquema XML do DF-e.', Complemento: xsd.erros[0] }] });
         if (estado.geradas.has(idDps)) return responder(res, 400, { ...base, erros: [{ Codigo: 'E0014', Descricao: 'Conjunto de Série, Número, Código do Município Emissor e CNPJ/CPF informado nesta DPS já existe em uma NFS-e gerada a partir de uma DPS enviada anteriormente.' }] });
         const erros = cenario === 'rejeitar' ? [{ Codigo: 'E0082', Descricao: 'CNPJ do emitente prestador não encontrado no cadastro CNPJ na data de competência.' }] : regras(xml);
